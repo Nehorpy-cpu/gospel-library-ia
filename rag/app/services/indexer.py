@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.document import Document, DocumentChunk, EmbeddingRecord, Source
+from app.retrieval.source_filters import normalize_source_type
 from app.services.chunker import SmartChunker
 from app.services.openai_client import OpenAIService
 from app.services.qdrant_service import QdrantService, point_id_for_chunk
@@ -48,6 +49,7 @@ class IndexingService:
             db.commit()
 
         source = db.get(Source, document.source_id)
+        source_type = normalize_source_type((document.raw_metadata or {}).get("source_type") or (source.key if source else None))
         existing_chunks = db.scalars(
             select(DocumentChunk)
             .where(DocumentChunk.document_id == document.id)
@@ -86,7 +88,7 @@ class IndexingService:
                     text_hash=chunk.text_hash,
                     meta={
                         "source_id": str(document.source_id),
-                        "source_key": source.key if source else None,
+                        "source_key": source_type,
                         "author": document.author,
                         "category": document.category,
                         "topic": document.category,
@@ -125,7 +127,7 @@ class IndexingService:
                     "chunk_id": str(chunk.id),
                     "document_id": str(document.id),
                     "source_id": str(document.source_id),
-                    "source_key": source.key if source else None,
+                    "source_key": source_type,
                     "title": document.title,
                     "author": document.author,
                     "language": document.language,

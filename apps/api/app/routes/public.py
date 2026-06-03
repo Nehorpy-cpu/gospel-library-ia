@@ -8,6 +8,7 @@ from app.schemas.api import ChatRequest, DocumentListResponse, SearchRequest
 from app.services.db import get_conn
 from app.services.qdrant_admin import QdrantAdmin
 from app.services.rate_limit import RateLimiter
+from app.services.source_filters import canonical_source_options, normalize_source_type, source_type_aliases
 
 router = APIRouter(prefix="/api")
 limiter = RateLimiter()
@@ -137,9 +138,10 @@ def documents(
             where.append("upper(coalesce(d.status, 'PENDING')) <> 'FAILED'")
         source_type_expr = f"COALESCE(d.{metadata_column}->>'source_type', s.key)"
         source_url_expr = f"COALESCE(d.{metadata_column}->>'source_url', d.canonical_url)"
-        if sourceType:
-            where.append(f"({source_type_expr} = %(source_type)s OR s.key = %(source_type)s)")
-            params["source_type"] = sourceType
+        source_type_values = source_type_aliases(sourceType)
+        if source_type_values:
+            where.append(f"({source_type_expr} = ANY(%(source_types)s) OR s.key = ANY(%(source_types)s))")
+            params["source_types"] = source_type_values
         if cursor:
             where.append("d.id::text > %(cursor)s")
             params["cursor"] = cursor
@@ -174,7 +176,7 @@ def documents(
             "title": row[1],
             "author": row[2],
             "source": row[3],
-            "sourceType": row[4],
+            "sourceType": normalize_source_type(row[4]) or row[4],
             "language": row[5],
             "status": row[6],
             "createdAt": row[7].isoformat() if row[7] else None,
@@ -196,6 +198,59 @@ def documents(
         "offset": offset,
         "next_cursor": items[-1]["id"] if len(items) == limit else None,
     }
+
+
+@router.get("/sources/summary")
+def sources_summary():
+    with get_conn() as conn:
+        columns = _document_columns(conn)
+        metadata_column = "raw_metadata" if "raw_metadata" in columns else "metadata"
+        deleted_filter = "d.deleted_at IS NULL" if "deleted_at" in columns else "1=1"
+        rows = conn.execute(
+            f"""
+            SELECT
+              COALESCE(d.{metadata_column}->>'source_type', s.key) AS source_type,
+              s.key,
+              s.name,
+              count(*)::int AS document_count
+            FROM documents d
+            JOIN sources s ON s.id = d.source_id
+            WHERE {deleted_filter}
+            GROUP BY 1, 2, 3
+            ORDER BY document_count DESC, source_type
+            """
+        ).fetchall()
+    counts = {option.key: 0 for option in canonical_source_options()}
+    names = {option.key: option.label for option in canonical_source_options()}
+    extras: dict[str, dict] = {}
+    for raw_source_type, source_key, source_name, document_count in rows:
+        canonical = normalize_source_type(raw_source_type or source_key)
+        if canonical in counts:
+            counts[canonical] += document_count
+        elif canonical:
+            extras.setdefault(
+                canonical,
+                {
+                    "key": canonical,
+                    "label": source_name or canonical.replace("_", " ").title(),
+                    "documentCount": 0,
+                    "canonical": False,
+                    "aliases": [raw_source_type, source_key],
+                },
+            )
+            extras[canonical]["documentCount"] += document_count
+    items = [
+        {
+            "key": option.key,
+            "label": names[option.key],
+            "documentCount": counts[option.key],
+            "canonical": True,
+            "aliases": list(option.aliases),
+        }
+        for option in canonical_source_options()
+    ]
+    items.extend(sorted(extras.values(), key=lambda item: item["label"]))
+    return {"items": items}
 
 
 @router.get("/documents/{document_id}")
@@ -323,7 +378,7 @@ def topics(limit: int = 50):
     }
 
 
-def _document_search(query: str, limit: int) -> list[dict]:
+def _document_search(query: str, limit: int, filters=None, language: str | None = None) -> list[dict]:
     with get_conn() as conn:
         columns = {
             row[0]
@@ -331,8 +386,11 @@ def _document_search(query: str, limit: int) -> list[dict]:
                 "SELECT column_name FROM information_schema.columns WHERE table_name = 'documents'"
             ).fetchall()
         }
+        metadata_column = "raw_metadata" if "raw_metadata" in columns else "metadata"
         text_column = "text" if "text" in columns else "content_text"
         author_column = "author" if "author" in columns else "NULL"
+        source_type_expr = f"COALESCE(d.{metadata_column}->>'source_type', s.key)"
+        filter_where, filter_params = _metadata_filter_sql(filters, language, source_type_expr, columns)
         rows = conn.execute(
             f"""
             SELECT
@@ -341,15 +399,16 @@ def _document_search(query: str, limit: int) -> list[dict]:
               {author_column},
               d.language,
               d.canonical_url,
-              COALESCE(d.raw_metadata->>'source_type', s.key) AS source_key,
+              {source_type_expr} AS source_key,
               left(coalesce(d.{text_column}, ''), 520) AS snippet
             FROM documents d
             JOIN sources s ON s.id = d.source_id
-            WHERE d.title ILIKE %(q)s OR coalesce(d.{text_column}, '') ILIKE %(q)s
+            WHERE (d.title ILIKE %(q)s OR coalesce(d.{text_column}, '') ILIKE %(q)s)
+              {"AND " + " AND ".join(filter_where) if filter_where else ""}
             ORDER BY d.updated_at DESC
             LIMIT %(limit)s
             """,
-            {"q": f"%{query}%", "limit": limit},
+            {"q": f"%{query}%", "limit": limit, **filter_params},
         ).fetchall()
         if not rows:
             stopwords = {
@@ -389,16 +448,17 @@ def _document_search(query: str, limit: int) -> list[dict]:
                       {author_column},
                       d.language,
                       d.canonical_url,
-                      COALESCE(d.raw_metadata->>'source_type', s.key) AS source_key,
+                      {source_type_expr} AS source_key,
                       left(coalesce(d.{text_column}, ''), 520) AS snippet,
                       ({score_expr}) AS match_score
                     FROM documents d
                     JOIN sources s ON s.id = d.source_id
-                    WHERE {where_expr}
+                    WHERE ({where_expr})
+                      {"AND " + " AND ".join(filter_where) if filter_where else ""}
                     ORDER BY match_score DESC, d.updated_at DESC
                     LIMIT %(limit)s
                     """,
-                    params,
+                    {**params, **filter_params},
                 ).fetchall()
     return [
         {
@@ -407,7 +467,7 @@ def _document_search(query: str, limit: int) -> list[dict]:
             "author": row[2],
             "language": row[3],
             "canonical_url": row[4],
-            "source_key": row[5],
+            "source_key": normalize_source_type(row[5]) or row[5],
             "snippet": row[6],
         }
         for row in rows
@@ -415,7 +475,7 @@ def _document_search(query: str, limit: int) -> list[dict]:
 
 
 def _textual_search_response(payload: SearchRequest, warnings: list[str] | None = None) -> dict:
-    rows = _document_search(payload.query, payload.limit)
+    rows = _document_search(payload.query, payload.limit, payload.filters, payload.language)
     return {
         "query": payload.query,
         "rewritten_query": None,
@@ -444,7 +504,7 @@ def _textual_search_response(payload: SearchRequest, warnings: list[str] | None 
 
 
 def _local_chat_response(payload: ChatRequest, warnings: list[str] | None = None) -> dict:
-    rows = _document_search(payload.message, 5)
+    rows = _document_search(payload.message, 5, payload.filters, payload.language)
     citations = [
         {
             "citation_id": index,
@@ -480,6 +540,45 @@ def _local_chat_response(payload: ChatRequest, warnings: list[str] | None = None
         "mode": "textual_fallback",
         "warnings": warnings or ["Busqueda semantica no disponible todavia."],
     }
+
+
+def _metadata_filter_sql(filters, language: str | None, source_type_expr: str, columns: set[str]) -> tuple[list[str], dict]:
+    where: list[str] = []
+    params: dict = {}
+    if not filters:
+        filters = SearchRequest(query="_").filters
+
+    source_values: list[str] = []
+    for source_key in filters.source_keys or []:
+        source_values.extend(source_type_aliases(source_key))
+    source_values = sorted(set(source_values))
+    if source_values:
+        where.append(f"({source_type_expr} = ANY(%(filter_source_keys)s) OR s.key = ANY(%(filter_source_keys)s))")
+        params["filter_source_keys"] = source_values
+
+    languages = filters.languages or ([language] if language else None)
+    if languages:
+        where.append("d.language = ANY(%(filter_languages)s)")
+        params["filter_languages"] = languages
+    if filters.authors and "author" in columns:
+        where.append("d.author = ANY(%(filter_authors)s)")
+        params["filter_authors"] = filters.authors
+    if filters.categories and "category" in columns:
+        where.append("d.category = ANY(%(filter_categories)s)")
+        params["filter_categories"] = filters.categories
+    if filters.tags and "tags" in columns:
+        where.append("d.tags::text ILIKE ANY(%(filter_tags)s)")
+        params["filter_tags"] = [f"%{tag}%" for tag in filters.tags]
+    if filters.document_ids:
+        where.append("d.id::text = ANY(%(filter_document_ids)s)")
+        params["filter_document_ids"] = [str(value) for value in filters.document_ids]
+    if filters.published_after and "published_at" in columns:
+        where.append("d.published_at >= %(filter_published_after)s")
+        params["filter_published_after"] = filters.published_after
+    if filters.published_before and "published_at" in columns:
+        where.append("d.published_at <= %(filter_published_before)s")
+        params["filter_published_before"] = filters.published_before
+    return where, params
 
 
 def _qdrant_points_count() -> int:

@@ -6,6 +6,7 @@ from app.core.config import get_settings
 from app.schemas.api import ReindexRequest
 from app.services.db import get_conn
 from app.services.qdrant_admin import QdrantAdmin
+from app.services.source_filters import canonical_source_options, normalize_source_type
 
 router = APIRouter(prefix="/api")
 
@@ -107,7 +108,29 @@ def admin_status():
         pg = conn.execute("SELECT current_database(), now()").fetchone()
         documents = conn.execute("SELECT count(*) FROM documents").fetchone()[0]
         errors = conn.execute("SELECT count(*) FROM ingestion_jobs WHERE status = 'failed' OR status = 'FAILED'").fetchone()[0]
+        source_rows = conn.execute(
+            """
+            SELECT COALESCE(d.raw_metadata->>'source_type', s.key) AS source_type, count(*)::int
+            FROM documents d
+            JOIN sources s ON s.id = d.source_id
+            GROUP BY 1
+            """
+        ).fetchall()
+    source_counts = {option.key: 0 for option in canonical_source_options()}
+    for source_type, count in source_rows:
+        canonical = normalize_source_type(source_type)
+        if canonical in source_counts:
+            source_counts[canonical] += count
     return {
-        "postgres": {"database": pg[0], "time": pg[1].isoformat(), "documents": documents, "errors": errors},
+        "postgres": {
+            "database": pg[0],
+            "time": pg[1].isoformat(),
+            "documents": documents,
+            "errors": errors,
+            "sourceCounts": [
+                {"key": option.key, "label": option.label, "count": source_counts[option.key]}
+                for option in canonical_source_options()
+            ],
+        },
         "qdrant": qdrant,
     }

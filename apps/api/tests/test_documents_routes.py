@@ -37,6 +37,8 @@ class FakeConnection:
                 ]
             )
         if "GROUP BY 1" in query:
+            if "source_type" in query:
+                return FakeResult([("byu_speeches", "byu_speeches", "BYU Speeches", 3)])
             return FakeResult([("READY", 2), ("INDEXED", 1)])
         return FakeResult(
             [
@@ -119,6 +121,13 @@ class DocumentRoutesTest(unittest.TestCase):
             },
         )
         self.assertEqual(response["documents"], response["items"])
+
+    def test_sources_summary_returns_canonical_counts(self):
+        response = public.sources_summary()
+
+        by_key = {item["key"]: item for item in response["items"]}
+        self.assertEqual(by_key["byu_speeches_en"]["documentCount"], 3)
+        self.assertTrue(by_key["byu_speeches_en"]["canonical"])
 
 
 if __name__ == "__main__":

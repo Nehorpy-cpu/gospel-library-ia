@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 5 - Study frontend needs build environment follow-up.
+Phase 6 - Source filters completed.
 
 ## Phase tracker
 
@@ -13,7 +13,7 @@ Phase 5 - Study frontend needs build environment follow-up.
 | 3 | Study workspace DB | Needs follow-up | 2026-06-03 | 2026-06-03 | Added enterprise study workspace DB fields, study highlights, Prisma schema relations, Alembic migration, and Prisma SQL migration. `prisma:generate`, `prisma validate`, and `pnpm test` passed. `prisma:migrate` could not connect because Postgres/Docker are unavailable. |
 | 4 | Study API | Needs follow-up | 2026-06-03 | 2026-06-03 | Implemented authenticated StudyWorkspace API endpoints with Pydantic validation, ownership enforcement, CRUD for workspaces/source filters/notes/highlights/citations/post-its, source attribution, filters, and structured logs. `pnpm test` and Python compile checks passed. Docker API logs could not run because Docker daemon is unavailable. |
 | 5 | Study frontend | Needs follow-up | 2026-06-03 | 2026-06-03 | Added StudyWorkspace frontend routes, real API client methods, Zustand study state, responsive workspace UI, note/citation/highlight/post-it/source filter flows, and Next rewrites for API proxying. Typecheck and `pnpm test` passed. `pnpm build` is blocked by a local Next/Webpack `EISDIR readlink` issue in hoisted Windows node_modules. |
-| 6 | Source filters | Pending | - | - | - |
+| 6 | Source filters | Completed | 2026-06-03 | 2026-06-03 | Normalized canonical source filter vocabulary across API, PostgreSQL fallback search, RAG BM25/semantic payloads, admin statistics, library, search, and study UI. Added real `/api/sources/summary` options and tests. `pnpm test`, API route unit tests, Python compile checks, and web typecheck passed. |
 | 7 | Saved quotes and post-its | Pending | - | - | - |
 | 8 | RAG by scripture | Pending | - | - | - |
 | 9 | Talk builder | Pending | - | - | - |
@@ -100,3 +100,15 @@ After each phase:
 - Blocked: local HTTP visual check for `http://localhost:3000/study`
 - Cause: no local web server is running, and Docker daemon remains unavailable in this environment.
 - Status decision: `Needs follow-up`, because required production build and visual/runtime checks did not complete.
+
+### 2026-06-03 - Phase 6 Source filters
+
+- Passed: `python -m py_compile apps\api\app\routes\public.py apps\api\app\routes\admin.py apps\api\app\routes\study.py apps\api\app\schemas\api.py apps\api\app\services\source_filters.py rag\app\schemas\search.py rag\app\retrieval\bm25.py rag\app\retrieval\source_filters.py rag\app\services\indexer.py`
+- Passed: `corepack pnpm --dir apps/web typecheck`
+- Passed: `python -m unittest apps.api.tests.test_documents_routes`
+- Passed: `corepack pnpm test`
+- Implemented: canonical source types `byu_speeches_es`, `byu_speeches_en`, `discursos_sud`, `general_conference`, `church_manuals`, `joseph_smith_papers`, and `byu_rsc`
+- Implemented: `/api/sources/summary` with real document counts and backward-compatible aliases
+- Implemented: source type normalization for `/api/documents`, PostgreSQL fallback search/chat, Study API filters, admin source counts, RAG BM25, and Qdrant payload indexing
+- Implemented: frontend source filter options from real API data in library, search, admin, and study workflows
+- Status decision: `Completed`, because the phase verification passed.

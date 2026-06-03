@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ragApi, studyApi } from "@/lib/api";
+import { mergeSourceOptions } from "@/lib/source-filters";
 import { cn, truncate } from "@/lib/utils";
 import { useStudyWorkspaceStore } from "@/stores/study-workspace-store";
 import type { Citation } from "@/types/rag";
@@ -109,6 +110,7 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
     queryKey: ["study-workspaces", userId, sourceType, topic],
     queryFn: () => studyApi.workspaces(userId, { sourceType, topic })
   });
+  const sources = useQuery({ queryKey: ["source-options"], queryFn: () => ragApi.sourcesSummary(), staleTime: 1000 * 60 });
 
   const documents = useQuery({
     queryKey: ["study-documents", draft.documentSearch, sourceType],
@@ -380,11 +382,20 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
               <h2 className="font-semibold">Filtros</h2>
             </div>
             <div className="mt-4 space-y-3">
-              <Input
+              <select
                 value={sourceType ?? ""}
                 onChange={(event) => setSourceType(event.target.value)}
-                placeholder="Tipo de fuente"
-              />
+                className="h-10 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                aria-label="Tipo de fuente"
+              >
+                <option value="">Todas las fuentes</option>
+                {mergeSourceOptions(sources.data?.items).map((source) => (
+                  <option key={source.key} value={source.key}>
+                    {source.label}
+                    {typeof source.documentCount === "number" ? ` (${source.documentCount})` : ""}
+                  </option>
+                ))}
+              </select>
               <Input value={topic ?? ""} onChange={(event) => setTopic(event.target.value)} placeholder="Tema" />
               <Input
                 value={scriptureRef ?? ""}
@@ -392,11 +403,19 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
                 placeholder="Referencia escritural"
               />
               <div className="grid grid-cols-2 gap-2">
-                <Input
+                <select
                   value={draft.sourceKey}
                   onChange={(event) => setDraft((value) => ({ ...value, sourceKey: event.target.value }))}
-                  placeholder="Fuente"
-                />
+                  className="h-10 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                  aria-label="Fuente guardada"
+                >
+                  <option value="">Fuente</option>
+                  {mergeSourceOptions(sources.data?.items).map((source) => (
+                    <option key={source.key} value={source.key}>
+                      {source.label}
+                    </option>
+                  ))}
+                </select>
                 <Input
                   value={draft.language}
                   onChange={(event) => setDraft((value) => ({ ...value, language: event.target.value }))}

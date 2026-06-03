@@ -7,6 +7,7 @@ import { useMemo, useRef, useState } from "react";
 import { SpeechCard } from "@/components/library/speech-card";
 import { Input } from "@/components/ui/input";
 import { ragApi } from "@/lib/api";
+import { mergeSourceOptions } from "@/lib/source-filters";
 import type { SpeechCardItem } from "@/types/library";
 
 function toSpeechCardItem(item: Record<string, unknown>): SpeechCardItem {
@@ -34,9 +35,11 @@ function toSpeechCardItem(item: Record<string, unknown>): SpeechCardItem {
 
 export function LibraryGrid() {
   const [filter, setFilter] = useState("");
+  const [sourceType, setSourceType] = useState("");
+  const sources = useQuery({ queryKey: ["source-options"], queryFn: () => ragApi.sourcesSummary(), staleTime: 1000 * 60 });
   const documents = useQuery({
-    queryKey: ["documents", filter],
-    queryFn: () => ragApi.documents({ search: filter || undefined, limit: 100, offset: 0 }),
+    queryKey: ["documents", filter, sourceType],
+    queryFn: () => ragApi.documents({ search: filter || undefined, sourceType: sourceType || undefined, limit: 100, offset: 0 }),
     staleTime: 1000 * 60
   });
   const items = useMemo(() => {
@@ -57,7 +60,23 @@ export function LibraryGrid() {
           <h1 className="text-2xl font-semibold">Biblioteca</h1>
           <p className="mt-1 text-sm text-muted-foreground">Discursos, PDFs, manuales, escrituras y audios transcritos.</p>
         </div>
-        <Input className="md:w-80" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filtrar biblioteca" />
+        <div className="flex flex-col gap-2 md:w-[520px] md:flex-row">
+          <Input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filtrar biblioteca" />
+          <select
+            value={sourceType}
+            onChange={(event) => setSourceType(event.target.value)}
+            className="h-10 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+            aria-label="Filtrar por fuente"
+          >
+            <option value="">Todas las fuentes</option>
+            {mergeSourceOptions(sources.data?.items).map((source) => (
+              <option key={source.key} value={source.key}>
+                {source.label}
+                {typeof source.documentCount === "number" ? ` (${source.documentCount})` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
       {documents.isError ? <p className="text-sm text-accent">No se pudo cargar la biblioteca real.</p> : null}
       {documents.isLoading ? <p className="text-sm text-muted-foreground">Cargando documentos...</p> : null}

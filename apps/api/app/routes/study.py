@@ -8,6 +8,7 @@ from psycopg.types.json import Jsonb
 
 from app.core.logging import logger
 from app.services.db import get_conn
+from app.services.source_filters import normalize_source_type, source_type_aliases
 
 router = APIRouter(prefix="/api/study-workspaces", tags=["study"])
 log = logger(__name__)
@@ -201,8 +202,8 @@ def _filter_sql(
         where.append(f"{artifact_alias}.document_id = %(document_id)s")
         params["document_id"] = document_id
     if source_type:
-        where.append("COALESCE(d.raw_metadata->>'source_type', s.key) = %(source_type)s")
-        params["source_type"] = source_type
+        where.append("(COALESCE(d.raw_metadata->>'source_type', s.key) = ANY(%(source_types)s) OR s.key = ANY(%(source_types)s))")
+        params["source_types"] = source_type_aliases(source_type)
     if topic:
         where.append(
             "(d.category ILIKE %(topic)s OR d.tags::text ILIKE %(topic)s OR d.raw_metadata::text ILIKE %(topic)s)"
@@ -246,8 +247,8 @@ def list_workspaces(
     where = ["sw.user_id = %(user_id)s", "sw.deleted_at IS NULL"]
     params: dict[str, Any] = {"user_id": user_id, "limit": limit}
     if sourceType:
-        where.append("(sws.source_key = %(source_type)s OR sw.source_filters::text ILIKE %(source_type_like)s)")
-        params["source_type"] = sourceType
+        where.append("(sws.source_key = ANY(%(source_types)s) OR sw.source_filters::text ILIKE %(source_type_like)s)")
+        params["source_types"] = source_type_aliases(sourceType)
         params["source_type_like"] = f"%{sourceType}%"
     if topic:
         where.append("(sw.name ILIKE %(topic)s OR sw.description ILIKE %(topic)s OR sw.source_filters::text ILIKE %(topic)s)")
@@ -393,7 +394,7 @@ def create_source_filter(workspace_id: str, payload: SourceFilterPayload, user_i
             {
                 "workspace_id": workspace_id,
                 "user_id": user_id,
-                "source_key": payload.sourceKey,
+                "source_key": normalize_source_type(payload.sourceKey),
                 "language": payload.language,
                 "author": payload.author,
                 "category": payload.category,

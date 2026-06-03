@@ -36,6 +36,7 @@ export function AdminDashboard() {
   const documents = useQuery({ queryKey: ["admin-documents"], queryFn: () => ragApi.documents({ limit: 1, offset: 0 }), refetchInterval: 15000 });
   const authors = useQuery({ queryKey: ["admin-authors"], queryFn: () => ragApi.authors(), refetchInterval: 15000 });
   const topics = useQuery({ queryKey: ["admin-topics"], queryFn: () => ragApi.topics(), refetchInterval: 15000 });
+  const sources = useQuery({ queryKey: ["admin-sources"], queryFn: () => ragApi.sourcesSummary(), refetchInterval: 15000 });
   const scrape = useMutation({ mutationFn: () => ragApi.scrape() });
   const reindex = useMutation({ mutationFn: () => ragApi.reindex() });
   const documentStatuses = documentSummary.data?.documents ?? [];
@@ -59,6 +60,7 @@ export function AdminDashboard() {
     void documents.refetch();
     void authors.refetch();
     void topics.refetch();
+    void sources.refetch();
   }
 
   return (
@@ -184,6 +186,17 @@ export function AdminDashboard() {
                 <p className="text-sm text-muted-foreground">Sin tareas recientes.</p>
               )}
             </div>
+          </div>
+        </div>
+        <div className="mt-5 rounded-md border p-4">
+          <h3 className="text-sm font-semibold">Documentos por fuente</h3>
+          <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+            {(sources.data?.items ?? []).map((source) => (
+              <div key={source.key} className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-sm">
+                <span className="text-muted-foreground">{source.label}</span>
+                <span className="font-medium">{formatCount(source.documentCount ?? 0)}</span>
+              </div>
+            ))}
           </div>
         </div>
       </Card>

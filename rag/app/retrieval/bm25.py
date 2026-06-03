@@ -16,7 +16,7 @@ class BM25Retriever:
             where.append("d.language = ANY(:languages)")
             params["languages"] = filters.languages
         if filters.source_keys:
-            where.append("s.key = ANY(:source_keys)")
+            where.append("(s.key = ANY(:source_keys) OR d.raw_metadata->>'source_type' = ANY(:source_keys))")
             params["source_keys"] = filters.source_keys
         if filters.authors:
             where.append("d.author = ANY(:authors)")
@@ -42,7 +42,7 @@ class BM25Retriever:
               d.title,
               dc.text,
               d.author,
-              s.key AS source_key,
+              coalesce(d.raw_metadata->>'source_type', s.key) AS source_key,
               d.canonical_url,
               d.published_at,
               d.language,

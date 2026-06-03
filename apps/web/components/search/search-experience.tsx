@@ -2,12 +2,15 @@
 
 import { useSearchParams } from "next/navigation";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import { CitationCard } from "@/components/search/citation-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ragApi } from "@/lib/api";
+import { mergeSourceOptions } from "@/lib/source-filters";
 import { useSearch } from "@/hooks/use-rag";
 
 export function SearchExperience() {
@@ -15,7 +18,29 @@ export function SearchExperience() {
   const initial = params.get("q") ?? "";
   const [query, setQuery] = useState(initial);
   const [submitted, setSubmitted] = useState(initial);
-  const { data, isLoading, error } = useSearch({ query: submitted, limit: 30 }, submitted.length > 0);
+  const [sourceType, setSourceType] = useState("");
+  const [language, setLanguage] = useState("");
+  const [author, setAuthor] = useState("");
+  const [topic, setTopic] = useState("");
+  const [publishedAfter, setPublishedAfter] = useState("");
+  const [publishedBefore, setPublishedBefore] = useState("");
+  const sources = useQuery({ queryKey: ["source-options"], queryFn: () => ragApi.sourcesSummary(), staleTime: 1000 * 60 });
+  const { data, isLoading, error } = useSearch(
+    {
+      query: submitted,
+      language: language || undefined,
+      filters: {
+        source_keys: sourceType ? [sourceType] : undefined,
+        languages: language ? [language] : undefined,
+        authors: author ? [author] : undefined,
+        categories: topic ? [topic] : undefined,
+        published_after: publishedAfter || undefined,
+        published_before: publishedBefore || undefined
+      },
+      limit: 30
+    },
+    submitted.length > 0
+  );
   const parentRef = useRef<HTMLDivElement>(null);
   const results = data?.results ?? [];
   const rowVirtualizer = useVirtualizer({
@@ -60,6 +85,37 @@ export function SearchExperience() {
               {suggestion}
             </button>
           ))}
+        </div>
+        <div className="space-y-3 rounded-md border p-3">
+          <select
+            value={sourceType}
+            onChange={(event) => setSourceType(event.target.value)}
+            className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+            aria-label="Fuente"
+          >
+            <option value="">Todas las fuentes</option>
+            {mergeSourceOptions(sources.data?.items).map((source) => (
+              <option key={source.key} value={source.key}>
+                {source.label}
+                {typeof source.documentCount === "number" ? ` (${source.documentCount})` : ""}
+              </option>
+            ))}
+          </select>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Input value={language} onChange={(event) => setLanguage(event.target.value)} placeholder="Idioma" />
+            <Input value={author} onChange={(event) => setAuthor(event.target.value)} placeholder="Autor" />
+            <Input value={topic} onChange={(event) => setTopic(event.target.value)} placeholder="Tema" />
+            <Input
+              value={publishedAfter}
+              onChange={(event) => setPublishedAfter(event.target.value)}
+              placeholder="Desde YYYY-MM-DD"
+            />
+            <Input
+              value={publishedBefore}
+              onChange={(event) => setPublishedBefore(event.target.value)}
+              placeholder="Hasta YYYY-MM-DD"
+            />
+          </div>
         </div>
       </aside>
       <section className="min-h-[70vh]">

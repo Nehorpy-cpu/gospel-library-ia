@@ -1,7 +1,9 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.retrieval.source_filters import expand_source_keys
 
 
 class MetadataFilter(BaseModel):
@@ -14,6 +16,11 @@ class MetadataFilter(BaseModel):
     published_after: datetime | None = None
     published_before: datetime | None = None
     document_ids: list[UUID] | None = None
+
+    @field_validator("source_keys")
+    @classmethod
+    def normalize_source_keys(cls, value: list[str] | None) -> list[str] | None:
+        return expand_source_keys(value)
 
 
 class SearchRequest(BaseModel):

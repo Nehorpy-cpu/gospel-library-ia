@@ -1,7 +1,9 @@
 from datetime import date
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.services.source_filters import source_type_aliases
 
 
 class MetadataFilter(BaseModel):
@@ -13,6 +15,16 @@ class MetadataFilter(BaseModel):
     published_after: date | None = None
     published_before: date | None = None
     document_ids: list[str] | None = None
+
+    @field_validator("source_keys")
+    @classmethod
+    def normalize_source_keys(cls, value: list[str] | None) -> list[str] | None:
+        if not value:
+            return value
+        expanded: set[str] = set()
+        for source_key in value:
+            expanded.update(source_type_aliases(source_key))
+        return sorted(expanded)
 
 
 class SearchRequest(BaseModel):
