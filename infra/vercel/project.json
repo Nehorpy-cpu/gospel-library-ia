@@ -1,0 +1,13 @@
+{
+  "name": "gospel-library-ia-web",
+  "framework": "nextjs",
+  "rootDirectory": "apps/web",
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "outputDirectory": ".next",
+  "env": {
+    "NEXT_PUBLIC_RAG_API_URL": "/api/rag",
+    "RAG_INTERNAL_URL": "https://api.gospellibraryia.com"
+  }
+}

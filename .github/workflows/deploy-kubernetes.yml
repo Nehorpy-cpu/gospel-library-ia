@@ -1,0 +1,31 @@
+name: Deploy Kubernetes
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deployment environment
+        required: true
+        default: production
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v4
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
+      - name: Apply manifests
+        run: kubectl apply -k infra/k8s/overlays/production
+      - name: Rollout status
+        run: |
+          kubectl rollout status deployment/web -n gospel-library --timeout=180s
+          kubectl rollout status deployment/rag-api -n gospel-library --timeout=180s
+          kubectl rollout status deployment/scraper-api -n gospel-library --timeout=180s

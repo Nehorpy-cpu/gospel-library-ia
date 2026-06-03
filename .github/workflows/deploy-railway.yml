@@ -1,0 +1,19 @@
+name: Deploy APIs to Railway
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [rag, scraper]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Railway
+        run: npm install -g @railway/cli
+      - name: Deploy ${{ matrix.service }}
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway up --service ${{ matrix.service }} --detach

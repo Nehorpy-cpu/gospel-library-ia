@@ -1,0 +1,332 @@
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    profiles: ["edge"]
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - web
+      - rag-api
+      - scraper-api
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./infra/nginx/certs:/etc/nginx/certs:ro
+
+  web:
+    build:
+      context: ./apps/web
+    env_file:
+      - .env.example
+      - path: .env
+        required: false
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./apps/api
+    env_file:
+      - .env.example
+      - path: .env
+        required: false
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-large}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-5.5}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      rag-api:
+        condition: service_started
+      scraper-api:
+        condition: service_started
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/ready', timeout=3)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  scraper-api:
+    build:
+      context: ./scraper
+    env_file:
+      - .env.example
+      - path: .env
+        required: false
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      minio:
+        condition: service_started
+    command: uvicorn app.api:app --host 0.0.0.0 --port 8080
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/ready', timeout=3)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  scraper-worker-scraping:
+    build:
+      context: ./scraper
+    env_file:
+      - .env.example
+      - path: .env
+        required: false
+    depends_on:
+      - redis
+      - postgres
+      - minio
+    command: celery -A app.workers.celery_app worker -Q scraping --loglevel=info --concurrency=4
+    restart: unless-stopped
+
+  scraper-worker-assets:
+    build:
+      context: ./scraper
+    env_file:
+      - .env.example
+      - path: .env
+        required: false
+    depends_on:
+      - redis
+      - postgres
+      - minio
+    command: celery -A app.workers.celery_app worker -Q assets --loglevel=info --concurrency=4
+    restart: unless-stopped
+
+  scraper-worker-ocr:
+    build:
+      context: ./scraper
+    env_file:
+      - .env.example
+      - path: .env
+        required: false
+    depends_on:
+      - redis
+      - postgres
+      - minio
+    command: celery -A app.workers.celery_app worker -Q ocr --loglevel=info --concurrency=2
+    restart: unless-stopped
+
+  scraper-worker-indexing:
+    build:
+      context: ./scraper
+    env_file:
+      - .env.example
+      - path: .env
+        required: false
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-large}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-5.5}
+    depends_on:
+      - redis
+      - postgres
+    command: celery -A app.workers.celery_app worker -Q indexing --loglevel=info --concurrency=2
+    restart: unless-stopped
+
+  rag-api:
+    build:
+      context: ./rag
+    env_file:
+      - .env.example
+      - path: .env
+        required: false
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-large}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-5.5}
+    ports:
+      - "8090:8090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_started
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8090
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8090/ready', timeout=3)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  rag-worker-indexing:
+    build:
+      context: ./rag
+    env_file:
+      - .env.example
+      - path: .env
+        required: false
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-large}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-5.5}
+    depends_on:
+      - redis
+      - postgres
+      - qdrant
+    command: celery -A app.workers.celery_app worker -Q rag-indexing --loglevel=info --concurrency=2
+    restart: unless-stopped
+
+  scraper-scheduler:
+    build:
+      context: ./scraper
+    env_file:
+      - .env.example
+      - path: .env
+        required: false
+    depends_on:
+      - redis
+      - postgres
+    command: celery -A app.workers.celery_app beat --loglevel=info
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: gospel_library
+      POSTGRES_USER: gospel
+      POSTGRES_PASSWORD: gospel
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gospel -d gospel_library"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/localhost/6333; printf \"GET /readyz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n\" >&3; grep -q \"200 OK\" <&3'"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: miniosecret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    profiles: ["observability"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    profiles: ["observability"]
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+      - loki
+
+  loki:
+    image: grafana/loki:3.3.0
+    profiles: ["observability"]
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./infra/observability/loki.yml:/etc/loki/loki.yml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/loki.yml
+
+  promtail:
+    image: grafana/promtail:3.3.0
+    profiles: ["observability"]
+    volumes:
+      - ./infra/observability/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/promtail.yml
+    depends_on:
+      - loki
+
+  postgres-backup:
+    image: prodrigestivill/postgres-backup-local:16
+    profiles: ["backup"]
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: gospel_library
+      POSTGRES_USER: gospel
+      POSTGRES_PASSWORD: gospel
+      SCHEDULE: "@daily"
+      BACKUP_KEEP_DAYS: 7
+      BACKUP_KEEP_WEEKS: 4
+      BACKUP_KEEP_MONTHS: 6
+    volumes:
+      - postgres_backups:/backups
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  minio_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  postgres_backups:

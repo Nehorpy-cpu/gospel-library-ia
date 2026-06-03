@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scraper-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: scraper-api
+  template:
+    metadata:
+      labels:
+        app: scraper-api
+    spec:
+      containers:
+        - name: scraper-api
+          image: ghcr.io/OWNER/gospel-library-scraper:latest
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: gospel-config
+            - secretRef:
+                name: gospel-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 300m
+              memory: 768Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scraper-api
+  labels:
+    app: scraper-api
+spec:
+  selector:
+    app: scraper-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

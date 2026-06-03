@@ -1,0 +1,19 @@
+{
+  "name": "gospel-library-ia",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "docker compose up --build",
+    "build": "docker compose build",
+    "start": "docker compose up",
+    "scrape": "docker compose exec scraper-api python scripts/seed_sources.py && curl -X POST http://localhost:8000/api/admin/scrape",
+    "ingest": "curl -X POST http://localhost:8000/api/admin/scrape",
+    "embed": "curl -X POST http://localhost:8000/api/admin/reindex -H \"Content-Type: application/json\" -d \"{\\\"limit\\\":100,\\\"force\\\":false}\"",
+    "seed": "docker compose exec scraper-api alembic upgrade head && docker compose exec rag-api alembic upgrade head && docker compose exec scraper-api python scripts/seed_sources.py && docker compose exec api python scripts/init_qdrant.py",
+    "test": "docker compose config --quiet",
+    "prisma:generate": "npm --prefix packages/database run generate",
+    "prisma:migrate": "npm --prefix packages/database run migrate:deploy",
+    "prisma:seed": "npm --prefix packages/database run seed:sql"
+  }
+}

@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: gospel-library
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.example.yaml
+  - apps/web.yaml
+  - apps/rag-api.yaml
+  - apps/rag-worker-indexing.yaml
+  - apps/scraper-api.yaml
+  - apps/scraper-workers.yaml
+  - platform/redis.yaml
+  - platform/qdrant.yaml
+  - platform/ingress.yaml
+  - platform/backup-cronjob.yaml
+  - observability/servicemonitors.yaml

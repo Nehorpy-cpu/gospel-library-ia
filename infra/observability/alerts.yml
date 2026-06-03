@@ -1,0 +1,26 @@
+groups:
+  - name: gospel-library-api
+    rules:
+      - alert: RagApiDown
+        expr: up{job="rag-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: RAG API is down
+
+      - alert: ScraperApiDown
+        expr: up{job="scraper-api"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Scraper API is down
+
+      - alert: QdrantDown
+        expr: up{job="qdrant"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Qdrant is down
