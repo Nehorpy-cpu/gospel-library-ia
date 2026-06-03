@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 4 - Study API needs runtime log verification follow-up.
+Phase 5 - Study frontend needs build environment follow-up.
 
 ## Phase tracker
 
@@ -12,7 +12,7 @@ Phase 4 - Study API needs runtime log verification follow-up.
 | 2 | Fallback text search | Needs follow-up | 2026-06-03 | 2026-06-03 | Implemented PostgreSQL text fallback for unavailable OpenAI/Qdrant, warning propagation, and frontend messaging. `corepack pnpm test` and Python AST validation passed. Docker `rag-api` logs could not run because Docker daemon is unavailable. |
 | 3 | Study workspace DB | Needs follow-up | 2026-06-03 | 2026-06-03 | Added enterprise study workspace DB fields, study highlights, Prisma schema relations, Alembic migration, and Prisma SQL migration. `prisma:generate`, `prisma validate`, and `pnpm test` passed. `prisma:migrate` could not connect because Postgres/Docker are unavailable. |
 | 4 | Study API | Needs follow-up | 2026-06-03 | 2026-06-03 | Implemented authenticated StudyWorkspace API endpoints with Pydantic validation, ownership enforcement, CRUD for workspaces/source filters/notes/highlights/citations/post-its, source attribution, filters, and structured logs. `pnpm test` and Python compile checks passed. Docker API logs could not run because Docker daemon is unavailable. |
-| 5 | Study frontend | Pending | - | - | - |
+| 5 | Study frontend | Needs follow-up | 2026-06-03 | 2026-06-03 | Added StudyWorkspace frontend routes, real API client methods, Zustand study state, responsive workspace UI, note/citation/highlight/post-it/source filter flows, and Next rewrites for API proxying. Typecheck and `pnpm test` passed. `pnpm build` is blocked by a local Next/Webpack `EISDIR readlink` issue in hoisted Windows node_modules. |
 | 6 | Source filters | Pending | - | - | - |
 | 7 | Saved quotes and post-its | Pending | - | - | - |
 | 8 | RAG by scripture | Pending | - | - | - |
@@ -81,3 +81,22 @@ After each phase:
 - Blocked: `docker compose logs api --tail=100`
 - Cause: Docker daemon is unavailable in this environment.
 - Status decision: `Needs follow-up`, because required runtime log verification did not complete.
+
+### 2026-06-03 - Phase 5 Study frontend
+
+- Passed: `corepack pnpm --dir apps/web typecheck`
+- Passed: `corepack pnpm test`
+- Passed: `git diff --check`
+- Implemented: Next App Router pages `/study` and `/study/[workspaceId]`
+- Implemented: StudyWorkspace UI with real TanStack Query calls for workspaces, documents, source filters, notes, highlights, saved citations, and post-its
+- Implemented: Zustand local study state for active workspace, active document, selected text, and filters
+- Implemented: create/view/update/delete flow for notes
+- Implemented: save citations and highlights from selected document text
+- Implemented: responsive source filters without changing library browsing
+- Implemented: Study navigation item and configurable `NEXT_PUBLIC_STUDY_USER_ID`
+- Updated: Next API proxying moved from catch-all route files to `next.config.ts` rewrites to avoid Windows/Webpack `readlink` failures on `[...path]` route directories
+- Blocked: `corepack pnpm --dir apps/web build`
+- Build failure: `Error: EISDIR: illegal operation on a directory, readlink 'F:\Users\Marco Sosa\Documentos\Liahona IA\node_modules\next\dist\pages\_app.js'`
+- Blocked: local HTTP visual check for `http://localhost:3000/study`
+- Cause: no local web server is running, and Docker daemon remains unavailable in this environment.
+- Status decision: `Needs follow-up`, because required production build and visual/runtime checks did not complete.

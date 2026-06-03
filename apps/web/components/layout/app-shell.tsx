@@ -12,6 +12,7 @@ import {
   Library,
   Menu,
   Moon,
+  NotebookPen,
   Search,
   Settings,
   Sun
@@ -29,6 +30,7 @@ const nav = [
   { href: "/search", label: "Busqueda", icon: Search },
   { href: "/chat", label: "Chat IA", icon: Bot },
   { href: "/library", label: "Biblioteca", icon: Library },
+  { href: "/study", label: "Estudio", icon: NotebookPen },
   { href: "/collections", label: "Colecciones", icon: BookOpen },
   { href: "/favorites", label: "Favoritos", icon: Heart },
   { href: "/history", label: "Historial", icon: Clock },

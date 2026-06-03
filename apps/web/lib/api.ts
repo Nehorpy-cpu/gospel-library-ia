@@ -1,4 +1,14 @@
 import type { ChatRequest, ChatResponse, ChatStreamEvent, SearchRequest, SearchResponse } from "@/types/rag";
+import type {
+  SavedStudyCitation,
+  StudyDocument,
+  StudyHighlight,
+  StudyList,
+  StudyNote,
+  StudyPostIt,
+  StudyWorkspace,
+  WorkspaceSourceFilter
+} from "@/types/study";
 import { chatRequestSchema, searchRequestSchema } from "@/lib/validators";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_RAG_API_URL ?? "/api";
@@ -27,6 +37,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(detail || `Request failed: ${response.status}`);
   }
   return response.json() as Promise<T>;
+}
+
+function studyHeaders(userId: string) {
+  return { "X-User-Id": userId };
 }
 
 export const ragApi = {
@@ -65,7 +79,7 @@ export const ragApi = {
     if (params?.status) searchParams.set("status", params.status);
     if (params?.sourceType) searchParams.set("sourceType", params.sourceType);
     const query = searchParams.toString();
-    return request<{ items: Array<Record<string, unknown>>; total?: number; limit?: number; offset?: number }>(
+    return request<{ items: StudyDocument[]; total?: number; limit?: number; offset?: number }>(
       `/documents${query ? `?${query}` : ""}`
     );
   },
@@ -98,5 +112,189 @@ export const ragApi = {
   },
   scrape() {
     return request<{ task_id: string }>("/admin/scrape", { method: "POST" });
+  }
+};
+
+export const studyApi = {
+  workspaces(userId: string, params?: { sourceType?: string; topic?: string }) {
+    const searchParams = new URLSearchParams();
+    if (params?.sourceType) searchParams.set("sourceType", params.sourceType);
+    if (params?.topic) searchParams.set("topic", params.topic);
+    const query = searchParams.toString();
+    return request<StudyList<StudyWorkspace>>(`/study-workspaces${query ? `?${query}` : ""}`, {
+      headers: studyHeaders(userId)
+    });
+  },
+  createWorkspace(userId: string, payload: { name: string; description?: string }) {
+    return request<StudyWorkspace>("/study-workspaces", {
+      method: "POST",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
+    });
+  },
+  updateWorkspace(userId: string, workspaceId: string, payload: { name?: string; description?: string }) {
+    return request<StudyWorkspace>(`/study-workspaces/${workspaceId}`, {
+      method: "PATCH",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
+    });
+  },
+  deleteWorkspace(userId: string, workspaceId: string) {
+    return request<{ deleted: boolean }>(`/study-workspaces/${workspaceId}`, {
+      method: "DELETE",
+      headers: studyHeaders(userId)
+    });
+  },
+  sourceFilters(userId: string, workspaceId: string) {
+    return request<StudyList<WorkspaceSourceFilter>>(`/study-workspaces/${workspaceId}/sources`, {
+      headers: studyHeaders(userId)
+    });
+  },
+  createSourceFilter(
+    userId: string,
+    workspaceId: string,
+    payload: { sourceKey?: string; language?: string; author?: string; category?: string; tags?: string[] }
+  ) {
+    return request<WorkspaceSourceFilter>(`/study-workspaces/${workspaceId}/sources`, {
+      method: "POST",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
+    });
+  },
+  deleteSourceFilter(userId: string, workspaceId: string, sourceFilterId: string) {
+    return request<{ deleted: boolean }>(`/study-workspaces/${workspaceId}/sources/${sourceFilterId}`, {
+      method: "DELETE",
+      headers: studyHeaders(userId)
+    });
+  },
+  notes(
+    userId: string,
+    workspaceId: string,
+    params?: { documentId?: string; sourceType?: string; topic?: string; scriptureRef?: string }
+  ) {
+    const searchParams = new URLSearchParams();
+    if (params?.documentId) searchParams.set("documentId", params.documentId);
+    if (params?.sourceType) searchParams.set("sourceType", params.sourceType);
+    if (params?.topic) searchParams.set("topic", params.topic);
+    if (params?.scriptureRef) searchParams.set("scriptureRef", params.scriptureRef);
+    const query = searchParams.toString();
+    return request<StudyList<StudyNote>>(`/study-workspaces/${workspaceId}/notes${query ? `?${query}` : ""}`, {
+      headers: studyHeaders(userId)
+    });
+  },
+  createNote(
+    userId: string,
+    workspaceId: string,
+    payload: { documentId?: string; title?: string; content: string; selectedText?: string; scriptureRefs?: string[] }
+  ) {
+    return request<StudyNote>(`/study-workspaces/${workspaceId}/notes`, {
+      method: "POST",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
+    });
+  },
+  updateNote(userId: string, workspaceId: string, noteId: string, payload: { title?: string; content?: string }) {
+    return request<StudyNote>(`/study-workspaces/${workspaceId}/notes/${noteId}`, {
+      method: "PATCH",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
+    });
+  },
+  deleteNote(userId: string, workspaceId: string, noteId: string) {
+    return request<{ deleted: boolean }>(`/study-workspaces/${workspaceId}/notes/${noteId}`, {
+      method: "DELETE",
+      headers: studyHeaders(userId)
+    });
+  },
+  highlights(
+    userId: string,
+    workspaceId: string,
+    params?: { documentId?: string; sourceType?: string; topic?: string; scriptureRef?: string }
+  ) {
+    const searchParams = new URLSearchParams();
+    if (params?.documentId) searchParams.set("documentId", params.documentId);
+    if (params?.sourceType) searchParams.set("sourceType", params.sourceType);
+    if (params?.topic) searchParams.set("topic", params.topic);
+    if (params?.scriptureRef) searchParams.set("scriptureRef", params.scriptureRef);
+    const query = searchParams.toString();
+    return request<StudyList<StudyHighlight>>(`/study-workspaces/${workspaceId}/highlights${query ? `?${query}` : ""}`, {
+      headers: studyHeaders(userId)
+    });
+  },
+  createHighlight(
+    userId: string,
+    workspaceId: string,
+    payload: { documentId: string; startChar: number; endChar: number; selectedText: string; scriptureRefs?: string[] }
+  ) {
+    return request<StudyHighlight>(`/study-workspaces/${workspaceId}/highlights`, {
+      method: "POST",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
+    });
+  },
+  deleteHighlight(userId: string, workspaceId: string, highlightId: string) {
+    return request<{ deleted: boolean }>(`/study-workspaces/${workspaceId}/highlights/${highlightId}`, {
+      method: "DELETE",
+      headers: studyHeaders(userId)
+    });
+  },
+  citations(
+    userId: string,
+    workspaceId: string,
+    params?: { documentId?: string; sourceType?: string; topic?: string; scriptureRef?: string }
+  ) {
+    const searchParams = new URLSearchParams();
+    if (params?.documentId) searchParams.set("documentId", params.documentId);
+    if (params?.sourceType) searchParams.set("sourceType", params.sourceType);
+    if (params?.topic) searchParams.set("topic", params.topic);
+    if (params?.scriptureRef) searchParams.set("scriptureRef", params.scriptureRef);
+    const query = searchParams.toString();
+    return request<StudyList<SavedStudyCitation>>(`/study-workspaces/${workspaceId}/citations${query ? `?${query}` : ""}`, {
+      headers: studyHeaders(userId)
+    });
+  },
+  saveCitation(
+    userId: string,
+    workspaceId: string,
+    payload: { documentId: string; quote: string; selectedText?: string; citationUrl?: string; scriptureRefs?: string[] }
+  ) {
+    return request<SavedStudyCitation>(`/study-workspaces/${workspaceId}/citations`, {
+      method: "POST",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
+    });
+  },
+  deleteCitation(userId: string, workspaceId: string, citationId: string) {
+    return request<{ deleted: boolean }>(`/study-workspaces/${workspaceId}/citations/${citationId}`, {
+      method: "DELETE",
+      headers: studyHeaders(userId)
+    });
+  },
+  postIts(userId: string, workspaceId: string, params?: { documentId?: string; sourceType?: string; topic?: string }) {
+    const searchParams = new URLSearchParams();
+    if (params?.documentId) searchParams.set("documentId", params.documentId);
+    if (params?.sourceType) searchParams.set("sourceType", params.sourceType);
+    if (params?.topic) searchParams.set("topic", params.topic);
+    const query = searchParams.toString();
+    return request<StudyList<StudyPostIt>>(`/study-workspaces/${workspaceId}/post-its${query ? `?${query}` : ""}`, {
+      headers: studyHeaders(userId)
+    });
+  },
+  createPostIt(
+    userId: string,
+    workspaceId: string,
+    payload: { documentId?: string; content: string; pinned?: boolean; sourceFilters?: Record<string, unknown> }
+  ) {
+    return request<StudyPostIt>(`/study-workspaces/${workspaceId}/post-its`, {
+      method: "POST",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
+    });
+  },
+  deletePostIt(userId: string, workspaceId: string, postItId: string) {
+    return request<{ deleted: boolean }>(`/study-workspaces/${workspaceId}/post-its/${postItId}`, {
+      method: "DELETE",
+      headers: studyHeaders(userId)
+    });
   }
 };
