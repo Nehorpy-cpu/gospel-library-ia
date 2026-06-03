@@ -42,6 +42,17 @@ class QdrantService:
             with_payload=True,
         )
 
+    def points_count(self) -> int:
+        try:
+            info = self.client.get_collection(self.settings.qdrant_collection)
+        except Exception:
+            return 0
+        for attr in ("points_count", "vectors_count"):
+            value = getattr(info, attr, None)
+            if value is not None:
+                return int(value or 0)
+        return 0
+
     def _build_filter(self, filters: dict) -> Filter | None:
         must: list[FieldCondition] = []
         mapping = {

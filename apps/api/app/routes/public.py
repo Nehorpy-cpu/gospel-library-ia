@@ -1,6 +1,7 @@
 import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+from uuid import uuid4
 
 from app.core.config import get_settings
 from app.schemas.api import ChatRequest, DocumentListResponse, SearchRequest
@@ -25,7 +26,7 @@ def _is_missing_openai_response(response: httpx.Response) -> bool:
 async def search(payload: SearchRequest, request: Request):
     await limiter.check(request)
     if _qdrant_points_count() <= 0:
-        return _textual_search_response(payload, ["Búsqueda semántica no disponible todavía."])
+        return _textual_search_response(payload, ["Busqueda semantica no disponible todavia."])
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(f"{get_settings().rag_api_url}/search", json=payload.model_dump(mode="json"))
@@ -33,26 +34,27 @@ async def search(payload: SearchRequest, request: Request):
                 return _textual_search_response(
                     payload,
                     [
-                        "Búsqueda semántica no disponible todavía.",
+                        "Falta configurar la clave de OpenAI para busqueda IA.",
+                        "Busqueda semantica no disponible todavia.",
                         "OPENAI_API_KEY is required for semantic search and chat",
                     ],
                 )
             response.raise_for_status()
             data = response.json()
             if not data.get("results"):
-                fallback = _textual_search_response(payload, ["Sin resultados semánticos; se usó búsqueda textual básica."])
+                fallback = _textual_search_response(payload, ["Sin resultados semanticos; se uso busqueda textual basica."])
                 if fallback["results"]:
                     return fallback
             return data
     except Exception:
-        return _textual_search_response(payload, ["Búsqueda semántica no disponible todavía."])
+        return _textual_search_response(payload, ["Busqueda semantica no disponible todavia."])
 
 
 @router.post("/chat")
 async def chat(payload: ChatRequest, request: Request):
     await limiter.check(request, get_settings().chat_rate_limit_per_minute)
     if _qdrant_points_count() <= 0:
-        return _local_chat_response(payload, ["Búsqueda semántica no disponible todavía."])
+        return _local_chat_response(payload, ["Busqueda semantica no disponible todavia."])
     try:
         async with httpx.AsyncClient(timeout=120) as client:
             response = await client.post(f"{get_settings().rag_api_url}/chat", json=payload.model_dump(mode="json"))
@@ -60,14 +62,15 @@ async def chat(payload: ChatRequest, request: Request):
                 return _local_chat_response(
                     payload,
                     [
-                        "Búsqueda semántica no disponible todavía.",
+                        "Falta configurar la clave de OpenAI para busqueda IA.",
+                        "Busqueda semantica no disponible todavia.",
                         "OPENAI_API_KEY is required for semantic search and chat",
                     ],
                 )
             response.raise_for_status()
             return response.json()
     except Exception:
-        return _local_chat_response(payload, ["Búsqueda semántica no disponible todavía."])
+        return _local_chat_response(payload, ["Busqueda semantica no disponible todavia."])
 
 
 DOCUMENT_STATUSES = ("READY", "PENDING", "FAILED", "INDEXED")
@@ -460,22 +463,22 @@ def _local_chat_response(payload: ChatRequest, warnings: list[str] | None = None
     ]
     if rows:
         message = (
-            "Modo básico sin embeddings: no puedo generar una respuesta IA completa todavía, "
-            "pero encontré fuentes reales relacionadas: "
+            "Modo basico sin embeddings: no puedo generar una respuesta IA completa todavia, "
+            "pero encontre fuentes reales relacionadas: "
             + ", ".join(f"[{i}] {row['title']}" for i, row in enumerate(rows, start=1))
         )
     else:
         message = (
-            "Modo básico sin embeddings: la búsqueda semántica y el chat IA aún no están disponibles. "
-            "No encontré fuentes locales relacionadas con esta consulta."
+            "Modo basico sin embeddings: la busqueda semantica y el chat IA aun no estan disponibles. "
+            "No encontre fuentes locales relacionadas con esta consulta."
         )
     return {
-        "session_id": payload.session_id or "local-fallback",
+        "session_id": payload.session_id or str(uuid4()),
         "message": message,
         "citations": citations,
         "grounded": bool(rows),
         "mode": "textual_fallback",
-        "warnings": warnings or ["Búsqueda semántica no disponible todavía."],
+        "warnings": warnings or ["Busqueda semantica no disponible todavia."],
     }
 
 

@@ -2,7 +2,7 @@ import type { ChatRequest, ChatResponse, ChatStreamEvent, SearchRequest, SearchR
 import { chatRequestSchema, searchRequestSchema } from "@/lib/validators";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_RAG_API_URL ?? "/api";
-const MISSING_OPENAI_MESSAGE = "Falta configurar la clave de OpenAI para búsqueda IA.";
+const MISSING_OPENAI_MESSAGE = "Falta configurar la clave de OpenAI para busqueda IA.";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {

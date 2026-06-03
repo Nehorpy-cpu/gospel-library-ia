@@ -59,6 +59,8 @@ class SearchResult(BaseModel):
 class SearchResponse(BaseModel):
     query: str
     rewritten_query: str | None = None
+    mode: str = "hybrid"
+    warnings: list[str] = Field(default_factory=list)
     results: list[SearchResult]
 
 

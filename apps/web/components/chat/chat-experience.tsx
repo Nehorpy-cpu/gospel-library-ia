@@ -108,7 +108,9 @@ export function ChatExperience() {
                 ) : null}
                 {message.warnings?.length ? (
                   <div className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-200">
-                    {message.warnings[0]}
+                    {message.warnings.map((warning) => (
+                      <p key={warning}>{warning}</p>
+                    ))}
                   </div>
                 ) : null}
               </div>

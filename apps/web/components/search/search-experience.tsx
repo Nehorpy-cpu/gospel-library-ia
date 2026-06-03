@@ -74,7 +74,9 @@ export function SearchExperience() {
         ) : null}
         {data?.warnings?.length ? (
           <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">
-            {data.warnings[0]}
+            {data.warnings.map((warning) => (
+              <p key={warning}>{warning}</p>
+            ))}
           </div>
         ) : null}
         <div ref={parentRef} className="h-[calc(100vh-130px)] overflow-auto pr-2">
