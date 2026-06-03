@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 3 - Study workspace DB needs runtime migration follow-up.
+Phase 4 - Study API needs runtime log verification follow-up.
 
 ## Phase tracker
 
@@ -11,7 +11,7 @@ Phase 3 - Study workspace DB needs runtime migration follow-up.
 | 1 | Stabilize data | Needs follow-up | 2026-06-03 | 2026-06-03 | Code and data-quality plan are present; `corepack pnpm test` passed. Docker runtime checks could not run because Docker daemon/service is unavailable in this environment. |
 | 2 | Fallback text search | Needs follow-up | 2026-06-03 | 2026-06-03 | Implemented PostgreSQL text fallback for unavailable OpenAI/Qdrant, warning propagation, and frontend messaging. `corepack pnpm test` and Python AST validation passed. Docker `rag-api` logs could not run because Docker daemon is unavailable. |
 | 3 | Study workspace DB | Needs follow-up | 2026-06-03 | 2026-06-03 | Added enterprise study workspace DB fields, study highlights, Prisma schema relations, Alembic migration, and Prisma SQL migration. `prisma:generate`, `prisma validate`, and `pnpm test` passed. `prisma:migrate` could not connect because Postgres/Docker are unavailable. |
-| 4 | Study API | Pending | - | - | - |
+| 4 | Study API | Needs follow-up | 2026-06-03 | 2026-06-03 | Implemented authenticated StudyWorkspace API endpoints with Pydantic validation, ownership enforcement, CRUD for workspaces/source filters/notes/highlights/citations/post-its, source attribution, filters, and structured logs. `pnpm test` and Python compile checks passed. Docker API logs could not run because Docker daemon is unavailable. |
 | 5 | Study frontend | Pending | - | - | - |
 | 6 | Source filters | Pending | - | - | - |
 | 7 | Saved quotes and post-its | Pending | - | - | - |
@@ -67,3 +67,17 @@ After each phase:
 - Blocked: `corepack pnpm prisma:migrate`
 - Cause: PostgreSQL is not reachable at `localhost:5432`; Docker daemon is unavailable in this environment.
 - Status decision: `Needs follow-up`, because the migration could not be applied to a live database.
+
+### 2026-06-03 - Phase 4 Study API
+
+- Passed: Python AST validation for `apps/api/app/routes/study.py` and `apps/api/app/main.py`
+- Passed: `python -m py_compile apps\api\app\routes\study.py apps\api\app\main.py`
+- Passed: `corepack pnpm test`
+- Implemented: authenticated `/api/study-workspaces` endpoints requiring `X-User-Id`
+- Implemented: CRUD for study workspaces, workspace source filters, notes, highlights, saved citations, and post-its
+- Implemented: Pydantic request validation, user ownership checks, soft deletes, structured logs, and source attribution for saved citations
+- Implemented: filters by workspace, document, source type, topic, and scripture reference where applicable
+- Updated: API CORS allows `PATCH` and `DELETE` for the new CRUD endpoints
+- Blocked: `docker compose logs api --tail=100`
+- Cause: Docker daemon is unavailable in this environment.
+- Status decision: `Needs follow-up`, because required runtime log verification did not complete.
