@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 2 - Fallback text search needs runtime log verification follow-up.
+Phase 3 - Study workspace DB needs runtime migration follow-up.
 
 ## Phase tracker
 
@@ -10,7 +10,7 @@ Phase 2 - Fallback text search needs runtime log verification follow-up.
 | --- | --- | --- | --- | --- | --- |
 | 1 | Stabilize data | Needs follow-up | 2026-06-03 | 2026-06-03 | Code and data-quality plan are present; `corepack pnpm test` passed. Docker runtime checks could not run because Docker daemon/service is unavailable in this environment. |
 | 2 | Fallback text search | Needs follow-up | 2026-06-03 | 2026-06-03 | Implemented PostgreSQL text fallback for unavailable OpenAI/Qdrant, warning propagation, and frontend messaging. `corepack pnpm test` and Python AST validation passed. Docker `rag-api` logs could not run because Docker daemon is unavailable. |
-| 3 | Study workspace DB | Pending | - | - | - |
+| 3 | Study workspace DB | Needs follow-up | 2026-06-03 | 2026-06-03 | Added enterprise study workspace DB fields, study highlights, Prisma schema relations, Alembic migration, and Prisma SQL migration. `prisma:generate`, `prisma validate`, and `pnpm test` passed. `prisma:migrate` could not connect because Postgres/Docker are unavailable. |
 | 4 | Study API | Pending | - | - | - |
 | 5 | Study frontend | Pending | - | - | - |
 | 6 | Source filters | Pending | - | - | - |
@@ -53,3 +53,17 @@ After each phase:
 - Blocked: `docker compose logs rag-api --tail=100`
 - Cause: Docker daemon is unavailable in this environment.
 - Status decision: `Needs follow-up`, because required runtime log verification did not complete.
+
+### 2026-06-03 - Phase 3 Study workspace DB
+
+- Passed: `corepack pnpm prisma:generate`
+- Passed: `corepack pnpm --dir packages/database exec prisma validate`
+- Passed: Python AST validation for `scraper/migrations/versions/0005_study_workspace_enterprise_fields.py`
+- Passed: `corepack pnpm test`
+- Implemented: Prisma models/relations for study workspaces, workspace source filters, study notes, saved citations, post-its, and study highlights
+- Implemented: user ownership fields, selected text, scripture refs, soft-delete fields, sync revision fields, and user/workspace/document/chunk indexes
+- Implemented: Alembic migration `0005_study_workspace_enterprise_fields.py`
+- Implemented: Prisma migration `0003_study_workspace_enterprise_fields/migration.sql`
+- Blocked: `corepack pnpm prisma:migrate`
+- Cause: PostgreSQL is not reachable at `localhost:5432`; Docker daemon is unavailable in this environment.
+- Status decision: `Needs follow-up`, because the migration could not be applied to a live database.

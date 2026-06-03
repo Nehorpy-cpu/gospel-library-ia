@@ -127,6 +127,12 @@ enum SyncEntity {
   READING_HISTORY
   CHAT_SESSION
   CHAT_MESSAGE
+  STUDY_WORKSPACE
+  STUDY_NOTE
+  STUDY_HIGHLIGHT
+  SAVED_CITATION
+  POST_IT
+  STUDY_WORKSPACE_SOURCE
 }
 
 model Organization {
@@ -174,6 +180,11 @@ model User {
   auditLogs       AuditLog[]
   syncEvents      SyncEvent[]
   studyWorkspaces StudyWorkspace[]
+  studyWorkspaceSources StudyWorkspaceSource[]
+  studyNotes      StudyNote[]
+  studyHighlights StudyHighlight[]
+  savedCitations  SavedCitation[]
+  postIts         PostIt[]
 
   @@index([status])
   @@map("users")
@@ -372,6 +383,7 @@ model Document {
   chatCitations    ChatCitation[]
   documentVersions DocumentVersion[]
   studyNotes       StudyNote[]
+  studyHighlights  StudyHighlight[]
   savedCitations   SavedCitation[]
   postIts          PostIt[]
 
@@ -497,6 +509,8 @@ model DocumentChunk {
   scriptures      ChunkScriptureReference[]
   notes           Note[]
   highlights      Highlight[]
+  collectionItems CollectionItem[]
+  studyHighlights StudyHighlight[]
   favorites       Favorite[]
   chatCitations   ChatCitation[]
 
@@ -929,33 +943,43 @@ model StudyWorkspace {
   description   String?
   sourceFilters Json                   @default("{}") @map("source_filters")
   settings      Json                   @default("{}")
+  clientRev     Int                    @default(1) @map("client_rev")
+  serverRev     Int                    @default(1) @map("server_rev")
   createdAt     DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt     DateTime?              @map("deleted_at") @db.Timestamptz(6)
 
   user          User?                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   sources       StudyWorkspaceSource[]
   notes         StudyNote[]
+  highlights    StudyHighlight[]
   citations     SavedCitation[]
   postIts       PostIt[]
 
-  @@index([userId])
+  @@index([userId, updatedAt])
   @@index([updatedAt])
+  @@index([deletedAt])
   @@map("study_workspaces")
 }
 
 model StudyWorkspaceSource {
   id          String         @id @default(uuid()) @db.Uuid
   workspaceId String         @map("workspace_id") @db.Uuid
+  userId      String?        @map("user_id") @db.Uuid
   sourceKey   String?        @map("source_key") @db.VarChar(100)
   language    String?        @db.VarChar(16)
   author      String?
   category    String?
   tags        Json           @default("[]")
   createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt   DateTime?      @map("deleted_at") @db.Timestamptz(6)
 
   workspace   StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([workspaceId])
+  @@index([workspaceId, updatedAt])
+  @@index([userId, updatedAt])
   @@index([sourceKey])
   @@map("study_workspace_sources")
 }
@@ -963,58 +987,125 @@ model StudyWorkspaceSource {
 model StudyNote {
   id          String         @id @default(uuid()) @db.Uuid
   workspaceId String         @map("workspace_id") @db.Uuid
+  userId      String?        @map("user_id") @db.Uuid
   documentId  String?        @map("document_id") @db.Uuid
   chunkId     String?        @map("chunk_id") @db.Uuid
   title       String?
   content     String
+  selectedText String?       @map("selected_text")
+  selectionRange Json        @default("{}") @map("selection_range")
+  scriptureRefs Json         @default("[]") @map("scripture_refs")
   color       String         @default("yellow") @db.VarChar(32)
   position    Json           @default("{}")
+  clientRev   Int            @default(1) @map("client_rev")
+  serverRev   Int            @default(1) @map("server_rev")
   createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt   DateTime?      @map("deleted_at") @db.Timestamptz(6)
 
   workspace   StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
   document    Document?      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  highlights  StudyHighlight[]
 
   @@index([workspaceId, updatedAt])
+  @@index([userId, updatedAt])
   @@index([documentId])
+  @@index([chunkId])
+  @@index([deletedAt])
   @@map("study_notes")
+}
+
+model StudyHighlight {
+  id             String         @id @default(uuid()) @db.Uuid
+  workspaceId    String         @map("workspace_id") @db.Uuid
+  userId         String?        @map("user_id") @db.Uuid
+  documentId     String         @map("document_id") @db.Uuid
+  chunkId        String?        @map("chunk_id") @db.Uuid
+  noteId         String?        @map("note_id") @db.Uuid
+  startChar      Int            @map("start_char")
+  endChar        Int            @map("end_char")
+  selectedText   String         @map("selected_text")
+  scriptureRefs  Json           @default("[]") @map("scripture_refs")
+  color          String         @default("yellow") @db.VarChar(32)
+  metadata       Json           @default("{}")
+  clientRev      Int            @default(1) @map("client_rev")
+  serverRev      Int            @default(1) @map("server_rev")
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime?      @map("deleted_at") @db.Timestamptz(6)
+
+  workspace      StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user           User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  document       Document       @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  chunk          DocumentChunk? @relation(fields: [chunkId], references: [id], onDelete: SetNull)
+  note           StudyNote?     @relation(fields: [noteId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, updatedAt])
+  @@index([userId, updatedAt])
+  @@index([documentId])
+  @@index([chunkId])
+  @@index([noteId])
+  @@index([deletedAt])
+  @@map("study_highlights")
 }
 
 model SavedCitation {
   id          String         @id @default(uuid()) @db.Uuid
   workspaceId String         @map("workspace_id") @db.Uuid
+  userId      String?        @map("user_id") @db.Uuid
   documentId  String         @map("document_id") @db.Uuid
   chunkId     String?        @map("chunk_id") @db.Uuid
   quote       String
+  selectedText String?       @map("selected_text")
   citationUrl String?        @map("citation_url")
+  sourceUrl   String?        @map("source_url")
+  sourceTitle String?        @map("source_title")
+  sourceAuthor String?       @map("source_author")
+  location    Json           @default("{}")
+  scriptureRefs Json         @default("[]") @map("scripture_refs")
   metadata    Json           @default("{}")
+  clientRev   Int            @default(1) @map("client_rev")
+  serverRev   Int            @default(1) @map("server_rev")
   createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt   DateTime?      @map("deleted_at") @db.Timestamptz(6)
 
   workspace   StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
   document    Document       @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
-  @@index([workspaceId, createdAt])
+  @@index([workspaceId, updatedAt])
+  @@index([userId, updatedAt])
   @@index([documentId])
+  @@index([chunkId])
+  @@index([deletedAt])
   @@map("saved_citations")
 }
 
 model PostIt {
   id          String         @id @default(uuid()) @db.Uuid
   workspaceId String         @map("workspace_id") @db.Uuid
+  userId      String?        @map("user_id") @db.Uuid
   documentId  String?        @map("document_id") @db.Uuid
   content     String
   color       String         @default("yellow") @db.VarChar(32)
   position    Json           @default("{}")
+  sourceFilters Json         @default("{}") @map("source_filters")
   pinned      Boolean        @default(false)
+  clientRev   Int            @default(1) @map("client_rev")
+  serverRev   Int            @default(1) @map("server_rev")
   createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt   DateTime?      @map("deleted_at") @db.Timestamptz(6)
 
   workspace   StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
   document    Document?      @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, updatedAt])
+  @@index([userId, updatedAt])
   @@index([documentId])
+  @@index([deletedAt])
   @@map("post_its")
 }
