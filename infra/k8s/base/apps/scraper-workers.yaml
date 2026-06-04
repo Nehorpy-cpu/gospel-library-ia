@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: worker
-          image: ghcr.io/OWNER/gospel-library-scraper:latest
+          image: ghcr.io/OWNER/gospel-library-scraper:production
           command: ["celery", "-A", "app.workers.celery_app", "worker", "-Q", "scraping", "--loglevel=info", "--concurrency=4"]
           envFrom:
             - configMapRef:
@@ -45,7 +45,7 @@ spec:
     spec:
       containers:
         - name: worker
-          image: ghcr.io/OWNER/gospel-library-scraper:latest
+          image: ghcr.io/OWNER/gospel-library-scraper:production
           command: ["celery", "-A", "app.workers.celery_app", "worker", "-Q", "assets", "--loglevel=info", "--concurrency=4"]
           envFrom:
             - configMapRef:
@@ -69,7 +69,7 @@ spec:
     spec:
       containers:
         - name: worker
-          image: ghcr.io/OWNER/gospel-library-scraper:latest
+          image: ghcr.io/OWNER/gospel-library-scraper:production
           command: ["celery", "-A", "app.workers.celery_app", "worker", "-Q", "ocr", "--loglevel=info", "--concurrency=2"]
           envFrom:
             - configMapRef:
@@ -100,7 +100,7 @@ spec:
     spec:
       containers:
         - name: scheduler
-          image: ghcr.io/OWNER/gospel-library-scraper:latest
+          image: ghcr.io/OWNER/gospel-library-scraper:production
           command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=info"]
           envFrom:
             - configMapRef:

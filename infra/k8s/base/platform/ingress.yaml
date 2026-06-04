@@ -23,6 +23,13 @@ spec:
     - host: gospellibraryia.example.com
       http:
         paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 8000
           - path: /
             pathType: Prefix
             backend:

@@ -27,5 +27,6 @@ jobs:
       - name: Rollout status
         run: |
           kubectl rollout status deployment/web -n gospel-library --timeout=180s
+          kubectl rollout status deployment/api -n gospel-library --timeout=180s
           kubectl rollout status deployment/rag-api -n gospel-library --timeout=180s
           kubectl rollout status deployment/scraper-api -n gospel-library --timeout=180s

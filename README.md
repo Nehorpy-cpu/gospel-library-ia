@@ -88,9 +88,12 @@ GET  /api/documents/:id
 GET  /api/authors
 GET  /api/topics
 GET  /api/ingestion/status
+GET  /api/admin/errors
 POST /api/admin/scrape
 POST /api/admin/reindex
+POST /api/admin/jobs/:id/retry
 GET  /api/admin/status
+POST /api/exports/study
 ```
 
 El frontend consume esos endpoints con proxy interno de Next.
@@ -164,10 +167,10 @@ Workflow:
 Servicios:
 
 ```txt
-apps/api      uvicorn app.main:app --host 0.0.0.0 --port $PORT
-rag           uvicorn app.main:app --host 0.0.0.0 --port $PORT
-scraper       uvicorn app.api:app --host 0.0.0.0 --port $PORT
-workers       celery commands por cola
+api           apps/api, uvicorn app.main:app --host 0.0.0.0 --port $PORT
+rag           rag, uvicorn app.main:app --host 0.0.0.0 --port $PORT
+scraper       scraper, uvicorn app.api:app --host 0.0.0.0 --port $PORT
+workers       scraper/rag celery commands por cola
 ```
 
 Guia:
@@ -215,6 +218,8 @@ Docs:
 docs/DEVOPS_ARCHITECTURE.md
 docs/PRODUCTION_CHECKLIST.md
 docs/RUNBOOK.md
+infra/cloudflare/waf-rules.md
+infra/railway/api-service.md
 ```
 
 ## Codex phased development

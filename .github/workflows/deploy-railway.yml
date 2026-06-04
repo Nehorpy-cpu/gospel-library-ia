@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [rag, scraper]
+        service: [api, rag, scraper]
     steps:
       - uses: actions/checkout@v4
       - name: Install Railway

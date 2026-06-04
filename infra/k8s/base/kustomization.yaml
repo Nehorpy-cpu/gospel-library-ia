@@ -8,6 +8,7 @@ resources:
   - configmap.yaml
   - secret.example.yaml
   - apps/web.yaml
+  - apps/api.yaml
   - apps/rag-api.yaml
   - apps/rag-worker-indexing.yaml
   - apps/scraper-api.yaml

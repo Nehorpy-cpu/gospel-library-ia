@@ -55,8 +55,10 @@
 - [ ] CI workflow green.
 - [ ] Security workflow green.
 - [ ] GHCR image push works.
+- [ ] GHCR images include web, api, rag, and scraper.
 - [ ] Vercel deploy works.
 - [ ] Railway or Kubernetes deploy works.
+- [ ] API gateway deploy is wired before web traffic points to production.
 - [ ] Rollback procedure documented.
 
 ## Kubernetes
@@ -82,11 +84,22 @@
 
 ## Launch
 
+- [ ] `docker compose config --quiet` passes.
+- [ ] `docker compose ps` shows healthy web, api, scraper-api, rag-api, PostgreSQL, Redis, and Qdrant.
+- [ ] `pnpm --dir apps/web build` passes in CI.
 - [ ] Smoke test home/search/chat.
 - [ ] Smoke test ingestion job.
 - [ ] Smoke test RAG indexing.
 - [ ] Smoke test PDF/OCR asset flow.
+- [ ] Smoke test StudyWorkspace privacy and exports.
 - [ ] Smoke test backup job.
 - [ ] Monitor p95 latency.
 - [ ] Monitor queue depth.
 - [ ] Monitor Sentry for first 24 hours.
+
+## Restore
+
+- [ ] PostgreSQL restore drill completed from latest R2 backup.
+- [ ] Qdrant snapshot restore drill completed or vector rebuild procedure tested.
+- [ ] R2 object version restore tested.
+- [ ] Restore runbook owner assigned.

@@ -256,6 +256,11 @@ services:
       - "9001:9001"
     volumes:
       - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/ready >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
 
   prometheus:
     image: prom/prometheus:v2.55.1

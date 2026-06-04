@@ -22,6 +22,9 @@ jobs:
           - name: web
             context: apps/web
             image: gospel-library-web
+          - name: api
+            context: apps/api
+            image: gospel-library-api
           - name: rag
             context: rag
             image: gospel-library-rag

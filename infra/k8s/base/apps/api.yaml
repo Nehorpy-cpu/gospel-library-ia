@@ -1,22 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: rag-api
+  name: api
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: rag-api
+      app: api
   template:
     metadata:
       labels:
-        app: rag-api
+        app: api
     spec:
       containers:
-        - name: rag-api
-          image: ghcr.io/OWNER/gospel-library-rag:production
+        - name: api
+          image: ghcr.io/OWNER/gospel-library-api:production
           ports:
-            - containerPort: 8090
+            - containerPort: 8000
           envFrom:
             - configMapRef:
                 name: gospel-config
@@ -25,46 +25,46 @@ spec:
           readinessProbe:
             httpGet:
               path: /ready
-              port: 8090
+              port: 8000
             initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /health
-              port: 8090
+              port: 8000
             initialDelaySeconds: 30
             periodSeconds: 30
           resources:
             requests:
-              cpu: 500m
-              memory: 768Mi
+              cpu: 400m
+              memory: 512Mi
             limits:
               cpu: "2"
-              memory: 2Gi
+              memory: 1Gi
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: rag-api
+  name: api
   labels:
-    app: rag-api
+    app: api
 spec:
   selector:
-    app: rag-api
+    app: api
   ports:
     - name: http
-      port: 8090
-      targetPort: 8090
+      port: 8000
+      targetPort: 8000
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: rag-api
+  name: api
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: rag-api
+    name: api
   minReplicas: 2
   maxReplicas: 20
   metrics:

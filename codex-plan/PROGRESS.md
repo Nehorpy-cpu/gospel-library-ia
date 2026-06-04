@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 12 - Admin Pro needs build/runtime verification follow-up.
+Phase 13 - Deploy ready needs runtime build verification follow-up.
 
 ## Phase tracker
 
@@ -20,7 +20,7 @@ Phase 12 - Admin Pro needs build/runtime verification follow-up.
 | 10 | Exports | Needs follow-up | 2026-06-04 | 2026-06-04 | Added owned StudyWorkspace exports for Markdown/PDF, source attribution, frontend download actions, and API tests. Python compile, API tests, web typecheck, `pnpm test`, and `git diff --check` passed. `pnpm build` remains blocked by the local Next/Webpack `EISDIR readlink` issue; `docker compose ps` remains blocked by unavailable Docker daemon. |
 | 11 | Auth privacy | Needs follow-up | 2026-06-04 | 2026-06-04 | Added privacy middleware, security headers, sensitive route rate limiting, centralized log redaction, user-scoped frontend favorites/history storage, and removed OpenAI variables from web env example. Python compile, privacy tests, API test discovery, web typecheck, `pnpm test`, frontend OpenAI exposure scan, and `git diff --check` passed. Docker API/RAG log verification remains blocked by unavailable Docker daemon. |
 | 12 | Admin Pro | Needs follow-up | 2026-06-04 | 2026-06-04 | Replaced admin mock metrics with real operational data, added error inspection, retry endpoint/actions, task status feedback, and PostgreSQL/Qdrant visibility. Python compile, admin tests, API test discovery, web typecheck, `pnpm test`, and `git diff --check` passed. `pnpm build` remains blocked by local Next/Webpack `EISDIR readlink`; `docker compose ps` remains blocked by unavailable Docker daemon. |
-| 13 | Deploy ready | Pending | - | - | - |
+| 13 | Deploy ready | Needs follow-up | 2026-06-04 | 2026-06-04 | Added API gateway Kubernetes deployment, aligned K8s images with CI `production` tags, fixed probes/config, included API in GHCR/Railway/K8s workflows, added MinIO healthcheck, and expanded production runbook/checklist. Static validation, Python compile, API tests, web typecheck, `pnpm test`, and `git diff --check` passed. `docker compose ps` and root `pnpm build` remain blocked by unavailable Docker daemon; web build remains blocked by local Next/Webpack `EISDIR readlink`. |
 
 ## Update rules
 
@@ -219,3 +219,27 @@ After each phase:
 - Blocked: `docker compose ps`
 - Cause: Docker daemon is unavailable in this environment.
 - Status decision: `Needs follow-up`, because required production build and runtime baseline checks did not complete.
+
+### 2026-06-04 - Phase 13 Deploy ready
+
+- Passed: `docker compose config --quiet`
+- Passed: `python -m compileall apps/api/app scraper/app rag/app`
+- Passed: `python -m unittest discover apps/api/tests`
+- Passed: `corepack pnpm --dir apps/web typecheck`
+- Passed: `corepack pnpm test`
+- Passed: `git diff --check`
+- Implemented: Kubernetes `api` gateway deployment, service, HPA, and rollout status check
+- Implemented: K8s config update for `NEXT_PUBLIC_RAG_API_URL=/api`, `API_INTERNAL_URL`, and internal RAG/scraper URLs
+- Implemented: K8s readiness probes aligned with `/api/health`, `/ready`, and `/health`
+- Implemented: K8s image tags aligned to GHCR `:production` tags emitted by CI
+- Implemented: build-images workflow now publishes web, api, rag, and scraper images
+- Implemented: Railway workflow and docs now include api, rag, and scraper services
+- Implemented: MinIO local healthcheck for object storage readiness
+- Implemented: production runbook covering Docker, Vercel, Railway, Kubernetes, Qdrant, Cloudflare, observability, backups, restore, smoke tests, and rollback
+- Implemented: production checklist updates for CI/CD, Docker health, StudyWorkspace privacy/exports, and restore drills
+- Blocked: `docker compose ps`
+- Blocked: `corepack pnpm build`
+- Cause: Docker daemon is unavailable in this environment.
+- Blocked: `corepack pnpm --dir apps/web build`
+- Build failure: `Error: EISDIR: illegal operation on a directory, readlink 'F:\Users\Marco Sosa\Documentos\Liahona IA\node_modules\next\dist\pages\_app.js'`
+- Status decision: `Needs follow-up`, because required local Docker stack and production build verification did not complete.

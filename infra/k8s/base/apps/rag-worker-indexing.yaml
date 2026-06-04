@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: rag-worker-indexing
-          image: ghcr.io/OWNER/gospel-library-rag:latest
+          image: ghcr.io/OWNER/gospel-library-rag:production
           command: ["celery", "-A", "app.workers.celery_app", "worker", "-Q", "rag-indexing", "--loglevel=info", "--concurrency=2"]
           envFrom:
             - configMapRef:

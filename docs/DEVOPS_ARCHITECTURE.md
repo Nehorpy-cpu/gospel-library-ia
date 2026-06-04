@@ -18,6 +18,7 @@ Vercel:
   apps/web
 
 Railway:
+  api gateway
   rag-api
   scraper-api
   scraper workers
@@ -33,9 +34,10 @@ Managed:
 ### Kubernetes
 
 ```txt
-Ingress + cert-manager
-web Deployment
-rag-api Deployment + HPA
+  Ingress + cert-manager
+  web Deployment
+  api gateway Deployment + HPA
+  rag-api Deployment + HPA
 rag-worker-indexing Deployment + HPA
 scraper-api Deployment
 scraper worker Deployments
@@ -53,8 +55,12 @@ flowchart LR
   U["Users"] --> CF["Cloudflare CDN/WAF/SSL"]
   CF --> V["Vercel Web or K8s Ingress"]
   V --> W["Next.js Web"]
-  W --> RAG["RAG API"]
-  W --> SCR["Scraper Admin API"]
+  W --> API["FastAPI Gateway"]
+  API --> RAG["RAG API"]
+  API --> SCR["Scraper Admin API"]
+  API --> PG
+  API --> QD
+  API --> REDIS
   RAG --> PG["Managed PostgreSQL"]
   RAG --> QD["Qdrant"]
   RAG --> REDIS["Redis Queues/Cache"]
@@ -104,6 +110,7 @@ Preferred enterprise:
 
 - Kubernetes or container platform with private networking.
 - Deploy `rag-api` and `scraper-api` separately.
+- Deploy `api` as the public backend gateway for web, admin, exports, and fallbacks.
 - Use separate worker deployments per queue.
 
 ### Databases
@@ -129,6 +136,22 @@ Scale on:
 - p95 latency
 - concurrent streams
 - request rate
+
+Start:
+
+```txt
+min: 2 replicas
+max: 20 replicas
+```
+
+### API Gateway
+
+Scale on:
+
+- request rate
+- p95 latency
+- admin/export traffic
+- PostgreSQL fallback search load
 
 Start:
 
