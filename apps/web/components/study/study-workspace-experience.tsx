@@ -10,6 +10,7 @@ import {
   ArrowUp,
   BookOpen,
   BookmarkPlus,
+  Download,
   FileText,
   Highlighter,
   NotebookPen,
@@ -27,7 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { ragApi, studyApi } from "@/lib/api";
+import { downloadBlob, exportsApi, ragApi, studyApi } from "@/lib/api";
 import { mergeSourceOptions } from "@/lib/source-filters";
 import { cn, truncate } from "@/lib/utils";
 import { useStudyWorkspaceStore } from "@/stores/study-workspace-store";
@@ -101,6 +102,7 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
   } = useStudyWorkspaceStore();
   const [draft, setDraft] = useState<DraftState>(initialDraft);
   const [editingNote, setEditingNote] = useState<{ id: string; title: string; content: string } | null>(null);
+  const [exportMessage, setExportMessage] = useState<string | null>(null);
 
   const filters = useMemo(
     () => ({
@@ -320,6 +322,22 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
     onSuccess: invalidateWorkspace
   });
 
+  const exportStudy = useMutation({
+    mutationFn: (format: "markdown" | "pdf") =>
+      exportsApi.study(userId, {
+        workspaceId: workspaceId as string,
+        kind: "all",
+        format
+      }),
+    onSuccess: (file) => {
+      downloadBlob(file);
+      setExportMessage("Exportacion generada con fuentes y citas del workspace.");
+    },
+    onError: (error) => {
+      setExportMessage(error instanceof Error ? error.message : "No se pudo exportar el workspace.");
+    }
+  });
+
   const deleteHighlight = useMutation({
     mutationFn: (highlightId: string) => studyApi.deleteHighlight(userId, workspaceId as string, highlightId),
     onSuccess: invalidateWorkspace
@@ -357,6 +375,14 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
             <RefreshCw className="h-4 w-4" />
             Actualizar
           </Button>
+          <Button variant="outline" disabled={!workspaceId || exportStudy.isPending} onClick={() => exportStudy.mutate("markdown")}>
+            <Download className="h-4 w-4" />
+            Markdown
+          </Button>
+          <Button variant="outline" disabled={!workspaceId || exportStudy.isPending} onClick={() => exportStudy.mutate("pdf")}>
+            <Download className="h-4 w-4" />
+            PDF
+          </Button>
           {activeDocumentId ? (
             <Link href={`/documents/${activeDocumentId}`}>
               <Button variant="secondary">
@@ -367,6 +393,7 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
           ) : null}
         </div>
       </header>
+      {exportMessage ? <p className="rounded-md border bg-card px-4 py-3 text-sm text-muted-foreground">{exportMessage}</p> : null}
 
       <section className="grid gap-4 xl:grid-cols-[280px_1fr_360px]">
         <aside className="space-y-4">

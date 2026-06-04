@@ -41,8 +41,38 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function requestFile(path: string, init?: RequestInit): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {})
+    }
+  });
+  if (!response.ok) {
+    throw new Error((await response.text()) || `Request failed: ${response.status}`);
+  }
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const filenameMatch = /filename="?([^";]+)"?/i.exec(disposition);
+  return {
+    blob: await response.blob(),
+    filename: filenameMatch?.[1] ?? "gospel-library-export"
+  };
+}
+
 function studyHeaders(userId: string) {
   return { "X-User-Id": userId };
+}
+
+export function downloadBlob({ blob, filename }: { blob: Blob; filename: string }) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 export const ragApi = {
@@ -350,6 +380,25 @@ export const talkBuilderApi = {
     payload: { title: string; workspaceId?: string; outline: TalkBuilderOutline; content?: string; scriptureRefs?: string[] }
   ) {
     return request<TalkDraftResponse>("/talk-builder/drafts", {
+      method: "POST",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
+    });
+  }
+};
+
+export const exportsApi = {
+  study(
+    userId: string,
+    payload: {
+      workspaceId: string;
+      kind?: "notes" | "quotes" | "talk_drafts" | "all";
+      format?: "markdown" | "pdf";
+      noteIds?: string[];
+      citationIds?: string[];
+    }
+  ) {
+    return requestFile("/exports/study", {
       method: "POST",
       headers: studyHeaders(userId),
       body: JSON.stringify(payload)

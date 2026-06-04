@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 9 - Talk builder completed.
+Phase 10 - Exports needs build/runtime verification follow-up.
 
 ## Phase tracker
 
@@ -17,7 +17,7 @@ Phase 9 - Talk builder completed.
 | 7 | Saved quotes and post-its | Needs follow-up | 2026-06-04 | 2026-06-04 | Added user-facing save quote actions from reader and chat citations, default StudyWorkspace creation for saves, persisted citation location metadata, post-it color/position/create/update/delete controls, and optimistic post-it updates. Web typecheck and `pnpm test` passed. `pnpm build` is blocked by a local Next/Webpack `EISDIR readlink` issue. |
 | 8 | RAG by scripture | Needs follow-up | 2026-06-04 | 2026-06-04 | Added scripture reference normalization, query/message scripture extraction, API/RAG metadata filters, PostgreSQL fallback filtering, Qdrant payload filters, scripture-aware indexing metadata, and frontend scripture filter input. Local compile, web typecheck, API unit tests, and `pnpm test` passed. Docker `rag-api` logs could not run because Docker daemon is unavailable. |
 | 9 | Talk builder | Completed | 2026-06-04 | 2026-06-04 | Added source-grounded Talk Builder API, real document/saved quote retrieval, editable frontend workflow, draft saving into StudyWorkspace notes, and no-embedding textual fallback behavior. Compile, API unit tests, web typecheck, and `pnpm test` passed. |
-| 10 | Exports | Pending | - | - | - |
+| 10 | Exports | Needs follow-up | 2026-06-04 | 2026-06-04 | Added owned StudyWorkspace exports for Markdown/PDF, source attribution, frontend download actions, and API tests. Python compile, API tests, web typecheck, `pnpm test`, and `git diff --check` passed. `pnpm build` remains blocked by the local Next/Webpack `EISDIR readlink` issue; `docker compose ps` remains blocked by unavailable Docker daemon. |
 | 11 | Auth privacy | Pending | - | - | - |
 | 12 | Admin Pro | Pending | - | - | - |
 | 13 | Deploy ready | Pending | - | - | - |
@@ -159,3 +159,22 @@ After each phase:
 - Implemented: `/api/talk-builder/drafts` saves edited outlines as StudyWorkspace notes, creating a default talk draft workspace when needed
 - Implemented: frontend `/talk-builder` page with topic, audience, duration, scripture/source filters, editable sections, citation cards, and draft saving
 - Status decision: `Completed`, because the phase verification passed.
+
+### 2026-06-04 - Phase 10 Exports
+
+- Passed: `python -m py_compile apps\api\app\routes\exports.py apps\api\app\main.py`
+- Passed: `python -m unittest apps.api.tests.test_exports_routes`
+- Passed: `python -m unittest discover apps/api/tests`
+- Passed: `corepack pnpm --dir apps/web typecheck`
+- Passed: `corepack pnpm test`
+- Passed: `git diff --check`
+- Implemented: `/api/exports/study` for Markdown and PDF downloads
+- Implemented: workspace ownership enforcement through `X-User-Id` and `study_workspaces.user_id`
+- Implemented: export filters for notes, saved quotes, talk drafts, or all owned study material
+- Implemented: source title, author, source URL, and scripture reference attribution in exports
+- Implemented: frontend export actions in StudyWorkspace and Talk Builder
+- Blocked: `corepack pnpm --dir apps/web build`
+- Build failure: `Error: EISDIR: illegal operation on a directory, readlink 'F:\Users\Marco Sosa\Documentos\Liahona IA\node_modules\next\dist\pages\_app.js'`
+- Blocked: `docker compose ps`
+- Cause: Docker daemon is unavailable in this environment.
+- Status decision: `Needs follow-up`, because required production build and runtime baseline checks did not complete.

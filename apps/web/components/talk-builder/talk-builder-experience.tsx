@@ -2,13 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { BookOpenCheck, FileText, RefreshCw, Save, ScrollText, Sparkles } from "lucide-react";
+import { BookOpenCheck, Download, FileText, RefreshCw, Save, ScrollText, Sparkles } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { ragApi, studyApi, talkBuilderApi } from "@/lib/api";
+import { downloadBlob, exportsApi, ragApi, studyApi, talkBuilderApi } from "@/lib/api";
 import { mergeSourceOptions } from "@/lib/source-filters";
 import { cn, truncate } from "@/lib/utils";
 import { useStudyWorkspaceStore } from "@/stores/study-workspace-store";
@@ -39,6 +39,7 @@ export function TalkBuilderExperience() {
   const [form, setForm] = useState<FormState>({ ...initialForm, workspaceId: activeWorkspaceId ?? "" });
   const [outline, setOutline] = useState<TalkBuilderOutline | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [exportMessage, setExportMessage] = useState<string | null>(null);
 
   const workspaces = useQuery({
     queryKey: ["talk-builder-workspaces", userId],
@@ -81,8 +82,25 @@ export function TalkBuilderExperience() {
     }
   });
 
+  const exportTalkDrafts = useMutation({
+    mutationFn: (format: "markdown" | "pdf") =>
+      exportsApi.study(userId, {
+        workspaceId: form.workspaceId || activeWorkspaceId || "",
+        kind: "talk_drafts",
+        format
+      }),
+    onSuccess: (file) => {
+      downloadBlob(file);
+      setExportMessage("Borradores exportados con sus fuentes.");
+    },
+    onError: (error) => {
+      setExportMessage(error instanceof Error ? error.message : "No se pudieron exportar los borradores.");
+    }
+  });
+
   const canGenerate = form.topic.trim().length > 1 && !generate.isPending;
   const canSave = outline?.status === "ready" && outline.sections.length > 0 && !saveDraft.isPending;
+  const canExportDrafts = Boolean(form.workspaceId || activeWorkspaceId) && !exportTalkDrafts.isPending;
   const sourceOptions = useMemo(() => mergeSourceOptions(sources.data?.items), [sources.data?.items]);
 
   return (
@@ -103,6 +121,14 @@ export function TalkBuilderExperience() {
           <Button disabled={!canSave} onClick={() => saveDraft.mutate()}>
             <Save className="h-4 w-4" />
             Guardar borrador
+          </Button>
+          <Button variant="outline" disabled={!canExportDrafts} onClick={() => exportTalkDrafts.mutate("markdown")}>
+            <Download className="h-4 w-4" />
+            Markdown
+          </Button>
+          <Button variant="outline" disabled={!canExportDrafts} onClick={() => exportTalkDrafts.mutate("pdf")}>
+            <Download className="h-4 w-4" />
+            PDF
           </Button>
         </div>
       </header>
@@ -219,6 +245,7 @@ export function TalkBuilderExperience() {
             <StatusPanel tone="error" message={saveDraft.error instanceof Error ? saveDraft.error.message : "No se pudo guardar."} />
           ) : null}
           {saveMessage ? <StatusPanel tone="success" message={saveMessage} /> : null}
+          {exportMessage ? <StatusPanel tone="success" message={exportMessage} /> : null}
 
           <Card className="p-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
