@@ -69,6 +69,12 @@ export type ChatRequest = {
   language?: string;
   filters?: MetadataFilter;
   stream?: boolean;
+  calling_focus?: {
+    callingCategory?: string;
+    callingName?: string;
+    customCallingName?: string;
+    callingFocusEnabled: boolean;
+  };
 };
 
 export type ChatResponse = {

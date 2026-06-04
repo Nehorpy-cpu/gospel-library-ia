@@ -34,6 +34,7 @@ This folder defines the phased execution plan for Gospel Library IA. It is the s
 | 11 | `11_AUTH_PRIVACY.md` | Pending |
 | 12 | `12_ADMIN_PRO.md` | Pending |
 | 13 | `13_DEPLOY_READY.md` | Pending |
+| 14 | `14_CALLING_FOCUS.md` | Pending |
 
 ## Global verification baseline
 
@@ -62,4 +63,3 @@ The platform must keep:
 - `GET /api/authors` and `GET /api/topics` derived from real documents.
 - `sourceType`, `sourceUrl`, title, language, source, and excerpt populated when possible.
 - Qdrant collection name unchanged: `doctrinal_chunks_v1`.
-

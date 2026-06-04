@@ -52,12 +52,27 @@ class SearchRequest(BaseModel):
         return self
 
 
+class CallingFocus(BaseModel):
+    callingCategory: str | None = Field(default=None, max_length=120)
+    callingName: str | None = Field(default=None, max_length=200)
+    customCallingName: str | None = Field(default=None, max_length=200)
+    callingFocusEnabled: bool = False
+
+    def display_name(self) -> str | None:
+        if not self.callingFocusEnabled:
+            return None
+        if self.callingName and "otro" in self.callingName.lower() and self.customCallingName:
+            return self.customCallingName.strip() or None
+        return (self.callingName or self.customCallingName or "").strip() or None
+
+
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
     session_id: str | None = None
     mode: str = "doctrinal_assistant"
     language: str | None = Field(default=None, max_length=16)
     filters: MetadataFilter = Field(default_factory=MetadataFilter)
+    calling_focus: CallingFocus | None = None
 
     @model_validator(mode="after")
     def include_message_scripture_refs(self):

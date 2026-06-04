@@ -25,5 +25,13 @@ export const chatRequestSchema = z.object({
   session_id: z.string().optional(),
   mode: z.string().default("doctrinal_assistant"),
   language: z.string().max(16).optional(),
-  filters: metadataFilterSchema.default({})
+  filters: metadataFilterSchema.default({}),
+  calling_focus: z
+    .object({
+      callingCategory: z.string().max(120).optional(),
+      callingName: z.string().max(200).optional(),
+      customCallingName: z.string().max(200).optional(),
+      callingFocusEnabled: z.boolean().default(false)
+    })
+    .optional()
 });

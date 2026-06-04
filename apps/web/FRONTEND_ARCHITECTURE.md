@@ -35,6 +35,7 @@ Usuario
 /collections       Colecciones
 /favorites         Favoritos persistidos
 /history           Historial persistido
+/preferences       Preferencias y enfoque por llamamiento
 /admin             Admin dashboard
 ```
 
@@ -53,6 +54,9 @@ search/
 
 chat/
   chat-experience
+
+preferences/
+  calling-preferences
 
 document/
   pdf-reader
@@ -75,6 +79,14 @@ library/
 - `done`
 
 La UI muestra Markdown parcial mientras llega el modelo y luego adjunta grounding y citation cards.
+
+## Enfoque por llamamiento
+
+`packages/shared/church-callings.json` contiene el catalogo editable de
+llamamientos. `useUserPreferencesStore` persiste la seleccion local y
+`/api/profile/preferences` sincroniza los campos del perfil. El chat envia
+`calling_focus` al API para que el RAG agregue una seccion dinamica de
+aplicacion sin cambiar la doctrina.
 
 ## Escalabilidad Visual
 

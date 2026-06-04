@@ -89,6 +89,8 @@ GET  /api/authors
 GET  /api/topics
 GET  /api/ingestion/status
 GET  /api/admin/errors
+GET  /api/profile/preferences
+PATCH /api/profile/preferences
 POST /api/admin/scrape
 POST /api/admin/reindex
 POST /api/admin/jobs/:id/retry
@@ -139,6 +141,64 @@ Inicializar:
 ```bash
 docker compose exec api python scripts/init_qdrant.py
 ```
+
+## Regla de liderazgo vigente
+
+El analisis doctrinal trata la Primera Presidencia y el Cuorum de los Doce
+Apostoles como informacion sensible al tiempo. Cuando existan fuentes oficiales
+recientes en el contexto RAG, la respuesta debe verificar la conformacion actual
+antes de generar contenido que dependa de lideres vigentes.
+
+Referencia local para 2026:
+
+```txt
+Primera Presidencia:
+- Presidente Dallin H. Oaks
+- Presidente Henry B. Eyring, Primer Consejero
+- Presidente D. Todd Christofferson, Segundo Consejero
+
+Cuorum de los Doce Apostoles:
+- David A. Bednar
+- Dieter F. Uchtdorf
+- Quentin L. Cook
+- Neil L. Andersen
+- Ronald A. Rasband
+- Gary E. Stevenson
+- Dale G. Renlund
+- Gerrit W. Gong
+- Ulisses Soares
+- Patrick Kearon
+- Gérald Caussé
+- Clark G. Gilbert
+```
+
+Modo historico/devocional: puede usar citas del Presidente Russell M. Nelson
+como profeta anterior y lider doctrinal relevante. Modo liderazgo vigente:
+prioriza fuentes/citas del Presidente Dallin H. Oaks como Presidente actual de la
+Iglesia cuando el contexto lo respalde.
+
+## Enfoque por llamamiento
+
+La app permite que cada usuario configure su llamamiento en `/preferences`.
+El catalogo inicial vive en:
+
+```txt
+packages/shared/church-callings.json
+```
+
+Campos de preferencia:
+
+```txt
+callingCategory
+callingName
+customCallingName
+callingFocusEnabled
+```
+
+Cuando el enfoque esta activo, `/api/chat` envia `calling_focus` al RAG. La
+doctrina no se adapta ni se cambia por llamamiento; solo cambian la aplicacion,
+el enfasis, las preguntas de reflexion y los ejemplos practicos. Si no hay
+llamamiento seleccionado, el analisis usa un enfoque general de discipulado.
 
 ## Deploy Vercel
 

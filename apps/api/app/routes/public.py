@@ -8,8 +8,33 @@ from app.schemas.api import ChatRequest, DocumentListResponse, SearchRequest
 from app.services.db import get_conn
 from app.services.qdrant_admin import QdrantAdmin
 from app.services.rate_limit import RateLimiter
+from app.services.calling_focus import calling_application_note
 from app.services.scripture_refs import structured_scripture_refs
 from app.services.source_filters import canonical_source_options, normalize_source_type, source_type_aliases
+
+LEADERSHIP_QUERY_TERMS = (
+    "primera presidencia",
+    "first presidency",
+    "cuorum de los doce",
+    "cuórum de los doce",
+    "quorum of the twelve",
+    "apostoles actuales",
+    "apóstoles actuales",
+    "liderazgo vigente",
+    "current leadership",
+    "presidente actual",
+    "current president",
+)
+
+CURRENT_LEADERSHIP_FALLBACK_NOTE = (
+    "Regla de actualidad: para liderazgo vigente se debe verificar la conformacion actual "
+    "con fuentes oficiales de La Iglesia cuando haya conexion disponible. Referencia local 2026: "
+    "Primera Presidencia: Presidente Dallin H. Oaks; Presidente Henry B. Eyring, Primer Consejero; "
+    "Presidente D. Todd Christofferson, Segundo Consejero. Cuorum de los Doce Apostoles: "
+    "David A. Bednar; Dieter F. Uchtdorf; Quentin L. Cook; Neil L. Andersen; Ronald A. Rasband; "
+    "Gary E. Stevenson; Dale G. Renlund; Gerrit W. Gong; Ulisses Soares; Patrick Kearon; "
+    "Gérald Caussé; Clark G. Gilbert."
+)
 
 router = APIRouter(prefix="/api")
 limiter = RateLimiter()
@@ -514,6 +539,7 @@ def _textual_search_response(payload: SearchRequest, warnings: list[str] | None 
 
 def _local_chat_response(payload: ChatRequest, warnings: list[str] | None = None) -> dict:
     rows = _document_search(payload.message, 5, payload.filters, payload.language)
+    response_warnings = list(warnings or ["Busqueda semantica no disponible todavia."])
     citations = [
         {
             "citation_id": index,
@@ -545,14 +571,27 @@ def _local_chat_response(payload: ChatRequest, warnings: list[str] | None = None
             "Modo basico sin embeddings: la busqueda semantica y el chat IA aun no estan disponibles. "
             "No encontre fuentes locales relacionadas con esta consulta."
         )
+    if _is_current_leadership_query(payload.message):
+        message = f"{message}\n\n{CURRENT_LEADERSHIP_FALLBACK_NOTE}"
+        response_warnings.append(
+            "Liderazgo vigente requiere verificacion con fuentes oficiales antes de generar "
+            "analisis dependiente de lideres actuales."
+        )
+    if payload.calling_focus:
+        message = f"{message}\n\n{calling_application_note(payload.calling_focus)}"
     return {
         "session_id": payload.session_id or str(uuid4()),
         "message": message,
         "citations": citations,
         "grounded": bool(rows),
         "mode": "textual_fallback",
-        "warnings": warnings or ["Busqueda semantica no disponible todavia."],
+        "warnings": response_warnings,
     }
+
+
+def _is_current_leadership_query(text: str) -> bool:
+    normalized = text.casefold()
+    return any(term in normalized for term in LEADERSHIP_QUERY_TERMS)
 
 
 def _metadata_filter_sql(filters, language: str | None, source_type_expr: str, columns: set[str]) -> tuple[list[str], dict]:

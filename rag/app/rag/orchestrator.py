@@ -2,6 +2,7 @@ from collections.abc import AsyncIterator
 from sqlalchemy.orm import Session
 
 from app.rag.citations import CitationBuilder
+from app.rag.calling_focus import calling_focus_prompt_block
 from app.rag.grounding import GroundingValidator
 from app.rag.memory import ConversationMemory
 from app.rag.prompts import SYSTEM_PROMPT
@@ -90,6 +91,7 @@ class RAGOrchestrator:
                 "role": "user",
                 "content": (
                     f"Modo: {request.mode}\n"
+                    f"{calling_focus_prompt_block(request.calling_focus)}\n\n"
                     f"Consulta original: {request.message}\n"
                     f"Consulta de recuperacion: {rewritten}\n\n"
                     f"CONTEXTO:\n{context}\n\n"

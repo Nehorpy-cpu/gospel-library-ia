@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 13 - Deploy ready needs runtime build verification follow-up.
+Phase 14 - Calling focus needs runtime build verification follow-up.
 
 ## Phase tracker
 
@@ -21,6 +21,7 @@ Phase 13 - Deploy ready needs runtime build verification follow-up.
 | 11 | Auth privacy | Needs follow-up | 2026-06-04 | 2026-06-04 | Added privacy middleware, security headers, sensitive route rate limiting, centralized log redaction, user-scoped frontend favorites/history storage, and removed OpenAI variables from web env example. Python compile, privacy tests, API test discovery, web typecheck, `pnpm test`, frontend OpenAI exposure scan, and `git diff --check` passed. Docker API/RAG log verification remains blocked by unavailable Docker daemon. |
 | 12 | Admin Pro | Needs follow-up | 2026-06-04 | 2026-06-04 | Replaced admin mock metrics with real operational data, added error inspection, retry endpoint/actions, task status feedback, and PostgreSQL/Qdrant visibility. Python compile, admin tests, API test discovery, web typecheck, `pnpm test`, and `git diff --check` passed. `pnpm build` remains blocked by local Next/Webpack `EISDIR readlink`; `docker compose ps` remains blocked by unavailable Docker daemon. |
 | 13 | Deploy ready | Needs follow-up | 2026-06-04 | 2026-06-04 | Added API gateway Kubernetes deployment, aligned K8s images with CI `production` tags, fixed probes/config, included API in GHCR/Railway/K8s workflows, added MinIO healthcheck, and expanded production runbook/checklist. Static validation, Python compile, API tests, web typecheck, `pnpm test`, and `git diff --check` passed. `docker compose ps` and root `pnpm build` remain blocked by unavailable Docker daemon; web build remains blocked by local Next/Webpack `EISDIR readlink`. |
+| 14 | Calling focus | Needs follow-up | 2026-06-04 | 2026-06-04 | Added editable shared calling catalog, profile preferences API and DB migrations, persistent frontend preferences UI, chat payload support, dynamic RAG/fallback prompt section, and tests. Python compile, API tests, RAG tests, Prisma validation with local `DATABASE_URL`, web typecheck, `pnpm test`, and `git diff --check` passed. `next lint` remains blocked by interactive ESLint setup, web build remains blocked by local Next/Webpack `EISDIR readlink`, and `docker compose ps` remains blocked by unavailable Docker daemon. |
 
 ## Update rules
 
@@ -243,3 +244,28 @@ After each phase:
 - Blocked: `corepack pnpm --dir apps/web build`
 - Build failure: `Error: EISDIR: illegal operation on a directory, readlink 'F:\Users\Marco Sosa\Documentos\Liahona IA\node_modules\next\dist\pages\_app.js'`
 - Status decision: `Needs follow-up`, because required local Docker stack and production build verification did not complete.
+
+### 2026-06-04 - Phase 14 Calling focus
+
+- Passed: `python -m compileall apps/api/app rag/app`
+- Passed: `python -m unittest discover apps/api/tests`
+- Passed: `python -m unittest discover rag/tests`
+- Passed: `DATABASE_URL=postgresql://gospel:gospel@localhost:5432/gospel_library corepack pnpm --dir packages/database exec prisma validate`
+- Passed: `corepack pnpm --dir apps/web typecheck`
+- Passed: `corepack pnpm test`
+- Passed: `git diff --check`
+- Implemented: shared editable calling catalog at `packages/shared/church-callings.json`
+- Implemented: `/api/profile/preferences` GET/PATCH with `callingCategory`, `callingName`, `customCallingName`, and `callingFocusEnabled`
+- Implemented: Alembic and Prisma migrations for `user_preferences`
+- Implemented: frontend `/preferences` page, persisted Zustand preferences, menu link, and backend sync
+- Implemented: `/api/chat` and RAG `ChatRequest` support for `calling_focus`
+- Implemented: dynamic prompt/fallback section `Aplicacion segun mi llamamiento: [llamamiento]`
+- Implemented: general discipleship fallback when no calling is selected
+- Verified: tests cover catalog loading, `Otro` option, preference save payload, custom calling resolution, selected calling in prompt, and no fixed Area Seventy assumption
+- Blocked: `corepack pnpm --dir apps/web lint`
+- Lint failure: Next prompted for interactive ESLint setup because no ESLint config exists for the app
+- Blocked: `corepack pnpm --dir apps/web build`
+- Build failure: `Error: EISDIR: illegal operation on a directory, readlink 'F:\Users\Marco Sosa\Documentos\Liahona IA\apps\web\app\api\health\route.ts'`
+- Blocked: `docker compose ps`
+- Cause: Docker daemon is unavailable in this environment.
+- Status decision: `Needs follow-up`, because local lint/build/runtime checks did not complete in this environment.

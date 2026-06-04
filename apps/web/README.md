@@ -27,6 +27,7 @@ Frontend Next.js 15 App Router para Gospel Library IA.
 /collections       Colecciones
 /favorites         Favoritos
 /history           Historial
+/preferences       Preferencias de llamamiento
 /admin             Dashboard admin
 /api/rag/*         Proxy hacia FastAPI RAG
 ```
@@ -38,6 +39,7 @@ Frontend Next.js 15 App Router para Gospel Library IA.
 - Busqueda global modal.
 - Cards compactas para discursos, manuales, PDFs, audios y escrituras.
 - Chat con streaming SSE, Markdown y tarjetas de citas.
+- Preferencias de llamamiento con catalogo compartido y opcion personalizada.
 - Lector documental preparado para PDF, OCR, subrayados y notas.
 - Biblioteca con virtualized lists para colecciones grandes.
 

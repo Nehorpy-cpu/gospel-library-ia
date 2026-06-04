@@ -184,6 +184,46 @@ Only the latest `MEMORY_MAX_MESSAGES` are included to control context length.
 - Empty retrieval produces `grounded=false`.
 - Source attribution includes title, author, source, URL and quote.
 
+## Current Leadership Policy
+
+References to the First Presidency and the Quorum of the Twelve Apostles are
+time-sensitive. The RAG system prompt includes a local 2026 reference, but
+answers that depend on current leadership must use recent official Church
+sources from the retrieved context when available. If the context is not enough
+to verify the current composition, the assistant must say so clearly.
+
+Local 2026 reference:
+
+- First Presidency: President Dallin H. Oaks; President Henry B. Eyring, First
+  Counselor; President D. Todd Christofferson, Second Counselor.
+- Quorum of the Twelve Apostles: David A. Bednar; Dieter F. Uchtdorf; Quentin L.
+  Cook; Neil L. Andersen; Ronald A. Rasband; Gary E. Stevenson; Dale G.
+  Renlund; Gerrit W. Gong; Ulisses Soares; Patrick Kearon; Gérald Caussé; Clark
+  G. Gilbert.
+- Historical/devotional mode may include President Russell M. Nelson as a
+  previous prophet and doctrinally significant leader when supported by sources.
+- Current-leadership mode prioritizes President Dallin H. Oaks as current
+  President of the Church when supported by sources.
+
+## Calling Focus Policy
+
+Users can send an optional `calling_focus` object with chat requests:
+
+```json
+{
+  "callingCategory": "ward-branch",
+  "callingName": "Obispo",
+  "customCallingName": null,
+  "callingFocusEnabled": true
+}
+```
+
+The prompt adds a dynamic section named `Aplicacion segun mi llamamiento:
+[calling]`. Doctrine, citations, and source grounding do not change by calling.
+Only application, emphasis, reflection questions, and practical examples are
+adapted to the user's current responsibility. When no calling is selected, the
+system uses a general discipleship focus.
+
 ## Production Scaling
 
 Recommended scaling:

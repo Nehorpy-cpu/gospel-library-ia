@@ -10,6 +10,9 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ragApi } from "@/lib/api";
+import { resolvedCallingName } from "@/lib/church-callings";
+import { useStudyWorkspaceStore } from "@/stores/study-workspace-store";
+import { useUserPreferencesStore } from "@/stores/user-preferences-store";
 import type { Citation, UUID } from "@/types/rag";
 
 type Message = {
@@ -21,6 +24,9 @@ type Message = {
 };
 
 export function ChatExperience() {
+  const { userId } = useStudyWorkspaceStore();
+  const callingFocus = useUserPreferencesStore();
+  const activeCalling = resolvedCallingName(callingFocus);
   const [sessionId, setSessionId] = useState<UUID | undefined>();
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([
@@ -39,31 +45,44 @@ export function ChatExperience() {
     setMessages((current) => [...current, { role: "user", content: message }, { role: "assistant", content: "" }]);
     const citationBuffer: Citation[] = [];
     try {
-      await ragApi.streamChat({ message, session_id: sessionId }, (event) => {
-        if (event.type === "session") setSessionId(event.session_id);
-        if (event.type === "citations") citationBuffer.splice(0, citationBuffer.length, ...event.citations);
-        if (event.type === "delta") {
-          setMessages((current) => {
-            const next = [...current];
-            const last = next[next.length - 1];
-            next[next.length - 1] = { ...last, content: last.content + event.content };
-            return next;
-          });
-        }
-        if (event.type === "grounding") {
-          setMessages((current) => {
-            const next = [...current];
-            const last = next[next.length - 1];
+      await ragApi.streamChat(
+        {
+          message,
+          session_id: sessionId,
+          user_id: userId,
+          calling_focus: {
+            callingCategory: callingFocus.callingCategory,
+            callingName: callingFocus.callingName,
+            customCallingName: callingFocus.customCallingName,
+            callingFocusEnabled: callingFocus.callingFocusEnabled
+          }
+        },
+        (event) => {
+          if (event.type === "session") setSessionId(event.session_id);
+          if (event.type === "citations") citationBuffer.splice(0, citationBuffer.length, ...event.citations);
+          if (event.type === "delta") {
+            setMessages((current) => {
+              const next = [...current];
+              const last = next[next.length - 1];
+              next[next.length - 1] = { ...last, content: last.content + event.content };
+              return next;
+            });
+          }
+          if (event.type === "grounding") {
+            setMessages((current) => {
+              const next = [...current];
+              const last = next[next.length - 1];
               next[next.length - 1] = {
                 ...last,
                 grounded: event.grounded,
                 citations: [...citationBuffer],
                 warnings: event.warnings
               };
-            return next;
-          });
+              return next;
+            });
+          }
         }
-      });
+      );
     } catch (error) {
       setMessages((current) => {
         const next = [...current];
@@ -86,7 +105,11 @@ export function ChatExperience() {
       <section className="flex min-h-0 flex-col rounded-lg border bg-card">
         <div className="border-b p-4">
           <h1 className="text-xl font-semibold">Chat doctrinal</h1>
-          <p className="text-sm text-muted-foreground">Streaming RAG, memoria conversacional y citas verificables.</p>
+          <p className="text-sm text-muted-foreground">
+            {callingFocus.callingFocusEnabled && activeCalling
+              ? `Aplicacion enfocada segun tu llamamiento: ${activeCalling}.`
+              : "Streaming RAG, memoria conversacional y citas verificables."}
+          </p>
         </div>
         <div className="min-h-0 flex-1 space-y-4 overflow-auto p-4">
           {messages.map((message, index) => (

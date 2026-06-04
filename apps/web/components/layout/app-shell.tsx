@@ -16,7 +16,8 @@ import {
   ScrollText,
   Search,
   Settings,
-  Sun
+  Sun,
+  UserRoundCog
 } from "lucide-react";
 import { useTheme } from "next-themes";
 
@@ -36,6 +37,7 @@ const nav = [
   { href: "/collections", label: "Colecciones", icon: BookOpen },
   { href: "/favorites", label: "Favoritos", icon: Heart },
   { href: "/history", label: "Historial", icon: Clock },
+  { href: "/preferences", label: "Preferencias", icon: UserRoundCog },
   { href: "/admin", label: "Admin", icon: Settings }
 ];
 

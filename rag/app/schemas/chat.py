@@ -6,6 +6,13 @@ from app.retrieval.scripture_refs import extract_scripture_refs
 from app.schemas.search import Citation, MetadataFilter
 
 
+class CallingFocus(BaseModel):
+    callingCategory: str | None = Field(default=None, max_length=120)
+    callingName: str | None = Field(default=None, max_length=200)
+    customCallingName: str | None = Field(default=None, max_length=200)
+    callingFocusEnabled: bool = False
+
+
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
     session_id: UUID | None = None
@@ -14,6 +21,7 @@ class ChatRequest(BaseModel):
     language: str | None = None
     filters: MetadataFilter = Field(default_factory=MetadataFilter)
     stream: bool = True
+    calling_focus: CallingFocus | None = None
 
     @model_validator(mode="after")
     def include_message_scripture_refs(self):

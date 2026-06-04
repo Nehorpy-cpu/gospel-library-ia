@@ -1,0 +1,135 @@
+[
+  {
+    "id": "general-area",
+    "label": "Liderazgo general / area",
+    "callings": [
+      "Autoridad General",
+      "Setenta de Area",
+      "Presidencia de Area",
+      "Misionero de Area",
+      "Asesor de Area",
+      "Otro llamamiento de Area"
+    ]
+  },
+  {
+    "id": "stake-district",
+    "label": "Estaca / distrito",
+    "callings": [
+      "Presidente de Estaca",
+      "Consejero de Presidencia de Estaca",
+      "Secretario de Estaca",
+      "Secretario Ejecutivo de Estaca",
+      "Miembro del Sumo Consejo",
+      "Presidente de Hombres Jovenes de Estaca",
+      "Presidencia de Mujeres Jovenes de Estaca",
+      "Presidencia de Sociedad de Socorro de Estaca",
+      "Presidencia de Primaria de Estaca",
+      "Presidencia de Escuela Dominical de Estaca",
+      "Especialista de Historia Familiar de Estaca",
+      "Especialista de Bienestar y Autosuficiencia de Estaca",
+      "Especialista de Comunicaciones de Estaca",
+      "Especialista de Seminario e Instituto",
+      "Presidente de Distrito",
+      "Otro llamamiento de Estaca o Distrito"
+    ]
+  },
+  {
+    "id": "ward-branch",
+    "label": "Barrio / rama",
+    "callings": [
+      "Obispo",
+      "Consejero de Obispado",
+      "Presidente de Rama",
+      "Consejero de Presidencia de Rama",
+      "Secretario de Barrio",
+      "Secretario Ejecutivo de Barrio",
+      "Presidente de Cuorum de Elderes",
+      "Consejero de Cuorum de Elderes",
+      "Presidencia de Sociedad de Socorro",
+      "Presidencia de Mujeres Jovenes",
+      "Presidencia de Primaria",
+      "Presidencia de Escuela Dominical",
+      "Lider Misional de Barrio",
+      "Lider de Templo e Historia Familiar de Barrio",
+      "Maestro de Escuela Dominical",
+      "Maestro de Seminario",
+      "Maestro de Instituto",
+      "Maestro de Primaria",
+      "Maestro de Jovenes",
+      "Consultor de Templo e Historia Familiar",
+      "Especialista de Autosuficiencia",
+      "Especialista de Comunicaciones",
+      "Director de Musica",
+      "Pianista / organista",
+      "Secretario auxiliar",
+      "Otro llamamiento de Barrio o Rama"
+    ]
+  },
+  {
+    "id": "aaronic-youth",
+    "label": "Sacerdocio Aaronico y juventudes",
+    "callings": [
+      "Presidente del Cuorum de Diaconos",
+      "Presidente del Cuorum de Maestros",
+      "Asistente del Obispo en el Cuorum de Presbiteros",
+      "Presidencia de clase de Mujeres Jovenes",
+      "Lider joven",
+      "Otro llamamiento juvenil"
+    ]
+  },
+  {
+    "id": "mission",
+    "label": "Mision",
+    "callings": [
+      "Presidente de Mision",
+      "Consejero de Presidencia de Mision",
+      "Misionero de tiempo completo",
+      "Lider de Zona",
+      "Lider de Distrito misional",
+      "Entrenador misional",
+      "Misionero de servicio",
+      "Misionero de servicio senior",
+      "Otro llamamiento misional"
+    ]
+  },
+  {
+    "id": "temple-family-history",
+    "label": "Templo e historia familiar",
+    "callings": [
+      "Obrero del Templo",
+      "Sellador",
+      "Presidente de Templo",
+      "Matrona de Templo",
+      "Consejero de Presidencia de Templo",
+      "Asistente de Matrona",
+      "Consultor de Templo e Historia Familiar",
+      "Otro llamamiento relacionado con templo e historia familiar"
+    ]
+  },
+  {
+    "id": "teaching-learning",
+    "label": "Ensenanza y aprendizaje",
+    "callings": [
+      "Maestro de Ven, Sigueme",
+      "Maestro de Instituto",
+      "Maestro de Seminario",
+      "Maestro de Escuela Dominical",
+      "Maestro de Primaria",
+      "Maestro de Jovenes",
+      "Facilitador de BYU-Pathway",
+      "Otro llamamiento de ensenanza"
+    ]
+  },
+  {
+    "id": "member",
+    "label": "Miembro sin llamamiento formal actual",
+    "callings": [
+      "Miembro ministrante",
+      "Padre o madre",
+      "Nuevo converso",
+      "Joven adulto soltero",
+      "Miembro que se esta preparando para servir",
+      "Otro"
+    ]
+  }
+]

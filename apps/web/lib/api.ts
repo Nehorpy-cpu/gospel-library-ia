@@ -12,6 +12,7 @@ import type {
 import { chatRequestSchema, searchRequestSchema } from "@/lib/validators";
 import type { SourceFilterOption } from "@/lib/source-filters";
 import type { TalkBuilderOutline, TalkBuilderRequest, TalkDraftResponse } from "@/types/talk-builder";
+import type { CallingFocus } from "@/lib/church-callings";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_RAG_API_URL ?? "/api";
 const MISSING_OPENAI_MESSAGE = "Falta configurar la clave de OpenAI para busqueda IA.";
@@ -374,6 +375,21 @@ export const studyApi = {
     return request<{ deleted: boolean }>(`/study-workspaces/${workspaceId}/post-its/${postItId}`, {
       method: "DELETE",
       headers: studyHeaders(userId)
+    });
+  }
+};
+
+export const profileApi = {
+  preferences(userId: string) {
+    return request<CallingFocus & { userId: string; updatedAt?: string | null }>("/profile/preferences", {
+      headers: studyHeaders(userId)
+    });
+  },
+  updatePreferences(userId: string, payload: CallingFocus) {
+    return request<CallingFocus & { userId: string; updatedAt?: string | null }>("/profile/preferences", {
+      method: "PATCH",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
     });
   }
 };

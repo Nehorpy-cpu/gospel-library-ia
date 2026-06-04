@@ -223,6 +223,20 @@ model UserSession {
   @@map("user_sessions")
 }
 
+model UserPreference {
+  userId              String   @id @map("user_id") @db.Uuid
+  callingCategory     String?  @map("calling_category") @db.VarChar(120)
+  callingName         String?  @map("calling_name") @db.VarChar(200)
+  customCallingName   String?  @map("custom_calling_name") @db.VarChar(200)
+  callingFocusEnabled Boolean  @default(false) @map("calling_focus_enabled")
+  settings            Json     @default("{}")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([callingCategory, callingName])
+  @@map("user_preferences")
+}
+
 model ApiKey {
   id             String       @id @default(uuid()) @db.Uuid
   organizationId String       @map("organization_id") @db.Uuid
