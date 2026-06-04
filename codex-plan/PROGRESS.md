@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 8 - RAG by scripture needs runtime log verification follow-up.
+Phase 9 - Talk builder completed.
 
 ## Phase tracker
 
@@ -16,7 +16,7 @@ Phase 8 - RAG by scripture needs runtime log verification follow-up.
 | 6 | Source filters | Completed | 2026-06-03 | 2026-06-03 | Normalized canonical source filter vocabulary across API, PostgreSQL fallback search, RAG BM25/semantic payloads, admin statistics, library, search, and study UI. Added real `/api/sources/summary` options and tests. `pnpm test`, API route unit tests, Python compile checks, and web typecheck passed. |
 | 7 | Saved quotes and post-its | Needs follow-up | 2026-06-04 | 2026-06-04 | Added user-facing save quote actions from reader and chat citations, default StudyWorkspace creation for saves, persisted citation location metadata, post-it color/position/create/update/delete controls, and optimistic post-it updates. Web typecheck and `pnpm test` passed. `pnpm build` is blocked by a local Next/Webpack `EISDIR readlink` issue. |
 | 8 | RAG by scripture | Needs follow-up | 2026-06-04 | 2026-06-04 | Added scripture reference normalization, query/message scripture extraction, API/RAG metadata filters, PostgreSQL fallback filtering, Qdrant payload filters, scripture-aware indexing metadata, and frontend scripture filter input. Local compile, web typecheck, API unit tests, and `pnpm test` passed. Docker `rag-api` logs could not run because Docker daemon is unavailable. |
-| 9 | Talk builder | Pending | - | - | - |
+| 9 | Talk builder | Completed | 2026-06-04 | 2026-06-04 | Added source-grounded Talk Builder API, real document/saved quote retrieval, editable frontend workflow, draft saving into StudyWorkspace notes, and no-embedding textual fallback behavior. Compile, API unit tests, web typecheck, and `pnpm test` passed. |
 | 10 | Exports | Pending | - | - | - |
 | 11 | Auth privacy | Pending | - | - | - |
 | 12 | Admin Pro | Pending | - | - | - |
@@ -145,3 +145,17 @@ After each phase:
 - Blocked: `docker compose logs rag-api --tail=100`
 - Cause: Docker daemon is unavailable in this environment.
 - Status decision: `Needs follow-up`, because required runtime log verification did not complete.
+
+### 2026-06-04 - Phase 9 Talk builder
+
+- Passed: `python -m py_compile apps\api\app\routes\talk_builder.py apps\api\app\main.py`
+- Passed: `python -m unittest apps.api.tests.test_talk_builder_routes`
+- Passed: `python -m unittest discover apps/api/tests`
+- Passed: `corepack pnpm --dir apps/web typecheck`
+- Passed: `corepack pnpm test`
+- Passed: `git diff --check`
+- Implemented: `/api/talk-builder/outline` retrieves real PostgreSQL documents, saved citations, and scripture references without calling OpenAI
+- Implemented: deterministic source-grounded outline generation with citation metadata and clear unavailable state when sources are missing
+- Implemented: `/api/talk-builder/drafts` saves edited outlines as StudyWorkspace notes, creating a default talk draft workspace when needed
+- Implemented: frontend `/talk-builder` page with topic, audience, duration, scripture/source filters, editable sections, citation cards, and draft saving
+- Status decision: `Completed`, because the phase verification passed.

@@ -11,6 +11,7 @@ import type {
 } from "@/types/study";
 import { chatRequestSchema, searchRequestSchema } from "@/lib/validators";
 import type { SourceFilterOption } from "@/lib/source-filters";
+import type { TalkBuilderOutline, TalkBuilderRequest, TalkDraftResponse } from "@/types/talk-builder";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_RAG_API_URL ?? "/api";
 const MISSING_OPENAI_MESSAGE = "Falta configurar la clave de OpenAI para busqueda IA.";
@@ -332,6 +333,26 @@ export const studyApi = {
     return request<{ deleted: boolean }>(`/study-workspaces/${workspaceId}/post-its/${postItId}`, {
       method: "DELETE",
       headers: studyHeaders(userId)
+    });
+  }
+};
+
+export const talkBuilderApi = {
+  outline(userId: string, payload: TalkBuilderRequest) {
+    return request<TalkBuilderOutline>("/talk-builder/outline", {
+      method: "POST",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
+    });
+  },
+  saveDraft(
+    userId: string,
+    payload: { title: string; workspaceId?: string; outline: TalkBuilderOutline; content?: string; scriptureRefs?: string[] }
+  ) {
+    return request<TalkDraftResponse>("/talk-builder/drafts", {
+      method: "POST",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
     });
   }
 };

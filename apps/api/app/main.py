@@ -12,6 +12,7 @@ from app.core.logging import configure_logging, logger
 from app.routes.admin import router as admin_router
 from app.routes.public import router as public_router
 from app.routes.study import router as study_router
+from app.routes.talk_builder import router as talk_builder_router
 from app.services.db import get_conn
 
 configure_logging()
@@ -29,6 +30,7 @@ app.add_middleware(
 app.include_router(public_router)
 app.include_router(admin_router)
 app.include_router(study_router)
+app.include_router(talk_builder_router)
 
 
 @app.exception_handler(Exception)
