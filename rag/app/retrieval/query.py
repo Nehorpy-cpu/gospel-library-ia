@@ -3,6 +3,7 @@ import json
 from langdetect import LangDetectException, detect
 
 from app.schemas.search import MetadataFilter
+from app.retrieval.scripture_refs import extract_scripture_refs
 from app.services.cache import CacheService
 from app.services.openai_client import OpenAIService
 
@@ -40,6 +41,13 @@ class QueryPlanner:
             raw = await self.openai.complete(messages, temperature=0)
             rewritten = json.loads(raw).get("query") or query
         except Exception:
-            rewritten = query
+            rewritten = self._local_rewrite(query, filters)
         self.cache.set_json(cache_key, {"query": rewritten})
         return rewritten
+
+    def _local_rewrite(self, query: str, filters: MetadataFilter) -> str:
+        refs = sorted(set(filters.scripture_refs or []) | set(extract_scripture_refs(query)))
+        if not refs:
+            return query
+        additions = " ".join(refs)
+        return f"{query} {additions} scripture reference doctrinal citation".strip()

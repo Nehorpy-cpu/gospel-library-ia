@@ -24,6 +24,9 @@ class BM25Retriever:
         if filters.categories:
             where.append("d.category = ANY(:categories)")
             params["categories"] = filters.categories
+        if filters.scripture_refs:
+            where.append("(dc.metadata::text ILIKE ANY(:scripture_refs_like) OR d.scripture_refs::text ILIKE ANY(:scripture_refs_like))")
+            params["scripture_refs_like"] = [f"%{ref}%" for ref in filters.scripture_refs]
         if filters.document_ids:
             where.append("d.id = ANY(:document_ids)")
             params["document_ids"] = [str(value) for value in filters.document_ids]
@@ -47,7 +50,11 @@ class BM25Retriever:
               d.published_at,
               d.language,
               dc.section_title,
-              dc.metadata,
+              jsonb_set(
+                coalesce(dc.metadata, '{{}}'::jsonb),
+                '{{scripture_refs}}',
+                to_jsonb(coalesce(d.scripture_refs, '[]'::jsonb))
+              ) AS metadata,
               ts_rank_cd(dc.search_vector, plainto_tsquery('simple', :query)) AS bm25_score
             FROM document_chunks dc
             JOIN documents d ON d.id = dc.document_id
@@ -102,6 +109,9 @@ class BM25Retriever:
         if filters.categories:
             where.append("d.category = ANY(:categories)")
             params["categories"] = filters.categories
+        if filters.scripture_refs:
+            where.append("d.scripture_refs::text ILIKE ANY(:scripture_refs_like)")
+            params["scripture_refs_like"] = [f"%{ref}%" for ref in filters.scripture_refs]
         if filters.document_ids:
             where.append("d.id = ANY(:document_ids)")
             params["document_ids"] = [str(value) for value in filters.document_ids]
@@ -125,7 +135,11 @@ class BM25Retriever:
               d.published_at,
               d.language,
               'Documento' AS section_title,
-              coalesce(d.raw_metadata, '{{}}'::jsonb) AS metadata,
+              jsonb_set(
+                coalesce(d.raw_metadata, '{{}}'::jsonb),
+                '{{scripture_refs}}',
+                to_jsonb(coalesce(d.scripture_refs, '[]'::jsonb))
+              ) AS metadata,
               ts_rank_cd(
                 setweight(to_tsvector('simple', coalesce(d.title, '')), 'A') ||
                 setweight(to_tsvector('simple', coalesce(d.author, '')), 'B') ||

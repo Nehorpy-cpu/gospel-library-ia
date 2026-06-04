@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 7 - Saved quotes and post-its needs build environment follow-up.
+Phase 8 - RAG by scripture needs runtime log verification follow-up.
 
 ## Phase tracker
 
@@ -15,7 +15,7 @@ Phase 7 - Saved quotes and post-its needs build environment follow-up.
 | 5 | Study frontend | Needs follow-up | 2026-06-03 | 2026-06-03 | Added StudyWorkspace frontend routes, real API client methods, Zustand study state, responsive workspace UI, note/citation/highlight/post-it/source filter flows, and Next rewrites for API proxying. Typecheck and `pnpm test` passed. `pnpm build` is blocked by a local Next/Webpack `EISDIR readlink` issue in hoisted Windows node_modules. |
 | 6 | Source filters | Completed | 2026-06-03 | 2026-06-03 | Normalized canonical source filter vocabulary across API, PostgreSQL fallback search, RAG BM25/semantic payloads, admin statistics, library, search, and study UI. Added real `/api/sources/summary` options and tests. `pnpm test`, API route unit tests, Python compile checks, and web typecheck passed. |
 | 7 | Saved quotes and post-its | Needs follow-up | 2026-06-04 | 2026-06-04 | Added user-facing save quote actions from reader and chat citations, default StudyWorkspace creation for saves, persisted citation location metadata, post-it color/position/create/update/delete controls, and optimistic post-it updates. Web typecheck and `pnpm test` passed. `pnpm build` is blocked by a local Next/Webpack `EISDIR readlink` issue. |
-| 8 | RAG by scripture | Pending | - | - | - |
+| 8 | RAG by scripture | Needs follow-up | 2026-06-04 | 2026-06-04 | Added scripture reference normalization, query/message scripture extraction, API/RAG metadata filters, PostgreSQL fallback filtering, Qdrant payload filters, scripture-aware indexing metadata, and frontend scripture filter input. Local compile, web typecheck, API unit tests, and `pnpm test` passed. Docker `rag-api` logs could not run because Docker daemon is unavailable. |
 | 9 | Talk builder | Pending | - | - | - |
 | 10 | Exports | Pending | - | - | - |
 | 11 | Auth privacy | Pending | - | - | - |
@@ -127,3 +127,21 @@ After each phase:
 - Blocked: `corepack pnpm --dir apps/web build`
 - Build failure: `Error: EISDIR: illegal operation on a directory, readlink 'F:\Users\Marco Sosa\Documentos\Liahona IA\apps\web\app\api\health\route.ts'`
 - Status decision: `Needs follow-up`, because required production build did not complete in this local Next/Webpack environment.
+
+### 2026-06-04 - Phase 8 RAG by scripture
+
+- Passed: Python compile validation for changed API, RAG, and scraper files
+- Passed: `corepack pnpm --dir apps/web typecheck`
+- Passed: `python -m unittest apps.api.tests.test_documents_routes`
+- Passed: `corepack pnpm test`
+- Implemented: scripture reference normalization for scraper, API, and RAG paths
+- Implemented: automatic scripture reference extraction from `/api/search`, `/api/chat`, RAG `/search`, and RAG `/chat` requests
+- Implemented: `scripture_refs` metadata filters for PostgreSQL fallback search and RAG BM25 retrieval
+- Implemented: scripture ref payload indexing and Qdrant filter support for semantic retrieval
+- Implemented: structured scripture reference metadata in indexed chunks and fallback search results
+- Implemented: scripture-aware local query rewriting when OpenAI is unavailable
+- Implemented: scripture references in RAG citation context for better grounding
+- Implemented: frontend scripture reference filter in global search
+- Blocked: `docker compose logs rag-api --tail=100`
+- Cause: Docker daemon is unavailable in this environment.
+- Status decision: `Needs follow-up`, because required runtime log verification did not complete.

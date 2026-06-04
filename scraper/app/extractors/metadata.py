@@ -24,6 +24,30 @@ SCRIPTURE_PATTERNS = [
     r"\bRomanos\s+\d+:\d+(?:-\d+)?\b",
 ]
 
+SCRIPTURE_BOOK_ALIASES = {
+    "1 nephi": "1 Nephi",
+    "2 nephi": "2 Nephi",
+    "3 nephi": "3 Nephi",
+    "alma": "Alma",
+    "mosiah": "Mosiah",
+    "moroni": "Moroni",
+    "doctrine and covenants": "Doctrine and Covenants",
+    "d&c": "Doctrine and Covenants",
+    "dyc": "Doctrine and Covenants",
+    "mateo": "Matthew",
+    "matthew": "Matthew",
+    "john": "John",
+    "juan": "John",
+    "romans": "Romans",
+    "romanos": "Romans",
+}
+
+SCRIPTURE_REF_RE = re.compile(
+    r"\b(?P<book>1\s*Nephi|2\s*Nephi|3\s*Nephi|Alma|Mosiah|Moroni|Doctrine and Covenants|D&C|DyC|Mateo|Matthew|John|Juan|Romans|Romanos)"
+    r"\s+(?P<chapter>\d{1,3}):(?P<verse>\d{1,3})(?:\s*[-–]\s*(?P<end_verse>\d{1,3}))?\b",
+    flags=re.I,
+)
+
 
 def meta_content(soup: BeautifulSoup, *names: str) -> str | None:
     for name in names:
@@ -275,6 +299,16 @@ def extract_category(soup: BeautifulSoup) -> str | None:
 
 def extract_scripture_refs(text: str) -> list[str]:
     refs: set[str] = set()
-    for pattern in SCRIPTURE_PATTERNS:
-        refs.update(match.group(0).strip() for match in re.finditer(pattern, text, flags=re.I))
+    for match in SCRIPTURE_REF_RE.finditer(text):
+        refs.add(_normalize_scripture_ref(match.group(0)))
     return sorted(refs)
+
+
+def _normalize_scripture_ref(value: str) -> str:
+    match = SCRIPTURE_REF_RE.search(value.strip())
+    if not match:
+        return value.strip()
+    book_key = re.sub(r"\s+", " ", match.group("book").lower().replace("dyc", "d&c")).strip()
+    book = SCRIPTURE_BOOK_ALIASES.get(book_key, match.group("book").strip())
+    suffix = f"-{int(match.group('end_verse'))}" if match.group("end_verse") else ""
+    return f"{book} {int(match.group('chapter'))}:{int(match.group('verse'))}{suffix}"

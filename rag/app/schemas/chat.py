@@ -1,7 +1,8 @@
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
+from app.retrieval.scripture_refs import extract_scripture_refs
 from app.schemas.search import Citation, MetadataFilter
 
 
@@ -13,6 +14,13 @@ class ChatRequest(BaseModel):
     language: str | None = None
     filters: MetadataFilter = Field(default_factory=MetadataFilter)
     stream: bool = True
+
+    @model_validator(mode="after")
+    def include_message_scripture_refs(self):
+        refs = set(self.filters.scripture_refs or [])
+        refs.update(extract_scripture_refs(self.message))
+        self.filters.scripture_refs = sorted(refs) or None
+        return self
 
 
 class ChatResponse(BaseModel):

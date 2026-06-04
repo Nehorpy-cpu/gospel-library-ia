@@ -22,6 +22,7 @@ export function SearchExperience() {
   const [language, setLanguage] = useState("");
   const [author, setAuthor] = useState("");
   const [topic, setTopic] = useState("");
+  const [scriptureRef, setScriptureRef] = useState("");
   const [publishedAfter, setPublishedAfter] = useState("");
   const [publishedBefore, setPublishedBefore] = useState("");
   const sources = useQuery({ queryKey: ["source-options"], queryFn: () => ragApi.sourcesSummary(), staleTime: 1000 * 60 });
@@ -34,6 +35,7 @@ export function SearchExperience() {
         languages: language ? [language] : undefined,
         authors: author ? [author] : undefined,
         categories: topic ? [topic] : undefined,
+        scripture_refs: scriptureRef ? [scriptureRef] : undefined,
         published_after: publishedAfter || undefined,
         published_before: publishedBefore || undefined
       },
@@ -105,6 +107,11 @@ export function SearchExperience() {
             <Input value={language} onChange={(event) => setLanguage(event.target.value)} placeholder="Idioma" />
             <Input value={author} onChange={(event) => setAuthor(event.target.value)} placeholder="Autor" />
             <Input value={topic} onChange={(event) => setTopic(event.target.value)} placeholder="Tema" />
+            <Input
+              value={scriptureRef}
+              onChange={(event) => setScriptureRef(event.target.value)}
+              placeholder="Alma 32:21"
+            />
             <Input
               value={publishedAfter}
               onChange={(event) => setPublishedAfter(event.target.value)}

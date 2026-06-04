@@ -21,7 +21,18 @@ class QdrantService:
                     distance=Distance.COSINE,
                 ),
             )
-            for field in ["document_id", "source_key", "language", "author", "category", "topic", "published_at", "tags"]:
+            for field in [
+                "document_id",
+                "source_key",
+                "language",
+                "author",
+                "category",
+                "topic",
+                "published_at",
+                "tags",
+                "scripture_refs",
+                "scripture_books",
+            ]:
                 self.client.create_payload_index(
                     collection_name=self.settings.qdrant_collection,
                     field_name=field,
@@ -61,6 +72,7 @@ class QdrantService:
             "languages": "language",
             "authors": "author",
             "categories": "category",
+            "scripture_refs": "scripture_refs",
         }
         for input_key, payload_key in mapping.items():
             values = filters.get(input_key)

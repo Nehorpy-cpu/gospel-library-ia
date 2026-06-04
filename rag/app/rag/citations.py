@@ -34,6 +34,7 @@ class CitationBuilder:
                 f"Language: {chunk.language or 'unknown'}",
                 f"URL: {chunk.canonical_url or ''}",
                 f"Section: {chunk.section_title or ''}",
+                f"Scripture refs: {', '.join(chunk.metadata.get('scripture_refs') or [])}",
             ]
             blocks.append(f"[{index}]\n" + "\n".join(meta) + f"\nText:\n{chunk.text}")
         return "\n\n---\n\n".join(blocks)

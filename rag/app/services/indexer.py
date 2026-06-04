@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.document import Document, DocumentChunk, EmbeddingRecord, Source
+from app.retrieval.scripture_refs import normalize_scripture_ref, structured_scripture_refs
 from app.retrieval.source_filters import normalize_source_type
 from app.services.chunker import SmartChunker
 from app.services.openai_client import OpenAIService
@@ -50,6 +51,14 @@ class IndexingService:
 
         source = db.get(Source, document.source_id)
         source_type = normalize_source_type((document.raw_metadata or {}).get("source_type") or (source.key if source else None))
+        scripture_refs = sorted(
+            {
+                normalize_scripture_ref(ref) or ref
+                for ref in (document.scripture_refs or [])
+                if str(ref).strip()
+            }
+        )
+        scripture_structured = structured_scripture_refs(scripture_refs)
         existing_chunks = db.scalars(
             select(DocumentChunk)
             .where(DocumentChunk.document_id == document.id)
@@ -93,7 +102,8 @@ class IndexingService:
                         "category": document.category,
                         "topic": document.category,
                         "tags": document.tags or [],
-                        "scripture_refs": document.scripture_refs or [],
+                        "scripture_refs": scripture_refs,
+                        "scripture_refs_structured": scripture_structured,
                         "canonical_url": document.canonical_url,
                         "published_at": document.published_at.isoformat() if document.published_at else None,
                         "document_version": document.version,
@@ -133,7 +143,9 @@ class IndexingService:
                     "language": document.language,
                     "category": document.category,
                     "tags": document.tags or [],
-                    "scripture_refs": document.scripture_refs or [],
+                    "scripture_refs": scripture_refs,
+                    "scripture_refs_structured": scripture_structured,
+                    "scripture_books": sorted({item["book"] for item in scripture_structured}),
                     "canonical_url": document.canonical_url,
                     "published_at": document.published_at.isoformat() if document.published_at else None,
                     "section_title": chunk.section_title,

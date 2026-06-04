@@ -7,6 +7,7 @@ export type MetadataFilter = {
   authors?: string[];
   categories?: string[];
   tags?: string[];
+  scripture_refs?: string[];
   published_after?: string;
   published_before?: string;
   document_ids?: UUID[];

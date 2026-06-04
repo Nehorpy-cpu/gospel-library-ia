@@ -6,6 +6,7 @@ export const metadataFilterSchema = z.object({
   authors: z.array(z.string()).optional(),
   categories: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
+  scripture_refs: z.array(z.string()).optional(),
   published_after: z.string().optional(),
   published_before: z.string().optional(),
   document_ids: z.array(z.string()).optional()

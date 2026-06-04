@@ -8,6 +8,7 @@ from app.schemas.api import ChatRequest, DocumentListResponse, SearchRequest
 from app.services.db import get_conn
 from app.services.qdrant_admin import QdrantAdmin
 from app.services.rate_limit import RateLimiter
+from app.services.scripture_refs import structured_scripture_refs
 from app.services.source_filters import canonical_source_options, normalize_source_type, source_type_aliases
 
 router = APIRouter(prefix="/api")
@@ -389,6 +390,7 @@ def _document_search(query: str, limit: int, filters=None, language: str | None 
         metadata_column = "raw_metadata" if "raw_metadata" in columns else "metadata"
         text_column = "text" if "text" in columns else "content_text"
         author_column = "author" if "author" in columns else "NULL"
+        scripture_refs_expr = "d.scripture_refs" if "scripture_refs" in columns else "'[]'::jsonb"
         source_type_expr = f"COALESCE(d.{metadata_column}->>'source_type', s.key)"
         filter_where, filter_params = _metadata_filter_sql(filters, language, source_type_expr, columns)
         rows = conn.execute(
@@ -400,7 +402,8 @@ def _document_search(query: str, limit: int, filters=None, language: str | None 
               d.language,
               d.canonical_url,
               {source_type_expr} AS source_key,
-              left(coalesce(d.{text_column}, ''), 520) AS snippet
+              left(coalesce(d.{text_column}, ''), 520) AS snippet,
+              {scripture_refs_expr} AS scripture_refs
             FROM documents d
             JOIN sources s ON s.id = d.source_id
             WHERE (d.title ILIKE %(q)s OR coalesce(d.{text_column}, '') ILIKE %(q)s)
@@ -450,6 +453,7 @@ def _document_search(query: str, limit: int, filters=None, language: str | None 
                       d.canonical_url,
                       {source_type_expr} AS source_key,
                       left(coalesce(d.{text_column}, ''), 520) AS snippet,
+                      {scripture_refs_expr} AS scripture_refs,
                       ({score_expr}) AS match_score
                     FROM documents d
                     JOIN sources s ON s.id = d.source_id
@@ -469,6 +473,7 @@ def _document_search(query: str, limit: int, filters=None, language: str | None 
             "canonical_url": row[4],
             "source_key": normalize_source_type(row[5]) or row[5],
             "snippet": row[6],
+            "scripture_refs": row[7] or [],
         }
         for row in rows
     ]
@@ -496,7 +501,11 @@ def _textual_search_response(payload: SearchRequest, warnings: list[str] | None 
                 "semantic_score": None,
                 "bm25_score": None,
                 "rerank_score": None,
-                "metadata": {"fallback": "postgres_text"},
+                "metadata": {
+                    "fallback": "postgres_text",
+                    "scripture_refs": row["scripture_refs"],
+                    "scripture_refs_structured": structured_scripture_refs(row["scripture_refs"]),
+                },
             }
             for row in rows
         ],
@@ -518,6 +527,10 @@ def _local_chat_response(payload: ChatRequest, warnings: list[str] | None = None
             "section_title": "Documento",
             "quote": row["snippet"],
             "score": 0.5,
+            "metadata": {
+                "scripture_refs": row["scripture_refs"],
+                "scripture_refs_structured": structured_scripture_refs(row["scripture_refs"]),
+            },
         }
         for index, row in enumerate(rows, start=1)
     ]
@@ -569,6 +582,9 @@ def _metadata_filter_sql(filters, language: str | None, source_type_expr: str, c
     if filters.tags and "tags" in columns:
         where.append("d.tags::text ILIKE ANY(%(filter_tags)s)")
         params["filter_tags"] = [f"%{tag}%" for tag in filters.tags]
+    if filters.scripture_refs and "scripture_refs" in columns:
+        where.append("d.scripture_refs::text ILIKE ANY(%(filter_scripture_refs)s)")
+        params["filter_scripture_refs"] = [f"%{ref}%" for ref in filters.scripture_refs]
     if filters.document_ids:
         where.append("d.id::text = ANY(%(filter_document_ids)s)")
         params["filter_document_ids"] = [str(value) for value in filters.document_ids]

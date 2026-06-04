@@ -6,6 +6,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.routes import public
+from app.schemas.api import SearchRequest
 
 
 class FakeResult:
@@ -121,6 +122,11 @@ class DocumentRoutesTest(unittest.TestCase):
             },
         )
         self.assertEqual(response["documents"], response["items"])
+
+    def test_search_request_extracts_scripture_refs(self):
+        request = SearchRequest(query="Que ensena Alma 32:21 sobre la fe?")
+
+        self.assertEqual(request.filters.scripture_refs, ["Alma 32:21"])
 
     def test_sources_summary_returns_canonical_counts(self):
         response = public.sources_summary()
