@@ -9,6 +9,7 @@ type StudyWorkspaceState = {
   userId: string;
   activeWorkspaceId?: string;
   activeDocumentId?: string;
+  lastSavedWorkspaceId?: string;
   selectedText: string;
   sourceType?: string;
   topic?: string;
@@ -16,6 +17,7 @@ type StudyWorkspaceState = {
   setUserId: (userId: string) => void;
   setActiveWorkspaceId: (workspaceId?: string) => void;
   setActiveDocumentId: (documentId?: string) => void;
+  setLastSavedWorkspaceId: (workspaceId?: string) => void;
   setSelectedText: (selectedText: string) => void;
   setSourceType: (sourceType?: string) => void;
   setTopic: (topic?: string) => void;
@@ -26,6 +28,7 @@ export const useStudyWorkspaceStore = create<StudyWorkspaceState>((set) => ({
   userId: DEFAULT_STUDY_USER_ID,
   activeWorkspaceId: undefined,
   activeDocumentId: undefined,
+  lastSavedWorkspaceId: undefined,
   selectedText: "",
   sourceType: undefined,
   topic: undefined,
@@ -33,6 +36,7 @@ export const useStudyWorkspaceStore = create<StudyWorkspaceState>((set) => ({
   setUserId: (userId) => set({ userId }),
   setActiveWorkspaceId: (activeWorkspaceId) => set({ activeWorkspaceId }),
   setActiveDocumentId: (activeDocumentId) => set({ activeDocumentId }),
+  setLastSavedWorkspaceId: (lastSavedWorkspaceId) => set({ lastSavedWorkspaceId }),
   setSelectedText: (selectedText) => set({ selectedText }),
   setSourceType: (sourceType) => set({ sourceType: sourceType || undefined }),
   setTopic: (topic) => set({ topic: topic || undefined }),

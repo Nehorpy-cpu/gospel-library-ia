@@ -1,13 +1,17 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 
 import { featuredDocuments } from "@/lib/mock-data";
 import { PdfReader } from "@/components/document/pdf-reader";
 import { ScriptureReferences } from "@/components/document/scripture-references";
 import { CitationCard } from "@/components/search/citation-card";
+import { SaveToStudyActions } from "@/components/study/save-to-study-actions";
+import { Card } from "@/components/ui/card";
 
 export function DocumentReader({ id }: { id: string }) {
+  const [selectedText, setSelectedText] = useState("");
   const { data } = useQuery({
     queryKey: ["document", id],
     queryFn: async () => {
@@ -21,10 +25,27 @@ export function DocumentReader({ id }: { id: string }) {
   const title = typeof data?.title === "string" ? data.title : doc.title;
   const author = typeof data?.author === "string" ? data.author : doc.author;
   const source = typeof data?.canonical_url === "string" ? data.canonical_url : doc.source;
-  const summary = typeof data?.text === "string" && data.text ? data.text.slice(0, 420) : doc.summary;
+  const sourceUrl =
+    typeof data?.metadata === "object" && data.metadata && "source_url" in data.metadata
+      ? String((data.metadata as Record<string, unknown>).source_url)
+      : source;
+  const fullText = typeof data?.text === "string" && data.text ? data.text : doc.summary;
+  const summary = fullText.slice(0, 420);
+
+  function captureSelection() {
+    const value = window.getSelection()?.toString().trim();
+    if (value) setSelectedText(value);
+  }
+
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
-      <PdfReader title={title} />
+      <div onMouseUp={captureSelection} className="space-y-4">
+        <PdfReader title={title} />
+        <Card className="p-4">
+          <h2 className="text-sm font-semibold">Texto del documento</h2>
+          <p className="mt-3 max-h-[360px] overflow-auto text-sm leading-7 text-muted-foreground">{fullText}</p>
+        </Card>
+      </div>
       <aside className="space-y-4">
         <div>
           <h1 className="text-xl font-semibold">{title}</h1>
@@ -45,6 +66,25 @@ export function DocumentReader({ id }: { id: string }) {
             snippet: summary,
             score: 0.93,
             metadata: {}
+          }}
+        />
+        <SaveToStudyActions
+          quote={{
+            documentId: id,
+            quote: selectedText || summary,
+            selectedText: selectedText || undefined,
+            citationUrl: sourceUrl,
+            location: {
+              source: "reader",
+              selected: Boolean(selectedText),
+              title
+            }
+          }}
+          postIt={{
+            documentId: id,
+            content: selectedText || `Nota sobre ${title}`,
+            color: "yellow",
+            position: { x: 24, y: 24 }
           }}
         />
         <ScriptureReferences />

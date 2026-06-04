@@ -4,6 +4,10 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
   BookOpen,
   BookmarkPlus,
   FileText,
@@ -28,7 +32,7 @@ import { mergeSourceOptions } from "@/lib/source-filters";
 import { cn, truncate } from "@/lib/utils";
 import { useStudyWorkspaceStore } from "@/stores/study-workspace-store";
 import type { Citation } from "@/types/rag";
-import type { SavedStudyCitation, StudyDocument, StudyNote } from "@/types/study";
+import type { SavedStudyCitation, StudyDocument, StudyNote, StudyPostIt } from "@/types/study";
 
 type Props = {
   workspaceId?: string;
@@ -40,6 +44,7 @@ type DraftState = {
   noteContent: string;
   citationText: string;
   postItContent: string;
+  postItColor: string;
   sourceKey: string;
   language: string;
   topic: string;
@@ -53,6 +58,7 @@ const initialDraft: DraftState = {
   noteContent: "",
   citationText: "",
   postItContent: "",
+  postItColor: "yellow",
   sourceKey: "",
   language: "",
   topic: "",
@@ -249,6 +255,8 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
       studyApi.createPostIt(userId, workspaceId as string, {
         documentId: activeDocumentId,
         content: draft.postItContent.trim(),
+        color: draft.postItColor,
+        position: { x: 24, y: 24 },
         pinned: true,
         sourceFilters: { sourceType, topic, scriptureRef }
       }),
@@ -256,6 +264,31 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
       setDraft((value) => ({ ...value, postItContent: "" }));
       invalidateWorkspace();
     }
+  });
+
+  const updatePostIt = useMutation({
+    mutationFn: ({
+      postItId,
+      patch
+    }: {
+      postItId: string;
+      patch: { content?: string; color?: string; position?: Record<string, unknown>; pinned?: boolean };
+    }) => studyApi.updatePostIt(userId, workspaceId as string, postItId, patch),
+    onMutate: async ({ postItId, patch }) => {
+      const queryKey = ["study-post-its", userId, workspaceId, filters];
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<{ items: StudyPostIt[] }>(queryKey);
+      if (previous) {
+        queryClient.setQueryData<{ items: StudyPostIt[] }>(queryKey, {
+          items: previous.items.map((item) => (item.id === postItId ? { ...item, ...patch } : item))
+        });
+      }
+      return { previous, queryKey };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) queryClient.setQueryData(context.queryKey, context.previous);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["study-post-its"] })
   });
 
   const createSourceFilter = useMutation({
@@ -596,19 +629,35 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
               placeholder="Idea rapida"
               className="mt-4 min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
             />
+            <div className="mt-2 flex gap-2">
+              {["yellow", "blue", "green", "rose"].map((color) => (
+                <button
+                  key={color}
+                  onClick={() => setDraft((value) => ({ ...value, postItColor: color }))}
+                  className={cn(
+                    "h-7 w-7 rounded-md border",
+                    color === "yellow" && "bg-yellow-300",
+                    color === "blue" && "bg-sky-300",
+                    color === "green" && "bg-emerald-300",
+                    color === "rose" && "bg-rose-300",
+                    draft.postItColor === color && "ring-2 ring-primary"
+                  )}
+                  aria-label={`Color ${color}`}
+                />
+              ))}
+            </div>
             <Button className="mt-2 w-full" variant="outline" disabled={!canPostIt || createPostIt.isPending} onClick={() => createPostIt.mutate()}>
               <Plus className="h-4 w-4" />
               Agregar post-it
             </Button>
             <div className="mt-4 space-y-2">
               {postIts.data?.items.map((postIt) => (
-                <div key={postIt.id} className="rounded-md border bg-muted/40 p-3 text-sm">
-                  <p>{postIt.content}</p>
-                  <button onClick={() => deletePostIt.mutate(postIt.id)} className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-                    <Trash2 className="h-3 w-3" />
-                    Eliminar
-                  </button>
-                </div>
+                <PostItCard
+                  key={postIt.id}
+                  postIt={postIt}
+                  onDelete={() => deletePostIt.mutate(postIt.id)}
+                  onUpdate={(patch) => updatePostIt.mutate({ postItId: postIt.id, patch })}
+                />
               ))}
             </div>
           </Card>
@@ -658,6 +707,82 @@ function DocumentChoice({ document, active, onClick }: { document: StudyDocument
         </span>
       </span>
     </button>
+  );
+}
+
+function postItColorClass(color: string) {
+  if (color === "blue") return "border-sky-300 bg-sky-100 text-sky-950 dark:bg-sky-950/40 dark:text-sky-100";
+  if (color === "green") return "border-emerald-300 bg-emerald-100 text-emerald-950 dark:bg-emerald-950/40 dark:text-emerald-100";
+  if (color === "rose") return "border-rose-300 bg-rose-100 text-rose-950 dark:bg-rose-950/40 dark:text-rose-100";
+  return "border-yellow-300 bg-yellow-100 text-yellow-950 dark:bg-yellow-950/40 dark:text-yellow-100";
+}
+
+function PostItCard({
+  postIt,
+  onDelete,
+  onUpdate
+}: {
+  postIt: StudyPostIt;
+  onDelete: () => void;
+  onUpdate: (patch: { content?: string; color?: string; position?: Record<string, unknown>; pinned?: boolean }) => void;
+}) {
+  const x = typeof postIt.position?.x === "number" ? postIt.position.x : 24;
+  const y = typeof postIt.position?.y === "number" ? postIt.position.y : 24;
+  const move = (dx: number, dy: number) => onUpdate({ position: { ...postIt.position, x: x + dx, y: y + dy } });
+
+  return (
+    <div className={cn("rounded-md border p-3 text-sm", postItColorClass(postIt.color))}>
+      <textarea
+        defaultValue={postIt.content}
+        onBlur={(event) => {
+          const next = event.target.value.trim();
+          if (next && next !== postIt.content) onUpdate({ content: next });
+        }}
+        className="min-h-20 w-full resize-none rounded-md border border-black/10 bg-white/50 px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-ring dark:bg-black/20"
+      />
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {["yellow", "blue", "green", "rose"].map((color) => (
+          <button
+            key={color}
+            onClick={() => onUpdate({ color })}
+            className={cn(
+              "h-6 w-6 rounded-md border border-black/10",
+              color === "yellow" && "bg-yellow-300",
+              color === "blue" && "bg-sky-300",
+              color === "green" && "bg-emerald-300",
+              color === "rose" && "bg-rose-300",
+              postIt.color === color && "ring-2 ring-primary"
+            )}
+            aria-label={`Cambiar a ${color}`}
+          />
+        ))}
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <div className="grid grid-cols-3 gap-1">
+          <span />
+          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => move(0, -16)} aria-label="Mover arriba">
+            <ArrowUp className="h-3.5 w-3.5" />
+          </Button>
+          <span />
+          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => move(-16, 0)} aria-label="Mover izquierda">
+            <ArrowLeft className="h-3.5 w-3.5" />
+          </Button>
+          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => move(0, 16)} aria-label="Mover abajo">
+            <ArrowDown className="h-3.5 w-3.5" />
+          </Button>
+          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => move(16, 0)} aria-label="Mover derecha">
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+        <button onClick={onDelete} className="inline-flex items-center gap-1 text-xs opacity-80 hover:opacity-100">
+          <Trash2 className="h-3 w-3" />
+          Eliminar
+        </button>
+      </div>
+      <p className="mt-2 text-xs opacity-70">
+        Posicion {x}, {y}
+      </p>
+    </div>
   );
 }
 

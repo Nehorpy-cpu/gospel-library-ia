@@ -260,7 +260,14 @@ export const studyApi = {
   saveCitation(
     userId: string,
     workspaceId: string,
-    payload: { documentId: string; quote: string; selectedText?: string; citationUrl?: string; scriptureRefs?: string[] }
+    payload: {
+      documentId: string;
+      quote: string;
+      selectedText?: string;
+      citationUrl?: string;
+      location?: Record<string, unknown>;
+      scriptureRefs?: string[];
+    }
   ) {
     return request<SavedStudyCitation>(`/study-workspaces/${workspaceId}/citations`, {
       method: "POST",
@@ -287,10 +294,36 @@ export const studyApi = {
   createPostIt(
     userId: string,
     workspaceId: string,
-    payload: { documentId?: string; content: string; pinned?: boolean; sourceFilters?: Record<string, unknown> }
+    payload: {
+      documentId?: string;
+      content: string;
+      color?: string;
+      position?: Record<string, unknown>;
+      pinned?: boolean;
+      sourceFilters?: Record<string, unknown>;
+    }
   ) {
     return request<StudyPostIt>(`/study-workspaces/${workspaceId}/post-its`, {
       method: "POST",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
+    });
+  },
+  updatePostIt(
+    userId: string,
+    workspaceId: string,
+    postItId: string,
+    payload: {
+      documentId?: string;
+      content?: string;
+      color?: string;
+      position?: Record<string, unknown>;
+      pinned?: boolean;
+      sourceFilters?: Record<string, unknown>;
+    }
+  ) {
+    return request<StudyPostIt>(`/study-workspaces/${workspaceId}/post-its/${postItId}`, {
+      method: "PATCH",
       headers: studyHeaders(userId),
       body: JSON.stringify(payload)
     });

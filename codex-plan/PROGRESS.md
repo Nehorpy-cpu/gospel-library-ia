@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 6 - Source filters completed.
+Phase 7 - Saved quotes and post-its needs build environment follow-up.
 
 ## Phase tracker
 
@@ -14,7 +14,7 @@ Phase 6 - Source filters completed.
 | 4 | Study API | Needs follow-up | 2026-06-03 | 2026-06-03 | Implemented authenticated StudyWorkspace API endpoints with Pydantic validation, ownership enforcement, CRUD for workspaces/source filters/notes/highlights/citations/post-its, source attribution, filters, and structured logs. `pnpm test` and Python compile checks passed. Docker API logs could not run because Docker daemon is unavailable. |
 | 5 | Study frontend | Needs follow-up | 2026-06-03 | 2026-06-03 | Added StudyWorkspace frontend routes, real API client methods, Zustand study state, responsive workspace UI, note/citation/highlight/post-it/source filter flows, and Next rewrites for API proxying. Typecheck and `pnpm test` passed. `pnpm build` is blocked by a local Next/Webpack `EISDIR readlink` issue in hoisted Windows node_modules. |
 | 6 | Source filters | Completed | 2026-06-03 | 2026-06-03 | Normalized canonical source filter vocabulary across API, PostgreSQL fallback search, RAG BM25/semantic payloads, admin statistics, library, search, and study UI. Added real `/api/sources/summary` options and tests. `pnpm test`, API route unit tests, Python compile checks, and web typecheck passed. |
-| 7 | Saved quotes and post-its | Pending | - | - | - |
+| 7 | Saved quotes and post-its | Needs follow-up | 2026-06-04 | 2026-06-04 | Added user-facing save quote actions from reader and chat citations, default StudyWorkspace creation for saves, persisted citation location metadata, post-it color/position/create/update/delete controls, and optimistic post-it updates. Web typecheck and `pnpm test` passed. `pnpm build` is blocked by a local Next/Webpack `EISDIR readlink` issue. |
 | 8 | RAG by scripture | Pending | - | - | - |
 | 9 | Talk builder | Pending | - | - | - |
 | 10 | Exports | Pending | - | - | - |
@@ -112,3 +112,18 @@ After each phase:
 - Implemented: source type normalization for `/api/documents`, PostgreSQL fallback search/chat, Study API filters, admin source counts, RAG BM25, and Qdrant payload indexing
 - Implemented: frontend source filter options from real API data in library, search, admin, and study workflows
 - Status decision: `Completed`, because the phase verification passed.
+
+### 2026-06-04 - Phase 7 Saved quotes and post-its
+
+- Passed: `corepack pnpm --dir apps/web typecheck`
+- Passed: `corepack pnpm test`
+- Implemented: reusable save-to-study action that saves exact quote text, document id, source url, and location metadata
+- Implemented: quote save actions from document reader selections
+- Implemented: quote save actions from chat citations in desktop citation panel and compact mobile message actions
+- Implemented: default `Mi estudio` workspace creation when saving before a workspace exists
+- Implemented: post-it creation with color and position metadata
+- Implemented: post-it content, color, pinned state, and position updates through the real Study API
+- Implemented: optimistic post-it update UI with rollback on error
+- Blocked: `corepack pnpm --dir apps/web build`
+- Build failure: `Error: EISDIR: illegal operation on a directory, readlink 'F:\Users\Marco Sosa\Documentos\Liahona IA\apps\web\app\api\health\route.ts'`
+- Status decision: `Needs follow-up`, because required production build did not complete in this local Next/Webpack environment.

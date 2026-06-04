@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import { useState } from "react";
 
 import { CitationCard } from "@/components/search/citation-card";
+import { SaveToStudyActions } from "@/components/study/save-to-study-actions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -113,6 +114,28 @@ export function ChatExperience() {
                     ))}
                   </div>
                 ) : null}
+                {message.citations?.length ? (
+                  <div className="mt-3 space-y-2 lg:hidden">
+                    {message.citations.slice(0, 3).map((citation) => (
+                      <SaveToStudyActions
+                        key={`${citation.chunk_id}-${citation.citation_id}-inline`}
+                        compact
+                        quote={{
+                          documentId: citation.document_id,
+                          quote: citation.quote,
+                          selectedText: citation.quote,
+                          citationUrl: citation.canonical_url ?? undefined,
+                          location: {
+                            source: "chat",
+                            citationId: citation.citation_id,
+                            chunkId: citation.chunk_id,
+                            sectionTitle: citation.section_title
+                          }
+                        }}
+                      />
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </div>
           ))}
@@ -141,7 +164,24 @@ export function ChatExperience() {
             .flatMap((message) => message.citations ?? [])
             .slice(-8)
             .map((citation) => (
-              <CitationCard key={`${citation.chunk_id}-${citation.citation_id}`} item={citation} />
+              <div key={`${citation.chunk_id}-${citation.citation_id}`} className="space-y-2">
+                <CitationCard item={citation} />
+                <SaveToStudyActions
+                  compact
+                  quote={{
+                    documentId: citation.document_id,
+                    quote: citation.quote,
+                    selectedText: citation.quote,
+                    citationUrl: citation.canonical_url ?? undefined,
+                    location: {
+                      source: "chat",
+                      citationId: citation.citation_id,
+                      chunkId: citation.chunk_id,
+                      sectionTitle: citation.section_title
+                    }
+                  }}
+                />
+              </div>
             ))}
         </div>
       </aside>
