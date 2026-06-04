@@ -130,6 +130,12 @@ export const ragApi = {
   adminStatus() {
     return request<{ postgres: Record<string, unknown>; qdrant: Record<string, unknown> }>("/admin/status");
   },
+  adminErrors() {
+    return request<{
+      jobs: Array<Record<string, unknown>>;
+      documents: Array<Record<string, unknown>>;
+    }>("/admin/errors");
+  },
   ingestionStatus() {
     return request<{
       jobs: Array<Record<string, unknown>>;
@@ -147,6 +153,11 @@ export const ragApi = {
   },
   scrape() {
     return request<{ task_id: string }>("/admin/scrape", { method: "POST" });
+  },
+  retryJob(jobId: string) {
+    return request<{ task_id: string; type: string; status: string }>("/admin/jobs/" + encodeURIComponent(jobId) + "/retry", {
+      method: "POST"
+    });
   }
 };
 

@@ -1,5 +1,5 @@
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
@@ -81,6 +81,109 @@ def ingestion_status():
             if any(token in job["type"].lower() for token in ["index", "embed", "rag"])
         ][:8],
     }
+
+
+@router.get("/admin/errors")
+def admin_errors(limit: int = Query(default=20, ge=1, le=100)):
+    with get_conn() as conn:
+        failed_jobs = conn.execute(
+            """
+            SELECT
+              id::text,
+              job_type,
+              status,
+              attempts,
+              error,
+              errors,
+              payload,
+              source,
+              created_at,
+              started_at,
+              finished_at
+            FROM ingestion_jobs
+            WHERE lower(status) IN ('failed', 'error')
+               OR error IS NOT NULL
+               OR errors <> '[]'::jsonb
+            ORDER BY coalesce(finished_at, started_at, created_at) DESC
+            LIMIT %(limit)s
+            """,
+            {"limit": limit},
+        ).fetchall()
+        failed_documents = conn.execute(
+            """
+            SELECT
+              d.id::text,
+              d.title,
+              d.status,
+              d.canonical_url,
+              d.updated_at,
+              s.name,
+              COALESCE(d.raw_metadata->>'source_type', s.key) AS source_type,
+              d.raw_metadata->>'error' AS error
+            FROM documents d
+            JOIN sources s ON s.id = d.source_id
+            WHERE upper(coalesce(d.status, '')) = 'FAILED'
+               OR d.raw_metadata ? 'error'
+            ORDER BY d.updated_at DESC
+            LIMIT %(limit)s
+            """,
+            {"limit": limit},
+        ).fetchall()
+    return {
+        "jobs": [
+            {
+                "id": row[0],
+                "type": row[1],
+                "status": row[2],
+                "attempts": row[3],
+                "error": row[4],
+                "errors": row[5] or ([] if row[4] is None else [row[4]]),
+                "payload": row[6] or {},
+                "source": row[7],
+                "createdAt": row[8].isoformat() if row[8] else None,
+                "startedAt": row[9].isoformat() if row[9] else None,
+                "finishedAt": row[10].isoformat() if row[10] else None,
+            }
+            for row in failed_jobs
+        ],
+        "documents": [
+            {
+                "id": row[0],
+                "title": row[1],
+                "status": row[2],
+                "url": row[3],
+                "updatedAt": row[4].isoformat() if row[4] else None,
+                "source": row[5],
+                "sourceType": normalize_source_type(row[6]) or row[6],
+                "error": row[7],
+            }
+            for row in failed_documents
+        ],
+    }
+
+
+@router.post("/admin/jobs/{job_id}/retry")
+def retry_ingestion_job(job_id: str):
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            UPDATE ingestion_jobs
+            SET status = 'queued',
+                error = NULL,
+                errors = '[]'::jsonb,
+                started_at = NULL,
+                finished_at = NULL,
+                attempts = 0
+            WHERE id::text = %(job_id)s
+              AND (lower(status) IN ('failed', 'error') OR error IS NOT NULL OR errors <> '[]'::jsonb)
+            RETURNING id::text, job_type, status, payload, source
+            """,
+            {"job_id": job_id},
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Retryable ingestion job not found")
+        conn.commit()
+    return {"task_id": row[0], "type": row[1], "status": row[2], "payload": row[3] or {}, "source": row[4]}
 
 
 @router.post("/admin/scrape")

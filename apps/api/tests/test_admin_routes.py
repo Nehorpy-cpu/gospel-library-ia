@@ -1,0 +1,110 @@
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from pathlib import Path
+import sys
+import unittest
+
+from fastapi import HTTPException
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.routes import admin
+
+JOB_ID = "20000000-0000-4000-8000-000000000001"
+
+
+class FakeResult:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def fetchall(self):
+        return self.rows
+
+    def fetchone(self):
+        return self.rows[0] if self.rows else None
+
+
+class FakeConnection:
+    row_factory = None
+
+    def __init__(self):
+        self.committed = False
+
+    def execute(self, sql, params=None):
+        query = str(sql)
+        now = datetime.now(UTC)
+        if "FROM ingestion_jobs" in query and "UPDATE" not in query:
+            return FakeResult(
+                [
+                    (
+                        JOB_ID,
+                        "scrape",
+                        "failed",
+                        3,
+                        "Timeout",
+                        ["Timeout"],
+                        {"source": "byu"},
+                        "byu_speeches_en",
+                        now,
+                        now,
+                        now,
+                    )
+                ]
+            )
+        if "FROM documents d" in query and "raw_metadata ? 'error'" in query:
+            return FakeResult(
+                [
+                    (
+                        "doc-1",
+                        "Documento fallido",
+                        "FAILED",
+                        "https://example.com/doc",
+                        now,
+                        "BYU Speeches",
+                        "byu_speeches_en",
+                        "Parse error",
+                    )
+                ]
+            )
+        if "UPDATE ingestion_jobs" in query and params and params.get("job_id") == JOB_ID:
+            return FakeResult([(JOB_ID, "scrape", "queued", {"source": "byu"}, "byu_speeches_en")])
+        return FakeResult([])
+
+    def commit(self):
+        self.committed = True
+
+
+@contextmanager
+def fake_get_conn():
+    yield FakeConnection()
+
+
+class AdminRoutesTest(unittest.TestCase):
+    def setUp(self):
+        self.original_get_conn = admin.get_conn
+        admin.get_conn = fake_get_conn
+
+    def tearDown(self):
+        admin.get_conn = self.original_get_conn
+
+    def test_admin_errors_returns_jobs_and_documents(self):
+        response = admin.admin_errors()
+
+        self.assertEqual(response["jobs"][0]["id"], JOB_ID)
+        self.assertEqual(response["jobs"][0]["status"], "failed")
+        self.assertEqual(response["documents"][0]["status"], "FAILED")
+        self.assertEqual(response["documents"][0]["sourceType"], "byu_speeches_en")
+
+    def test_retry_ingestion_job_requeues_failed_job(self):
+        response = admin.retry_ingestion_job(JOB_ID)
+
+        self.assertEqual(response["task_id"], JOB_ID)
+        self.assertEqual(response["status"], "queued")
+
+    def test_retry_ingestion_job_rejects_missing_job(self):
+        with self.assertRaises(HTTPException):
+            admin.retry_ingestion_job("missing")
+
+
+if __name__ == "__main__":
+    unittest.main()

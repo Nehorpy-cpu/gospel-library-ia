@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 11 - Auth privacy needs runtime log verification follow-up.
+Phase 12 - Admin Pro needs build/runtime verification follow-up.
 
 ## Phase tracker
 
@@ -19,7 +19,7 @@ Phase 11 - Auth privacy needs runtime log verification follow-up.
 | 9 | Talk builder | Completed | 2026-06-04 | 2026-06-04 | Added source-grounded Talk Builder API, real document/saved quote retrieval, editable frontend workflow, draft saving into StudyWorkspace notes, and no-embedding textual fallback behavior. Compile, API unit tests, web typecheck, and `pnpm test` passed. |
 | 10 | Exports | Needs follow-up | 2026-06-04 | 2026-06-04 | Added owned StudyWorkspace exports for Markdown/PDF, source attribution, frontend download actions, and API tests. Python compile, API tests, web typecheck, `pnpm test`, and `git diff --check` passed. `pnpm build` remains blocked by the local Next/Webpack `EISDIR readlink` issue; `docker compose ps` remains blocked by unavailable Docker daemon. |
 | 11 | Auth privacy | Needs follow-up | 2026-06-04 | 2026-06-04 | Added privacy middleware, security headers, sensitive route rate limiting, centralized log redaction, user-scoped frontend favorites/history storage, and removed OpenAI variables from web env example. Python compile, privacy tests, API test discovery, web typecheck, `pnpm test`, frontend OpenAI exposure scan, and `git diff --check` passed. Docker API/RAG log verification remains blocked by unavailable Docker daemon. |
-| 12 | Admin Pro | Pending | - | - | - |
+| 12 | Admin Pro | Needs follow-up | 2026-06-04 | 2026-06-04 | Replaced admin mock metrics with real operational data, added error inspection, retry endpoint/actions, task status feedback, and PostgreSQL/Qdrant visibility. Python compile, admin tests, API test discovery, web typecheck, `pnpm test`, and `git diff --check` passed. `pnpm build` remains blocked by local Next/Webpack `EISDIR readlink`; `docker compose ps` remains blocked by unavailable Docker daemon. |
 | 13 | Deploy ready | Pending | - | - | - |
 
 ## Update rules
@@ -199,3 +199,23 @@ After each phase:
 - Blocked: `docker compose ps`
 - Cause: Docker daemon is unavailable in this environment.
 - Status decision: `Needs follow-up`, because required runtime log verification did not complete.
+
+### 2026-06-04 - Phase 12 Admin Pro
+
+- Passed: `python -m py_compile apps\api\app\routes\admin.py`
+- Passed: `python -m unittest apps.api.tests.test_admin_routes`
+- Passed: `python -m unittest discover apps/api/tests`
+- Passed: `corepack pnpm --dir apps/web typecheck`
+- Passed: `corepack pnpm test`
+- Passed: `git diff --check`
+- Implemented: `/api/admin/errors` for recent failed ingestion jobs and failed documents
+- Implemented: `/api/admin/jobs/{job_id}/retry` for resetting retryable failed jobs to queued
+- Implemented: Admin dashboard with real document totals, status counts, author/topic counts, PostgreSQL status, Qdrant status, and Qdrant vectors
+- Implemented: latest scraping/indexing task panels with real task ids/status and task metrics
+- Implemented: error inspection panel with retry actions and action status messages
+- Removed: static mock metric cards from the admin dashboard
+- Blocked: `corepack pnpm --dir apps/web build`
+- Build failure: `Error: EISDIR: illegal operation on a directory, readlink 'F:\Users\Marco Sosa\Documentos\Liahona IA\node_modules\next\dist\pages\_app.js'`
+- Blocked: `docker compose ps`
+- Cause: Docker daemon is unavailable in this environment.
+- Status decision: `Needs follow-up`, because required production build and runtime baseline checks did not complete.
