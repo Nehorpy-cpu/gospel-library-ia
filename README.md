@@ -100,6 +100,82 @@ POST /api/exports/study
 
 El frontend consume esos endpoints con proxy interno de Next.
 
+## StudyWorkspace runtime
+
+Ruta canonica actual:
+
+```txt
+GET    /api/study-workspaces
+POST   /api/study-workspaces
+GET    /api/study-workspaces/:id
+PATCH  /api/study-workspaces/:id
+DELETE /api/study-workspaces/:id
+```
+
+Aliases REST disponibles para auditorias y clientes nuevos:
+
+```txt
+GET    /api/study/workspaces
+POST   /api/study/workspaces
+GET    /api/study/workspaces/:id
+PATCH  /api/study/workspaces/:id
+DELETE /api/study/workspaces/:id
+GET    /api/study/workspaces/:id/related
+GET    /api/study/workspaces/:id/source-filters
+POST   /api/study/workspaces/:id/source-filters
+GET    /api/study/workspaces/:id/notes
+POST   /api/study/workspaces/:id/notes
+GET    /api/study/workspaces/:id/citations
+POST   /api/study/workspaces/:id/citations
+GET    /api/study/workspaces/:id/highlights
+POST   /api/study/workspaces/:id/highlights
+GET    /api/study/workspaces/:id/sticky-notes
+POST   /api/study/workspaces/:id/sticky-notes
+```
+
+El frontend expone `/study/new` para crear un StudyWorkspace real y redirigir a
+`/study/[workspaceId]`.
+
+## Fallback textual
+
+Cuando Qdrant `doctrinal_chunks_v1` tiene `points_count = 0`, o OpenAI responde
+`missing_api_key` / `insufficient_quota`, la app sigue operando en modo basico:
+
+```txt
+POST /api/search -> mode: textual_fallback
+POST /api/chat   -> respuesta clara con fuentes reales si hay coincidencias
+GET  /api/study/workspaces/:id/related -> mode: textual_fallback
+```
+
+En este modo no se llama OpenAI desde seeds ni tests locales. Para volver al
+modo semantico, configurar `OPENAI_API_KEY`, ejecutar `pnpm embed` y confirmar
+que Qdrant tenga `points_count > 0`.
+
+## Validacion runtime
+
+```bash
+corepack pnpm install
+corepack pnpm test
+python -m unittest discover apps/api/tests
+python -m unittest discover rag/tests
+corepack pnpm --dir apps/web lint
+corepack pnpm --dir apps/web typecheck
+corepack pnpm --dir apps/web build
+docker compose config --quiet
+docker compose down
+docker compose build --no-cache
+docker compose up -d --wait
+docker compose ps
+```
+
+Si `docker compose` no puede conectarse al daemon, iniciar Docker Desktop y
+repetir la validacion. Si la base persistida viene de una fase anterior, ejecutar:
+
+```bash
+docker compose exec scraper-api alembic upgrade head
+docker compose exec rag-api alembic upgrade head
+```
+
 ## Prisma
 
 ```bash

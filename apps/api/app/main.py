@@ -13,6 +13,7 @@ from app.routes.admin import router as admin_router
 from app.routes.exports import router as exports_router
 from app.routes.profile import router as profile_router
 from app.routes.public import router as public_router
+from app.routes.study import alias_router as study_alias_router
 from app.routes.study import router as study_router
 from app.routes.talk_builder import router as talk_builder_router
 from app.services.db import get_conn
@@ -35,6 +36,7 @@ app.add_middleware(
 app.include_router(public_router)
 app.include_router(admin_router)
 app.include_router(study_router)
+app.include_router(study_alias_router)
 app.include_router(talk_builder_router)
 app.include_router(exports_router)
 app.include_router(profile_router)

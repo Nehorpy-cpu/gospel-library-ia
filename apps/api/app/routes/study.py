@@ -1,16 +1,20 @@
 from typing import Any
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from app.core.config import get_settings
 from app.core.logging import logger
 from app.services.db import get_conn
+from app.services.qdrant_admin import QdrantAdmin
 from app.services.source_filters import normalize_source_type, source_type_aliases
 
 router = APIRouter(prefix="/api/study-workspaces", tags=["study"])
+alias_router = APIRouter(prefix="/api/study", tags=["study"])
 log = logger(__name__)
 
 
@@ -234,6 +238,174 @@ def _document_attribution(conn, document_id: str) -> dict:
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     return row
+
+
+def _qdrant_points_count() -> int:
+    try:
+        return int(QdrantAdmin().ensure_collection().get("vectors") or 0)
+    except Exception:
+        return 0
+
+
+def _document_columns(conn) -> set[str]:
+    return {
+        row["column_name"] if isinstance(row, dict) else row[0]
+        for row in conn.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'documents'"
+        ).fetchall()
+    }
+
+
+def _workspace_related_query(workspace: dict) -> tuple[str, list[str], list[str]]:
+    source_filters = workspace.get("source_filters") or {}
+    settings = workspace.get("settings") or {}
+    query_parts = [
+        workspace.get("name"),
+        workspace.get("description"),
+        settings.get("title"),
+        settings.get("mainReference"),
+        settings.get("referenceType"),
+    ]
+    query = " ".join(str(part).strip() for part in query_parts if part).strip() or workspace["name"]
+
+    source_values: list[str] = []
+    raw_source = source_filters.get("sourceType") or source_filters.get("source_key") or source_filters.get("sourceKey")
+    if isinstance(raw_source, str) and raw_source:
+        source_values.extend(source_type_aliases(raw_source))
+
+    languages: list[str] = []
+    raw_language = settings.get("language") or source_filters.get("language")
+    if isinstance(raw_language, str) and raw_language:
+        languages.append(raw_language)
+
+    return query, sorted(set(source_values)), sorted(set(languages))
+
+
+def _semantic_related(workspace: dict, limit: int) -> dict | None:
+    if _qdrant_points_count() <= 0:
+        return None
+
+    query, source_values, languages = _workspace_related_query(workspace)
+    payload: dict[str, Any] = {
+        "query": query,
+        "limit": limit,
+        "filters": {
+            "source_keys": source_values,
+            "languages": languages,
+        },
+    }
+    try:
+        with httpx.Client(timeout=30) as client:
+            response = client.post(f"{get_settings().rag_api_url}/search", json=payload)
+            response.raise_for_status()
+            data = response.json()
+    except Exception as exc:
+        log.warning("study_related_semantic_failed", workspace_id=workspace["id"], error=str(exc))
+        return None
+
+    results = [
+        {
+            "id": item.get("document_id") or item.get("chunk_id"),
+            "chunkId": item.get("chunk_id"),
+            "title": item.get("title"),
+            "author": item.get("author"),
+            "sourceType": item.get("source_key"),
+            "sourceUrl": item.get("canonical_url"),
+            "language": item.get("language"),
+            "excerpt": item.get("snippet"),
+            "relevanceScore": item.get("score"),
+        }
+        for item in data.get("results", [])
+    ]
+    return {
+        "workspaceId": workspace["id"],
+        "mode": data.get("mode") or "semantic",
+        "warning": None,
+        "query": query,
+        "results": results,
+    }
+
+
+def _textual_related(workspace: dict, limit: int) -> dict:
+    query, source_values, languages = _workspace_related_query(workspace)
+    terms = [
+        token
+        for token in query.replace(",", " ").replace(";", " ").split()
+        if len(token) > 2
+    ][:8]
+    with get_conn() as conn:
+        conn.row_factory = dict_row
+        columns = _document_columns(conn)
+        metadata_column = "raw_metadata" if "raw_metadata" in columns else "metadata"
+        text_column = "text" if "text" in columns else "content_text"
+        author_expr = "d.author" if "author" in columns else "NULL"
+        deleted_filter = "d.deleted_at IS NULL" if "deleted_at" in columns else "1=1"
+        source_type_expr = f"COALESCE(d.{metadata_column}->>'source_type', s.key)"
+        source_url_expr = f"COALESCE(d.{metadata_column}->>'source_url', d.canonical_url)"
+        where = [deleted_filter]
+        params: dict[str, Any] = {"limit": limit}
+        if source_values:
+            where.append(f"({source_type_expr} = ANY(%(source_values)s) OR s.key = ANY(%(source_values)s))")
+            params["source_values"] = source_values
+        if languages:
+            where.append("d.language = ANY(%(languages)s)")
+            params["languages"] = languages
+        if terms:
+            for index, term in enumerate(terms):
+                params[f"term_{index}"] = f"%{term}%"
+            match_terms = " OR ".join(
+                f"(d.title ILIKE %(term_{index})s OR coalesce(d.{text_column}, '') ILIKE %(term_{index})s OR coalesce({author_expr}, '') ILIKE %(term_{index})s)"
+                for index in range(len(terms))
+            )
+            score_expr = " + ".join(
+                f"CASE WHEN d.title ILIKE %(term_{index})s OR coalesce(d.{text_column}, '') ILIKE %(term_{index})s THEN 1 ELSE 0 END"
+                for index in range(len(terms))
+            )
+            where.append(f"({match_terms})")
+        else:
+            score_expr = "0"
+        rows = conn.execute(
+            f"""
+            SELECT
+              d.id::text,
+              d.title,
+              {author_expr} AS author,
+              s.name AS source,
+              {source_type_expr} AS source_type,
+              d.language,
+              d.canonical_url,
+              {source_url_expr} AS source_url,
+              left(coalesce(d.{text_column}, ''), 360) AS excerpt,
+              ({score_expr})::float AS relevance_score
+            FROM documents d
+            JOIN sources s ON s.id = d.source_id
+            WHERE {" AND ".join(where)}
+            ORDER BY relevance_score DESC, d.updated_at DESC, d.id
+            LIMIT %(limit)s
+            """,
+            params,
+        ).fetchall()
+    return {
+        "workspaceId": workspace["id"],
+        "mode": "textual_fallback",
+        "warning": "Busqueda semantica no disponible todavia.",
+        "query": query,
+        "results": [
+            {
+                "id": row["id"],
+                "title": row["title"],
+                "author": row["author"],
+                "source": row["source"],
+                "sourceType": normalize_source_type(row["source_type"]) or row["source_type"],
+                "language": row["language"],
+                "url": row["canonical_url"],
+                "sourceUrl": row["source_url"],
+                "excerpt": row["excerpt"],
+                "relevanceScore": row["relevance_score"],
+            }
+            for row in rows
+        ],
+    }
 
 
 @router.get("")
@@ -854,6 +1026,188 @@ def update_post_it(workspace_id: str, post_it_id: str, payload: PostItUpdatePayl
 @router.delete("/{workspace_id}/post-its/{post_it_id}")
 def delete_post_it(workspace_id: str, post_it_id: str, user_id: str | None = Header(default=None, alias="X-User-Id")):
     return _soft_delete_resource("post_its", post_it_id, workspace_id, current_user_id(user_id), "post_it_deleted")
+
+
+@alias_router.get("/workspaces")
+def alias_list_workspaces(
+    user_id: str | None = Header(default=None, alias="X-User-Id"),
+    limit: int = Query(default=50, ge=1, le=100),
+    sourceType: str | None = None,
+    topic: str | None = None,
+):
+    return list_workspaces(user_id=user_id, limit=limit, sourceType=sourceType, topic=topic)
+
+
+@alias_router.post("/workspaces", status_code=status.HTTP_201_CREATED)
+def alias_create_workspace(payload: WorkspacePayload, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    return create_workspace(payload=payload, user_id=user_id)
+
+
+@alias_router.get("/workspaces/{workspace_id}")
+def alias_get_workspace(workspace_id: str, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    return get_workspace(workspace_id=workspace_id, user_id=user_id)
+
+
+@alias_router.patch("/workspaces/{workspace_id}")
+def alias_update_workspace(workspace_id: str, payload: WorkspaceUpdatePayload, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    return update_workspace(workspace_id=workspace_id, payload=payload, user_id=user_id)
+
+
+@alias_router.delete("/workspaces/{workspace_id}")
+def alias_delete_workspace(workspace_id: str, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    return delete_workspace(workspace_id=workspace_id, user_id=user_id)
+
+
+@alias_router.get("/workspaces/{workspace_id}/related")
+def related_documents(
+    workspace_id: str,
+    user_id: str | None = Header(default=None, alias="X-User-Id"),
+    limit: int = Query(default=12, ge=1, le=50),
+):
+    user_id = current_user_id(user_id)
+    with get_conn() as conn:
+        conn.row_factory = dict_row
+        workspace = _require_workspace(conn, workspace_id, user_id)
+    semantic = _semantic_related(workspace, limit)
+    if semantic is not None:
+        return semantic
+    return _textual_related(workspace, limit)
+
+
+@alias_router.get("/workspaces/{workspace_id}/source-filters")
+def alias_list_source_filters(workspace_id: str, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    return list_source_filters(workspace_id=workspace_id, user_id=user_id)
+
+
+@alias_router.post("/workspaces/{workspace_id}/source-filters", status_code=status.HTTP_201_CREATED)
+def alias_create_source_filter(workspace_id: str, payload: SourceFilterPayload, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    return create_source_filter(workspace_id=workspace_id, payload=payload, user_id=user_id)
+
+
+@alias_router.delete("/workspaces/{workspace_id}/source-filters/{source_filter_id}")
+def alias_delete_source_filter(workspace_id: str, source_filter_id: str, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    return delete_source_filter(workspace_id=workspace_id, source_filter_id=source_filter_id, user_id=user_id)
+
+
+@alias_router.get("/workspaces/{workspace_id}/notes")
+def alias_list_notes(
+    workspace_id: str,
+    user_id: str | None = Header(default=None, alias="X-User-Id"),
+    documentId: str | None = None,
+    sourceType: str | None = None,
+    topic: str | None = None,
+    scriptureRef: str | None = None,
+    limit: int = Query(default=100, ge=1, le=200),
+):
+    return list_notes(workspace_id, user_id, documentId, sourceType, topic, scriptureRef, limit)
+
+
+@alias_router.post("/workspaces/{workspace_id}/notes", status_code=status.HTTP_201_CREATED)
+def alias_create_note(workspace_id: str, payload: NotePayload, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    return create_note(workspace_id=workspace_id, payload=payload, user_id=user_id)
+
+
+@alias_router.patch("/workspaces/{workspace_id}/notes/{note_id}")
+def alias_update_note(workspace_id: str, note_id: str, payload: NoteUpdatePayload, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    return update_note(workspace_id=workspace_id, note_id=note_id, payload=payload, user_id=user_id)
+
+
+@alias_router.delete("/workspaces/{workspace_id}/notes/{note_id}")
+def alias_delete_note(workspace_id: str, note_id: str, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    return delete_note(workspace_id=workspace_id, note_id=note_id, user_id=user_id)
+
+
+@alias_router.get("/workspaces/{workspace_id}/citations")
+def alias_list_citations(
+    workspace_id: str,
+    user_id: str | None = Header(default=None, alias="X-User-Id"),
+    documentId: str | None = None,
+    sourceType: str | None = None,
+    topic: str | None = None,
+    scriptureRef: str | None = None,
+    limit: int = Query(default=100, ge=1, le=200),
+):
+    return list_citations(workspace_id, user_id, documentId, sourceType, topic, scriptureRef, limit)
+
+
+@alias_router.post("/workspaces/{workspace_id}/citations", status_code=status.HTTP_201_CREATED)
+def alias_save_citation(workspace_id: str, payload: CitationPayload, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    return save_citation(workspace_id=workspace_id, payload=payload, user_id=user_id)
+
+
+@alias_router.delete("/workspaces/{workspace_id}/citations/{citation_id}")
+def alias_delete_citation(workspace_id: str, citation_id: str, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    return delete_citation(workspace_id=workspace_id, citation_id=citation_id, user_id=user_id)
+
+
+@alias_router.patch("/workspaces/{workspace_id}/citations/{citation_id}")
+def alias_update_citation(
+    workspace_id: str,
+    citation_id: str,
+    payload: CitationUpdatePayload,
+    user_id: str | None = Header(default=None, alias="X-User-Id"),
+):
+    return update_citation(workspace_id=workspace_id, citation_id=citation_id, payload=payload, user_id=user_id)
+
+
+@alias_router.get("/workspaces/{workspace_id}/highlights")
+def alias_list_highlights(
+    workspace_id: str,
+    user_id: str | None = Header(default=None, alias="X-User-Id"),
+    documentId: str | None = None,
+    sourceType: str | None = None,
+    topic: str | None = None,
+    scriptureRef: str | None = None,
+    limit: int = Query(default=100, ge=1, le=200),
+):
+    return list_highlights(workspace_id, user_id, documentId, sourceType, topic, scriptureRef, limit)
+
+
+@alias_router.post("/workspaces/{workspace_id}/highlights", status_code=status.HTTP_201_CREATED)
+def alias_create_highlight(workspace_id: str, payload: HighlightPayload, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    return create_highlight(workspace_id=workspace_id, payload=payload, user_id=user_id)
+
+
+@alias_router.patch("/workspaces/{workspace_id}/highlights/{highlight_id}")
+def alias_update_highlight(
+    workspace_id: str,
+    highlight_id: str,
+    payload: HighlightUpdatePayload,
+    user_id: str | None = Header(default=None, alias="X-User-Id"),
+):
+    return update_highlight(workspace_id=workspace_id, highlight_id=highlight_id, payload=payload, user_id=user_id)
+
+
+@alias_router.delete("/workspaces/{workspace_id}/highlights/{highlight_id}")
+def alias_delete_highlight(workspace_id: str, highlight_id: str, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    return delete_highlight(workspace_id=workspace_id, highlight_id=highlight_id, user_id=user_id)
+
+
+@alias_router.get("/workspaces/{workspace_id}/sticky-notes")
+def alias_list_sticky_notes(
+    workspace_id: str,
+    user_id: str | None = Header(default=None, alias="X-User-Id"),
+    documentId: str | None = None,
+    sourceType: str | None = None,
+    topic: str | None = None,
+    limit: int = Query(default=100, ge=1, le=200),
+):
+    return list_post_its(workspace_id, user_id, documentId, sourceType, topic, limit)
+
+
+@alias_router.post("/workspaces/{workspace_id}/sticky-notes", status_code=status.HTTP_201_CREATED)
+def alias_create_sticky_note(workspace_id: str, payload: PostItPayload, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    return create_post_it(workspace_id=workspace_id, payload=payload, user_id=user_id)
+
+
+@alias_router.patch("/workspaces/{workspace_id}/sticky-notes/{post_it_id}")
+def alias_update_sticky_note(workspace_id: str, post_it_id: str, payload: PostItUpdatePayload, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    return update_post_it(workspace_id=workspace_id, post_it_id=post_it_id, payload=payload, user_id=user_id)
+
+
+@alias_router.delete("/workspaces/{workspace_id}/sticky-notes/{post_it_id}")
+def alias_delete_sticky_note(workspace_id: str, post_it_id: str, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    return delete_post_it(workspace_id=workspace_id, post_it_id=post_it_id, user_id=user_id)
 
 
 def _update_json_resource(

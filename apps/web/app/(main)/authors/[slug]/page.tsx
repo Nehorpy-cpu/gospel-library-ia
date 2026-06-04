@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 
-import { SpeechCard } from "@/components/library/speech-card";
-import { featuredDocuments } from "@/lib/mock-data";
+import { AuthorDocuments } from "@/components/authors/author-documents";
 
 export const metadata: Metadata = {
   title: "Autor"
@@ -10,8 +9,6 @@ export const metadata: Metadata = {
 export default async function AuthorPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const name = decodeURIComponent(slug).replaceAll("-", " ");
-  const items = featuredDocuments.filter((item) => item.author.toLowerCase().includes(name.toLowerCase().slice(0, 8)));
-  const visible = items.length ? items : featuredDocuments;
 
   return (
     <div className="space-y-5">
@@ -28,11 +25,7 @@ export default async function AuthorPage({ params }: { params: Promise<{ slug: s
           verificables del autor usando el servicio RAG.
         </p>
       </section>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {visible.map((item) => (
-          <SpeechCard key={item.id} item={item} />
-        ))}
-      </div>
+      <AuthorDocuments name={name} />
     </div>
   );
 }

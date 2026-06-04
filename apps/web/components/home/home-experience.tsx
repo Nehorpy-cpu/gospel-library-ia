@@ -2,15 +2,32 @@
 
 import Link from "next/link";
 import { ArrowRight, Bot, Search, Sparkles } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 
 import { ContentRow } from "@/components/home/content-row";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { continueStudying, featuredDocuments } from "@/lib/mock-data";
+import { ragApi } from "@/lib/api";
+import { documentToSpeechCard } from "@/lib/document-mapper";
 import { useUIStore } from "@/stores/ui-store";
 
 export function HomeExperience() {
   const { setSearchOpen } = useUIStore();
+  const documents = useQuery({
+    queryKey: ["home-documents"],
+    queryFn: () => ragApi.documents({ limit: 12, offset: 0 }),
+    staleTime: 1000 * 60
+  });
+  const topics = useQuery({
+    queryKey: ["home-topics"],
+    queryFn: () => ragApi.topics(),
+    staleTime: 1000 * 60 * 5
+  });
+  const studyTopics = (topics.data?.items ?? [])
+    .map((topic) => String(topic.name ?? topic.slug ?? ""))
+    .filter(Boolean)
+    .slice(0, 5);
+  const speechItems = (documents.data?.items ?? []).map(documentToSpeechCard);
 
   return (
     <div className="space-y-8">
@@ -46,7 +63,7 @@ export function HomeExperience() {
         <Card className="p-5">
           <h2 className="text-base font-semibold">Continuar estudio</h2>
           <div className="mt-4 grid gap-2">
-            {continueStudying.map((topic) => (
+            {studyTopics.map((topic) => (
               <Link
                 key={topic}
                 href={`/search?q=${encodeURIComponent(topic)}`}
@@ -56,11 +73,21 @@ export function HomeExperience() {
                 <ArrowRight className="h-4 w-4 text-muted-foreground" />
               </Link>
             ))}
+            {!topics.isLoading && studyTopics.length === 0 ? (
+              <p className="rounded-md border px-3 py-3 text-sm text-muted-foreground">
+                No hay temas reales cargados todavia.
+              </p>
+            ) : null}
           </div>
         </Card>
       </section>
-      <ContentRow title="Destacados doctrinales" items={featuredDocuments} />
-      <ContentRow title="Discursos y fuentes recientes" items={[...featuredDocuments].reverse()} />
+      <ContentRow title="Destacados doctrinales" items={speechItems.slice(0, 6)} />
+      <ContentRow title="Discursos y fuentes recientes" items={speechItems.slice(6, 12)} />
+      {!documents.isLoading && speechItems.length === 0 ? (
+        <p className="rounded-lg border bg-card p-4 text-sm text-muted-foreground">
+          No hay documentos reales cargados todavia. Ejecuta scraping o ingestion desde Admin.
+        </p>
+      ) : null}
     </div>
   );
 }

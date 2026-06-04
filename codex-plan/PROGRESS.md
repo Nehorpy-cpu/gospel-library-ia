@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 14 - Calling focus needs runtime build verification follow-up.
+Phase 15 - Runtime stabilization completed.
 
 ## Phase tracker
 
@@ -22,6 +22,7 @@ Phase 14 - Calling focus needs runtime build verification follow-up.
 | 12 | Admin Pro | Needs follow-up | 2026-06-04 | 2026-06-04 | Replaced admin mock metrics with real operational data, added error inspection, retry endpoint/actions, task status feedback, and PostgreSQL/Qdrant visibility. Python compile, admin tests, API test discovery, web typecheck, `pnpm test`, and `git diff --check` passed. `pnpm build` remains blocked by local Next/Webpack `EISDIR readlink`; `docker compose ps` remains blocked by unavailable Docker daemon. |
 | 13 | Deploy ready | Needs follow-up | 2026-06-04 | 2026-06-04 | Added API gateway Kubernetes deployment, aligned K8s images with CI `production` tags, fixed probes/config, included API in GHCR/Railway/K8s workflows, added MinIO healthcheck, and expanded production runbook/checklist. Static validation, Python compile, API tests, web typecheck, `pnpm test`, and `git diff --check` passed. `docker compose ps` and root `pnpm build` remain blocked by unavailable Docker daemon; web build remains blocked by local Next/Webpack `EISDIR readlink`. |
 | 14 | Calling focus | Needs follow-up | 2026-06-04 | 2026-06-04 | Added editable shared calling catalog, profile preferences API and DB migrations, persistent frontend preferences UI, chat payload support, dynamic RAG/fallback prompt section, and tests. Python compile, API tests, RAG tests, Prisma validation with local `DATABASE_URL`, web typecheck, `pnpm test`, and `git diff --check` passed. `next lint` remains blocked by interactive ESLint setup, web build remains blocked by local Next/Webpack `EISDIR readlink`, and `docker compose ps` remains blocked by unavailable Docker daemon. |
+| 15 | Runtime stabilization real data UI audit | Completed | 2026-06-04 | 2026-06-04 | Stabilized pnpm install on Windows with hoisted node linker, fixed Next build with a Windows-only readlink patch, added non-interactive ESLint, fixed Docker web context for shared catalog, added Study REST aliases and related fallback endpoint, added `/study/new`, removed frontend mock-data usage, applied live Alembic migrations, and verified Docker runtime healthy plus real endpoint smoke tests. |
 
 ## Update rules
 
@@ -269,3 +270,33 @@ After each phase:
 - Blocked: `docker compose ps`
 - Cause: Docker daemon is unavailable in this environment.
 - Status decision: `Needs follow-up`, because local lint/build/runtime checks did not complete in this environment.
+
+### 2026-06-04 - Phase 15 Runtime stabilization real data UI audit
+
+- Passed: `corepack pnpm install`
+- Passed: `corepack pnpm test`
+- Passed: `python -m unittest discover apps/api/tests`
+- Passed: `python -m unittest discover rag/tests`
+- Passed: `corepack pnpm --dir apps/web lint`
+- Passed: `corepack pnpm --dir apps/web typecheck`
+- Passed: `corepack pnpm --dir apps/web build`
+- Passed: `docker compose config --quiet`
+- Passed: `docker compose down`
+- Passed: `docker compose build --no-cache`
+- Passed: `docker compose up -d --wait`
+- Passed: `docker compose ps`
+- Passed: `docker compose exec -T scraper-api alembic upgrade head`
+- Passed: `docker compose exec -T rag-api alembic upgrade head`
+- Passed: HTTP 200 for `/`, `/study`, `/study/new`, `/admin`, Main API docs, Scraper API docs, and RAG API docs
+- Passed: HTTP 200 for `GET /api/documents`, `/api/documents/summary`, `/api/authors`, `/api/topics`, `/api/ingestion/status`, `/api/admin/status`, `/api/study-workspaces`, `/api/study/workspaces`, and `/api/study/workspaces/{id}/related`
+- Passed: HTTP 200 for `POST /api/search` and `POST /api/chat` with real PostgreSQL documents in `textual_fallback` mode
+- Passed: Qdrant collection `doctrinal_chunks_v1` exists and is green; `points_count` is 0, so textual fallback is expected
+- Passed: frontend no longer imports `apps/web/lib/mock-data.ts`; the file was removed
+- Implemented: `/api/study/workspaces` aliases while preserving `/api/study-workspaces`
+- Implemented: `/api/study/workspaces/{id}/related` with semantic path when vectors exist and PostgreSQL textual fallback when not
+- Implemented: frontend `/study/new` creation flow redirecting to `/study/[workspaceId]`
+- Implemented: non-interactive ESLint flat config for Next.js
+- Implemented: Docker web build context includes `packages/shared/church-callings.json`
+- Observed: worker logs show active scraping/assets/indexing tasks; Celery warns about running as root, but workers are running
+- Remaining risk: Qdrant has `points_count = 0` because OpenAI quota/embeddings are not active; semantic RAG remains pending until credits and embedding run are available
+- Status decision: `Completed`, because required local, Docker, runtime, and real endpoint checks passed.

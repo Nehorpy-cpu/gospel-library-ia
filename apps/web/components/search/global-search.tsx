@@ -3,15 +3,27 @@
 import Link from "next/link";
 import { Search, X } from "lucide-react";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { continueStudying } from "@/lib/mock-data";
+import { ragApi } from "@/lib/api";
 import { useUIStore } from "@/stores/ui-store";
 
 export function GlobalSearch() {
   const { searchOpen, setSearchOpen } = useUIStore();
   const [query, setQuery] = useState("");
+  const topics = useQuery({
+    queryKey: ["global-search-topics"],
+    queryFn: () => ragApi.topics(),
+    enabled: searchOpen,
+    staleTime: 1000 * 60 * 5
+  });
+  const suggestions = (topics.data?.items ?? [])
+    .map((topic) => String(topic.name ?? topic.slug ?? ""))
+    .filter(Boolean)
+    .slice(0, 7);
+  const visible = query ? [query, ...suggestions.filter((item) => item.toLowerCase() !== query.toLowerCase())] : suggestions;
 
   if (!searchOpen) return null;
 
@@ -32,7 +44,7 @@ export function GlobalSearch() {
           </Button>
         </div>
         <div className="grid gap-2 p-4">
-          {(query ? [query, ...continueStudying] : continueStudying).slice(0, 7).map((item) => (
+          {visible.slice(0, 7).map((item) => (
             <Link
               key={item}
               href={`/search?q=${encodeURIComponent(item)}`}
@@ -42,6 +54,9 @@ export function GlobalSearch() {
               {item}
             </Link>
           ))}
+          {!topics.isLoading && visible.length === 0 ? (
+            <p className="px-3 py-2 text-sm text-muted-foreground">No hay sugerencias reales cargadas todavia.</p>
+          ) : null}
         </div>
       </div>
     </div>

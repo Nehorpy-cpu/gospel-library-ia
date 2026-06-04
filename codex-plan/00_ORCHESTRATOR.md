@@ -35,6 +35,7 @@ This folder defines the phased execution plan for Gospel Library IA. It is the s
 | 12 | `12_ADMIN_PRO.md` | Pending |
 | 13 | `13_DEPLOY_READY.md` | Pending |
 | 14 | `14_CALLING_FOCUS.md` | Pending |
+| 15 | `15_RUNTIME_STABILIZATION_REAL_DATA_UI_AUDIT.md` | Pending |
 
 ## Global verification baseline
 

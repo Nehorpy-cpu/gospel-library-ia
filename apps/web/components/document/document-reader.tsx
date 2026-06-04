@@ -3,34 +3,31 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { featuredDocuments } from "@/lib/mock-data";
 import { PdfReader } from "@/components/document/pdf-reader";
 import { ScriptureReferences } from "@/components/document/scripture-references";
 import { CitationCard } from "@/components/search/citation-card";
 import { SaveToStudyActions } from "@/components/study/save-to-study-actions";
 import { Card } from "@/components/ui/card";
+import { ragApi } from "@/lib/api";
 
 export function DocumentReader({ id }: { id: string }) {
   const [selectedText, setSelectedText] = useState("");
   const { data } = useQuery({
     queryKey: ["document", id],
-    queryFn: async () => {
-      const response = await fetch(`/api/documents/${id}`);
-      if (!response.ok) throw new Error("Document not found");
-      return response.json() as Promise<Record<string, unknown>>;
-    },
+    queryFn: () => ragApi.document(id),
     retry: false
   });
-  const doc = featuredDocuments.find((item) => item.id === id) ?? featuredDocuments[0];
-  const title = typeof data?.title === "string" ? data.title : doc.title;
-  const author = typeof data?.author === "string" ? data.author : doc.author;
-  const source = typeof data?.canonical_url === "string" ? data.canonical_url : doc.source;
+  const title = typeof data?.title === "string" ? data.title : "Documento no encontrado";
+  const author = typeof data?.author === "string" && data.author ? data.author : "Autor desconocido";
+  const source = typeof data?.canonical_url === "string" ? data.canonical_url : "Fuente no disponible";
   const sourceUrl =
     typeof data?.metadata === "object" && data.metadata && "source_url" in data.metadata
       ? String((data.metadata as Record<string, unknown>).source_url)
       : source;
-  const fullText = typeof data?.text === "string" && data.text ? data.text : doc.summary;
+  const fullText =
+    typeof data?.text === "string" && data.text ? data.text : "Este documento real aun no tiene texto extraido disponible.";
   const summary = fullText.slice(0, 420);
+  const language = typeof data?.language === "string" ? data.language : null;
 
   function captureSelection() {
     const value = window.getSelection()?.toString().trim();
@@ -55,13 +52,13 @@ export function DocumentReader({ id }: { id: string }) {
         </div>
         <CitationCard
           item={{
-            chunk_id: doc.id,
-            document_id: doc.id,
+            chunk_id: id,
+            document_id: id,
             title,
             author,
             source_key: source,
-            canonical_url: "#",
-            language: doc.language,
+            canonical_url: sourceUrl,
+            language,
             section_title: "Resumen IA",
             snippet: summary,
             score: 0.93,

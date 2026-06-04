@@ -169,6 +169,12 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
     queryFn: () => studyApi.sourceFilters(userId, workspaceId as string),
     enabled: Boolean(workspaceId)
   });
+  const relatedDocuments = useQuery({
+    queryKey: ["study-related", userId, workspaceId],
+    queryFn: () => studyApi.related(userId, workspaceId as string),
+    enabled: Boolean(workspaceId),
+    staleTime: 1000 * 60
+  });
 
   const invalidateWorkspace = () => {
     queryClient.invalidateQueries({ queryKey: ["study-workspaces"] });
@@ -375,6 +381,12 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
             <RefreshCw className="h-4 w-4" />
             Actualizar
           </Button>
+          <Link href="/study/new">
+            <Button variant="outline">
+              <Plus className="h-4 w-4" />
+              Nuevo
+            </Button>
+          </Link>
           <Button variant="outline" disabled={!workspaceId || exportStudy.isPending} onClick={() => exportStudy.mutate("markdown")}>
             <Download className="h-4 w-4" />
             Markdown
@@ -621,6 +633,12 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
             onUpdate={(note) => updateNote.mutate(note)}
             onDelete={(noteId) => deleteNote.mutate(noteId)}
           />
+          <RelatedDocumentsPanel
+            items={relatedDocuments.data?.results ?? []}
+            warning={relatedDocuments.data?.warning}
+            loading={relatedDocuments.isLoading}
+            onSelect={(documentId) => setActiveDocumentId(documentId)}
+          />
         </main>
 
         <aside className="space-y-4">
@@ -712,6 +730,47 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
         </aside>
       </section>
     </div>
+  );
+}
+
+function RelatedDocumentsPanel({
+  items,
+  warning,
+  loading,
+  onSelect
+}: {
+  items: StudyDocument[];
+  warning?: string | null;
+  loading: boolean;
+  onSelect: (documentId: string) => void;
+}) {
+  return (
+    <Card className="p-4">
+      <div className="flex items-center gap-2">
+        <Search className="h-4 w-4 text-primary" />
+        <h2 className="font-semibold">Resultados relacionados</h2>
+      </div>
+      {warning ? <p className="mt-2 text-sm text-muted-foreground">{warning}</p> : null}
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        {items.map((document) => (
+          <button
+            key={document.id}
+            onClick={() => onSelect(document.id)}
+            className="rounded-md border p-3 text-left text-sm transition hover:bg-muted"
+          >
+            <span className="line-clamp-2 font-medium">{document.title}</span>
+            <span className="mt-1 block text-xs text-muted-foreground">
+              {document.author ?? "Autor desconocido"} - {document.sourceType ?? document.source ?? "Fuente"}
+            </span>
+            {document.excerpt ? <span className="mt-2 line-clamp-2 block text-xs text-muted-foreground">{document.excerpt}</span> : null}
+          </button>
+        ))}
+        {loading ? <p className="text-sm text-muted-foreground">Buscando documentos relacionados...</p> : null}
+        {!loading && items.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No hay documentos relacionados para este workspace.</p>
+        ) : null}
+      </div>
+    </Card>
   );
 }
 
