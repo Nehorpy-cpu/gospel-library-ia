@@ -3,6 +3,8 @@ import sys
 
 import structlog
 
+from app.services.privacy import sanitize_event
+
 
 def configure_logging() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
@@ -10,6 +12,7 @@ def configure_logging() -> None:
         processors=[
             structlog.processors.TimeStamper(fmt="iso", utc=True),
             structlog.processors.add_log_level,
+            sanitize_event,
             structlog.processors.JSONRenderer(),
         ],
         logger_factory=structlog.stdlib.LoggerFactory(),

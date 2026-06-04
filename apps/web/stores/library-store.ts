@@ -10,6 +10,9 @@ type LibraryState = {
   pushHistory: (id: string) => void;
 };
 
+const DEFAULT_STUDY_USER_ID =
+  process.env.NEXT_PUBLIC_STUDY_USER_ID ?? "00000000-0000-4000-8000-000000000001";
+
 export const useLibraryStore = create<LibraryState>()(
   persist(
     (set) => ({
@@ -26,6 +29,6 @@ export const useLibraryStore = create<LibraryState>()(
           history: [id, ...state.history.filter((item) => item !== id)].slice(0, 80)
         }))
     }),
-    { name: "gospel-library-state" }
+    { name: `gospel-library-state:${DEFAULT_STUDY_USER_ID}` }
   )
 );

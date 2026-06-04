@@ -15,10 +15,13 @@ from app.routes.public import router as public_router
 from app.routes.study import router as study_router
 from app.routes.talk_builder import router as talk_builder_router
 from app.services.db import get_conn
+from app.services.privacy import sanitize_value
+from app.services.rate_limit import RateLimiter
 
 configure_logging()
 log = logger(__name__)
 settings = get_settings()
+privacy_limiter = RateLimiter()
 
 app = FastAPI(title="Gospel Library IA API", version="1.0.0")
 app.add_middleware(
@@ -35,9 +38,37 @@ app.include_router(talk_builder_router)
 app.include_router(exports_router)
 
 
+SENSITIVE_API_PREFIXES = (
+    "/api/admin",
+    "/api/chat",
+    "/api/exports",
+    "/api/study-workspaces",
+    "/api/talk-builder",
+)
+
+
+@app.middleware("http")
+async def privacy_and_security_middleware(request: Request, call_next):
+    if request.url.path.startswith(SENSITIVE_API_PREFIXES):
+        await privacy_limiter.check(request, settings.rate_limit_per_minute, scope="sensitive-api")
+    response = await call_next(request)
+    _set_default_header(response, "X-Content-Type-Options", "nosniff")
+    _set_default_header(response, "X-Frame-Options", "DENY")
+    _set_default_header(response, "Referrer-Policy", "no-referrer")
+    _set_default_header(response, "Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if request.url.path.startswith(SENSITIVE_API_PREFIXES):
+        _set_default_header(response, "Cache-Control", "no-store")
+    return response
+
+
+def _set_default_header(response, key: str, value: str) -> None:
+    if key not in response.headers:
+        response.headers[key] = value
+
+
 @app.exception_handler(Exception)
 async def handle_error(request: Request, exc: Exception):
-    log.error("api_error", path=str(request.url), error=str(exc))
+    log.error("api_error", path=str(request.url), error=sanitize_value(str(exc)))
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 

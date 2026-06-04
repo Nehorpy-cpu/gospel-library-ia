@@ -17,10 +17,12 @@ class RateLimiter:
         except Exception:
             self.redis = None
 
-    async def check(self, request: Request, limit: int | None = None) -> None:
+    async def check(self, request: Request, limit: int | None = None, scope: str | None = None) -> None:
         max_hits = limit or self.settings.rate_limit_per_minute
         ip = request.client.host if request.client else "unknown"
-        key = f"rl:{ip}:{int(time.time() // 60)}"
+        user_id = request.headers.get("X-User-Id", "anonymous")
+        safe_scope = scope or request.url.path.replace("/", ":")
+        key = f"rl:{safe_scope}:{ip}:{user_id}:{int(time.time() // 60)}"
         if self.redis:
             hits = self.redis.incr(key)
             self.redis.expire(key, 90)

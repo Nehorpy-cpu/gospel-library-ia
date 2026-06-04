@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 10 - Exports needs build/runtime verification follow-up.
+Phase 11 - Auth privacy needs runtime log verification follow-up.
 
 ## Phase tracker
 
@@ -18,7 +18,7 @@ Phase 10 - Exports needs build/runtime verification follow-up.
 | 8 | RAG by scripture | Needs follow-up | 2026-06-04 | 2026-06-04 | Added scripture reference normalization, query/message scripture extraction, API/RAG metadata filters, PostgreSQL fallback filtering, Qdrant payload filters, scripture-aware indexing metadata, and frontend scripture filter input. Local compile, web typecheck, API unit tests, and `pnpm test` passed. Docker `rag-api` logs could not run because Docker daemon is unavailable. |
 | 9 | Talk builder | Completed | 2026-06-04 | 2026-06-04 | Added source-grounded Talk Builder API, real document/saved quote retrieval, editable frontend workflow, draft saving into StudyWorkspace notes, and no-embedding textual fallback behavior. Compile, API unit tests, web typecheck, and `pnpm test` passed. |
 | 10 | Exports | Needs follow-up | 2026-06-04 | 2026-06-04 | Added owned StudyWorkspace exports for Markdown/PDF, source attribution, frontend download actions, and API tests. Python compile, API tests, web typecheck, `pnpm test`, and `git diff --check` passed. `pnpm build` remains blocked by the local Next/Webpack `EISDIR readlink` issue; `docker compose ps` remains blocked by unavailable Docker daemon. |
-| 11 | Auth privacy | Pending | - | - | - |
+| 11 | Auth privacy | Needs follow-up | 2026-06-04 | 2026-06-04 | Added privacy middleware, security headers, sensitive route rate limiting, centralized log redaction, user-scoped frontend favorites/history storage, and removed OpenAI variables from web env example. Python compile, privacy tests, API test discovery, web typecheck, `pnpm test`, frontend OpenAI exposure scan, and `git diff --check` passed. Docker API/RAG log verification remains blocked by unavailable Docker daemon. |
 | 12 | Admin Pro | Pending | - | - | - |
 | 13 | Deploy ready | Pending | - | - | - |
 
@@ -178,3 +178,24 @@ After each phase:
 - Blocked: `docker compose ps`
 - Cause: Docker daemon is unavailable in this environment.
 - Status decision: `Needs follow-up`, because required production build and runtime baseline checks did not complete.
+
+### 2026-06-04 - Phase 11 Auth privacy
+
+- Passed: `python -m py_compile apps\api\app\main.py apps\api\app\core\logging.py apps\api\app\services\privacy.py apps\api\app\services\rate_limit.py`
+- Passed: `python -m unittest apps.api.tests.test_privacy_controls`
+- Passed: `python -m unittest discover apps/api/tests`
+- Passed: `corepack pnpm --dir apps/web typecheck`
+- Passed: `corepack pnpm test`
+- Passed: frontend scan for `OPENAI_API_KEY` / `NEXT_PUBLIC_*OPENAI` in `apps/web`
+- Passed: `git diff --check`
+- Implemented: centralized structlog redaction for API keys, authorization headers, cookies, passwords, secrets, and tokens
+- Implemented: API middleware for security headers and `Cache-Control: no-store` on sensitive routes
+- Implemented: rate limiting for sensitive API prefixes including study, chat, admin, exports, and talk builder
+- Implemented: user-scoped local persistence key for frontend favorites/history
+- Implemented: removal of OpenAI variables from `apps/web/.env.example`
+- Verified: StudyWorkspace, Talk Builder, and Exports enforce user ownership through `X-User-Id` and workspace/user filters
+- Blocked: `docker compose logs api --tail=100`
+- Blocked: `docker compose logs rag-api --tail=100`
+- Blocked: `docker compose ps`
+- Cause: Docker daemon is unavailable in this environment.
+- Status decision: `Needs follow-up`, because required runtime log verification did not complete.
