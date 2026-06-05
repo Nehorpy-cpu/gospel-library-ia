@@ -7,6 +7,12 @@ class SourceKey(StrEnum):
     BYU_SPEECHES_ES = "byu_speeches_es"
     CHURCH = "churchofjesuschrist"
     JOSEPH_SMITH_PAPERS = "josephsmithpapers"
+    BYU_RSC = "byu_rsc"
+    GENERAL_CONFERENCE = "general_conference"
+    CHURCH_MANUALS = "church_manuals"
+    COME_FOLLOW_ME = "come_follow_me"
+    TEACHINGS_PRESIDENTS = "teachings_presidents"
+    SCRIPTURES = "scriptures"
 
 
 class CrawlStatus(StrEnum):

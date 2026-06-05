@@ -95,11 +95,13 @@ def bootstrap():
 
 @app.post("/admin/discover")
 def discover_all():
+    seed_sources()
     task = discover_enabled_sources_task.delay()
     return {"task_id": task.id}
 
 
 @app.post("/admin/discover/{source_id}")
 def discover_one(source_id: str):
+    seed_sources()
     task = discover_source_task.delay(source_id)
     return {"task_id": task.id}

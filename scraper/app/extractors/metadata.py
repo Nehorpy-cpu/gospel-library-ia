@@ -3,11 +3,35 @@ import re
 from datetime import datetime
 from urllib.parse import unquote, urlparse
 
-import dateparser
 from bs4 import BeautifulSoup
-from langdetect import DetectorFactory, LangDetectException, detect
 
-DetectorFactory.seed = 7
+try:
+    import dateparser
+except ImportError:  # pragma: no cover - local lightweight test env fallback.
+    dateparser = None
+
+try:
+    from langdetect import DetectorFactory, LangDetectException, detect
+
+    DetectorFactory.seed = 7
+except ImportError:  # pragma: no cover - local lightweight test env fallback.
+    detect = None
+
+    class LangDetectException(Exception):
+        pass
+
+
+def _parse_date(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    if dateparser:
+        return dateparser.parse(value)
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        if re.fullmatch(r"(?:19|20)\d{2}", value.strip()):
+            return datetime(int(value.strip()), 1, 1)
+    return None
 
 SCRIPTURE_PATTERNS = [
     r"\b(?:1|2|3)?\s?Nephi\s+\d+:\d+(?:-\d+)?\b",
@@ -252,13 +276,13 @@ def extract_published_at(soup: BeautifulSoup, text: str = "", url: str | None = 
         soup.find("time").get_text(" ", strip=True) if soup.find("time") else None,
     ]
     for value in values:
-        if parsed := dateparser.parse(value or ""):
+        if parsed := _parse_date(value):
             return parsed
     date_match = re.search(r"\b(?:\d{1,2}\s+\w+\s+\d{4}|\w+\s+\d{1,2},\s+\d{4})\b", text)
-    if date_match:
-        return dateparser.parse(date_match.group(0))
+    if date_match and (parsed := _parse_date(date_match.group(0))):
+        return parsed
     if url and (year_match := re.search(r"/((?:19|20)\d{2})(?:/|$)", url)):
-        return dateparser.parse(year_match.group(1))
+        return _parse_date(year_match.group(1))
     return None
 
 
@@ -269,6 +293,11 @@ def detect_language(text: str, url: str | None = None) -> str | None:
             return "es"
         if "/por/" in path or "/pt/" in path:
             return "pt"
+    if detect is None:
+        lowered = text[:5000].lower()
+        if any(token in lowered for token in [" el ", " la ", " que ", " de jesucristo", "alma "]):
+            return "es"
+        return "en" if text.strip() else None
     try:
         return detect(text[:5000]) if text.strip() else None
     except LangDetectException:

@@ -2,7 +2,7 @@
 
 ## Current phase
 
-17_AUTH_PRIVACY_PRODUCTION - Done.
+18_MASSIVE_SOURCE_INGESTION - Done.
 
 ## Phase tracker
 
@@ -25,6 +25,7 @@
 | 15 | Runtime stabilization real data UI audit | Completed | 2026-06-04 | 2026-06-04 | Stabilized pnpm install on Windows with hoisted node linker, fixed Next build with a Windows-only readlink patch, added non-interactive ESLint, fixed Docker web context for shared catalog, added Study REST aliases and related fallback endpoint, added `/study/new`, removed frontend mock-data usage, applied live Alembic migrations, and verified Docker runtime healthy plus real endpoint smoke tests. |
 | 16 | Deploy local to cloud | Completed | 2026-06-05 | 2026-06-05 | Added production env examples, deploy provider guides, production checklist, safe production scripts, README production deploy section, and verified build/test/compose plus secret scans. |
 | 17 | Auth privacy production | Completed | 2026-06-05 | 2026-06-05 | Added Clerk-ready JWT validation, local auth fallback, frontend protected routes, backend role dependencies, user-scoped favorites/history, auth docs/env examples, and auth/privacy tests. Build, tests, Docker health, and protected route smoke checks passed. |
+| 18 | Massive source ingestion | Completed | 2026-06-05 | 2026-06-05 | Added controlled source catalog, seeds, incremental scraping limits, parser metadata improvements, admin source controls, ingestion metrics, source docs, and validated Docker/runtime with real documents and textual fallback. |
 
 ## Update rules
 
@@ -306,7 +307,7 @@ After each phase:
 15_QA_FINAL: DONE
 16_DEPLOY_LOCAL_TO_CLOUD: DONE
 17_AUTH_PRIVACY_PRODUCTION: DONE
-18_MASSIVE_SOURCE_INGESTION: PENDING
+18_MASSIVE_SOURCE_INGESTION: DONE
 19_AI_COST_OPTIMIZATION: PENDING
 20_BETA_RELEASE: PENDING
 
@@ -371,3 +372,36 @@ After each phase:
 - Passed: `/api/study-workspaces` returns 401 without auth.
 - Passed: `/api/admin/status` returns 401 without auth, 403 for normal user, and 200 for local admin.
 - Status decision: `DONE`, because production auth/privacy controls are implemented and validated without deleting existing data.
+
+### 2026-06-05 - Phase 18 Massive source ingestion
+
+- Implemented: source catalog fields in SQLAlchemy and Prisma for `sourceType`, `language`, `crawlStrategy`, `rateLimit`, `maxPagesPerRun`, `lastCrawledAt`, and `robotsPolicyNotes`.
+- Implemented: catalog seeds for BYU Speeches ES/EN, Discursos SUD, General Conference, Church Manuals, Joseph Smith Papers, BYU RSC, Come Follow Me, Teachings Presidents, and Scriptures.
+- Implemented: incremental crawl URL requeue/skip behavior, content-hash created/updated/unchanged metrics, `documentsSkipped`, `documentsFailed`, and clearer structured worker logs.
+- Implemented: source-specific parser metadata for Discursos SUD, BYU Speeches, Church Library, Joseph Smith Papers, and BYU RSC.
+- Implemented: respectful path-prefix discovery limits in the Scrapy spider plus `maxPagesPerRun` handoff from source catalog.
+- Implemented: Admin source catalog endpoints and UI controls for listing sources, changing limits/enabled state, and launching limited crawls.
+- Implemented: source filter support for `scriptures` and documentation in `docs/sources.md`, `docs/ingestion.md`, and `docs/scraping-ethics.md`.
+- Passed: `corepack pnpm install`
+- Passed: `corepack pnpm --dir apps/web typecheck`
+- Passed: `corepack pnpm --dir apps/web build`
+- Passed: `corepack pnpm test`
+- Passed: `corepack pnpm build`
+- Passed: `corepack pnpm seed`
+- Passed: `corepack pnpm scrape`
+- Passed: `python -m unittest discover apps/api/tests`
+- Passed: `python -m unittest discover rag/tests`
+- Passed: `python -m unittest discover scraper/tests`
+- Passed: `python -m compileall apps/api/app rag/app scraper/app`
+- Passed: `docker compose config --quiet`
+- Passed: `docker compose up -d --build`
+- Passed: `docker compose ps` shows web, api, rag-api, scraper-api, postgres, redis, qdrant, and minio healthy; workers running.
+- Passed: `alembic upgrade head` for scraper-api and rag-api.
+- Passed: `GET /api/admin/sources` returns real source rows and document/token estimates in about 0.6 seconds after query optimization.
+- Passed: `GET /api/ingestion/status` returns real job metrics including `documentsSkipped` and `documentsFailed`.
+- Passed: `POST /api/search` returns real PostgreSQL textual fallback results with warning `Busqueda semantica no disponible todavia.`
+- Runtime evidence: local database has 13,388 READY documents and 71 FAILED documents after controlled ingestion checks.
+- Remaining risk: Qdrant `doctrinal_chunks_v1` remains green with 0 vectors until OpenAI quota/embeddings are available.
+- Remaining risk: legacy source rows such as `byu_speeches_en`, `discursosud`, `josephsmithpapers`, and `churchofjesuschrist` still exist in the local DB because the phase explicitly avoided deleting data; a future cleanup should merge or disable them with a reviewed migration.
+- Remaining risk: some historical scraped rows still have imperfect titles/authors or media/photo pages from earlier crawler behavior; new source limits and parser improvements reduce future drift.
+- Status decision: `DONE`, because controlled source ingestion, admin controls, docs, migrations, local commands, Docker runtime, and real data checks passed without deleting existing data or invoking OpenAI embeddings.

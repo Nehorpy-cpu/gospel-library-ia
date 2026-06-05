@@ -13,11 +13,45 @@ from app.utils.source_types import source_type_for_url
 from app.utils.urls import normalize_url
 
 
-def get_or_create_source(db: Session, key: str, name: str, base_url: str) -> Source:
+def get_or_create_source(
+    db: Session,
+    key: str,
+    name: str,
+    base_url: str,
+    *,
+    source_type: str | None = None,
+    language: str | None = None,
+    crawl_strategy: str = "html_discovery",
+    rate_limit: int = 30,
+    max_pages_per_run: int = 25,
+    robots_policy_notes: str | None = None,
+    config: dict | None = None,
+) -> Source:
     source = db.scalar(select(Source).where(Source.key == key))
     if source:
+        source.name = name
+        source.base_url = base_url
+        source.source_type = source_type or source.source_type or key
+        source.language = language or source.language
+        source.crawl_strategy = crawl_strategy or source.crawl_strategy
+        source.rate_limit = rate_limit or source.rate_limit
+        source.max_pages_per_run = max_pages_per_run or source.max_pages_per_run
+        source.robots_policy_notes = robots_policy_notes or source.robots_policy_notes
+        source.config = {**(source.config or {}), **(config or {})}
+        db.commit()
         return source
-    source = Source(key=key, name=name, base_url=base_url)
+    source = Source(
+        key=key,
+        name=name,
+        base_url=base_url,
+        source_type=source_type or key,
+        language=language,
+        crawl_strategy=crawl_strategy,
+        rate_limit=rate_limit,
+        max_pages_per_run=max_pages_per_run,
+        robots_policy_notes=robots_policy_notes,
+        config=config or {},
+    )
     db.add(source)
     db.commit()
     db.refresh(source)
@@ -34,6 +68,12 @@ def upsert_crawl_url(
     status: str = CrawlStatus.DISCOVERED,
 ) -> CrawlUrl:
     normalized = normalize_url(url)
+    existing = db.scalar(select(CrawlUrl).where(CrawlUrl.source_id == source_id, CrawlUrl.normalized_url == normalized))
+    if existing and existing.status not in {CrawlStatus.FAILED, CrawlStatus.DISCOVERED, CrawlStatus.QUEUED}:
+        existing.updated_at = datetime.utcnow()
+        existing._was_requeued = False
+        db.commit()
+        return existing
     stmt = (
         insert(CrawlUrl)
         .values(
@@ -46,11 +86,17 @@ def upsert_crawl_url(
         )
         .on_conflict_do_update(
             constraint="uq_crawl_url_source_normalized",
-            set_={"updated_at": datetime.utcnow()},
+            set_={
+                "status": status,
+                "depth": depth,
+                "discovered_from": discovered_from,
+                "updated_at": datetime.utcnow(),
+            },
         )
         .returning(CrawlUrl)
     )
     crawl_url = db.execute(stmt).scalar_one()
+    crawl_url._was_requeued = True
     db.commit()
     return crawl_url
 
@@ -218,6 +264,8 @@ def finish_job(
     documents_found: int | None = None,
     documents_created: int | None = None,
     documents_updated: int | None = None,
+    documents_skipped: int | None = None,
+    documents_failed: int | None = None,
     errors: list[str] | None = None,
 ) -> None:
     job = db.get(IngestionJob, job_id)
@@ -231,6 +279,10 @@ def finish_job(
         job.documents_created = documents_created
     if documents_updated is not None:
         job.documents_updated = documents_updated
+    if documents_skipped is not None:
+        job.documents_skipped = documents_skipped
+    if documents_failed is not None:
+        job.documents_failed = documents_failed
     if errors is not None:
         job.errors = errors
     elif error:

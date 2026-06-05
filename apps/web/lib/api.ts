@@ -188,6 +188,47 @@ export const ragApi = {
     return request<{ task_id: string; type: string; status: string }>("/admin/jobs/" + encodeURIComponent(jobId) + "/retry", {
       method: "POST"
     });
+  },
+  adminSources() {
+    return request<{
+      items: Array<{
+        id: string;
+        sourceId: string;
+        name: string;
+        sourceType: string;
+        baseUrl: string;
+        language?: string | null;
+        enabled: boolean;
+        crawlStrategy: string;
+        rateLimit: number;
+        maxPagesPerRun: number;
+        lastCrawledAt?: string | null;
+        robotsPolicyNotes?: string | null;
+        documentCount: number;
+        estimatedEmbeddingTokens: number;
+        indexingMode: string;
+        latestJobAt?: string | null;
+        errorCount: number;
+      }>;
+    }>("/admin/sources");
+  },
+  updateAdminSource(sourceId: string, payload: { enabled?: boolean; maxPagesPerRun?: number }) {
+    return request<{ id: string; sourceId: string; enabled: boolean; maxPagesPerRun: number }>(
+      "/admin/sources/" + encodeURIComponent(sourceId),
+      {
+        method: "PATCH",
+        body: JSON.stringify(payload)
+      }
+    );
+  },
+  crawlSource(sourceId: string, payload?: { maxPagesPerRun?: number }) {
+    return request<{ task_id: string; sourceId: string; maxPagesPerRun?: number | null }>(
+      "/admin/sources/" + encodeURIComponent(sourceId) + "/crawl",
+      {
+        method: "POST",
+        body: JSON.stringify(payload ?? {})
+      }
+    );
   }
 };
 

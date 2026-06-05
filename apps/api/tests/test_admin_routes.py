@@ -33,7 +33,7 @@ class FakeConnection:
     def execute(self, sql, params=None):
         query = str(sql)
         now = datetime.now(UTC)
-        if "FROM ingestion_jobs" in query and "UPDATE" not in query:
+        if "FROM ingestion_jobs" in query and "UPDATE" not in query and "WITH document_stats" not in query:
             return FakeResult(
                 [
                     (
@@ -68,6 +68,31 @@ class FakeConnection:
             )
         if "UPDATE ingestion_jobs" in query and params and params.get("job_id") == JOB_ID:
             return FakeResult([(JOB_ID, "scrape", "queued", {"source": "byu"}, "byu_speeches_en")])
+        if "FROM sources s" in query and "WITH document_stats" in query:
+            return FakeResult(
+                [
+                    (
+                        "source-1",
+                        "byu_speeches_en",
+                        "BYU Speeches English",
+                        "byu_speeches_en",
+                        "https://speeches.byu.edu/talks/",
+                        "en",
+                        True,
+                        "listing_and_talk_pages",
+                        30,
+                        12,
+                        now,
+                        "Respect robots.txt",
+                        3,
+                        12000,
+                        now,
+                        0,
+                    )
+                ]
+            )
+        if "UPDATE sources" in query:
+            return FakeResult([("source-1", params["source_id"], params.get("enabled", True), params.get("max_pages_per_run", 12))])
         return FakeResult([])
 
     def commit(self):
@@ -104,6 +129,20 @@ class AdminRoutesTest(unittest.TestCase):
     def test_retry_ingestion_job_rejects_missing_job(self):
         with self.assertRaises(HTTPException):
             admin.retry_ingestion_job("missing")
+
+    def test_admin_sources_returns_catalog(self):
+        response = admin.admin_sources()
+
+        self.assertEqual(response["items"][0]["sourceId"], "byu_speeches_en")
+        self.assertEqual(response["items"][0]["sourceType"], "byu_speeches_en")
+        self.assertEqual(response["items"][0]["maxPagesPerRun"], 12)
+        self.assertEqual(response["items"][0]["indexingMode"], "index_later")
+
+    def test_update_admin_source_changes_limits(self):
+        response = admin.update_admin_source("byu_speeches_en", admin.SourceUpdateRequest(maxPagesPerRun=5))
+
+        self.assertEqual(response["sourceId"], "byu_speeches_en")
+        self.assertEqual(response["maxPagesPerRun"], 5)
 
 
 if __name__ == "__main__":

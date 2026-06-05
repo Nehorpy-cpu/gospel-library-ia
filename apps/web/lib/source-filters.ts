@@ -13,7 +13,8 @@ export const canonicalSourceOptions: SourceFilterOption[] = [
   { key: "general_conference", label: "Conferencia General" },
   { key: "church_manuals", label: "Manuales de la Iglesia" },
   { key: "joseph_smith_papers", label: "Joseph Smith Papers" },
-  { key: "byu_rsc", label: "BYU Religious Studies Center" }
+  { key: "byu_rsc", label: "BYU Religious Studies Center" },
+  { key: "scriptures", label: "Escrituras" }
 ];
 
 export function mergeSourceOptions(items?: SourceFilterOption[]): SourceFilterOption[] {

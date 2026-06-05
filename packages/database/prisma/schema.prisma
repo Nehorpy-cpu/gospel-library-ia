@@ -259,10 +259,18 @@ model Source {
   name            String
   kind            SourceKind
   baseUrl         String?      @map("base_url")
+  sourceType      String?      @map("source_type") @db.VarChar(100)
+  language        String?      @db.VarChar(16)
   defaultLanguage String?      @map("default_language") @db.VarChar(16)
   isOfficial      Boolean      @default(false) @map("is_official")
   trustLevel      Int          @default(5) @map("trust_level")
   scrapingEnabled Boolean      @default(true) @map("scraping_enabled")
+  enabled         Boolean      @default(true)
+  crawlStrategy   String       @default("html_discovery") @map("crawl_strategy") @db.VarChar(80)
+  rateLimit       Int          @default(30) @map("rate_limit")
+  maxPagesPerRun  Int          @default(25) @map("max_pages_per_run")
+  lastCrawledAt   DateTime?    @map("last_crawled_at") @db.Timestamptz(6)
+  robotsPolicyNotes String?    @map("robots_policy_notes")
   config          Json         @default("{}")
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -272,6 +280,8 @@ model Source {
 
   @@index([kind])
   @@index([isOfficial, trustLevel])
+  @@index([enabled, sourceType])
+  @@index([lastCrawledAt])
   @@map("sources")
 }
 
@@ -877,6 +887,8 @@ model IngestionJob {
   documentsFound   Int  @default(0) @map("documents_found")
   documentsCreated Int  @default(0) @map("documents_created")
   documentsUpdated Int  @default(0) @map("documents_updated")
+  documentsSkipped Int  @default(0) @map("documents_skipped")
+  documentsFailed  Int  @default(0) @map("documents_failed")
   errors      Json      @default("[]")
   attempts    Int       @default(0)
   error       String?

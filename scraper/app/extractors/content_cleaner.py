@@ -1,8 +1,16 @@
 import re
 
-import ftfy
 from bs4 import BeautifulSoup
-from readability import Document as ReadabilityDocument
+
+try:
+    from readability import Document as ReadabilityDocument
+except ImportError:  # pragma: no cover - local lightweight test env fallback.
+    ReadabilityDocument = None
+
+try:
+    import ftfy
+except ImportError:  # pragma: no cover - local lightweight test env fallback.
+    ftfy = None
 
 
 SCRIPT_STYLE_RE = re.compile(r"(?is)<(script|style|noscript).*?>.*?</\1>")
@@ -19,7 +27,7 @@ def clean_html(html: str) -> str:
     html = _strip_control_chars(html)
     html = SCRIPT_STYLE_RE.sub("", html)
     try:
-        readable = ReadabilityDocument(html).summary(html_partial=True)
+        readable = ReadabilityDocument(html).summary(html_partial=True) if ReadabilityDocument else html
     except Exception:
         readable = html
     soup = BeautifulSoup(readable, "lxml")
@@ -36,7 +44,7 @@ def html_to_text(html: str) -> str:
     for block in soup.find_all(["p", "div", "section", "article", "li", "h1", "h2", "h3"]):
         block.append("\n")
     text = soup.get_text("\n")
-    text = ftfy.fix_text(text)
+    text = ftfy.fix_text(text) if ftfy else text
     text = WHITESPACE_RE.sub(" ", text)
     text = re.sub(r" *\n *", "\n", text)
     text = MULTI_NEWLINE_RE.sub("\n\n", text)
@@ -44,7 +52,7 @@ def html_to_text(html: str) -> str:
 
 
 def compact_text(text: str) -> str:
-    text = ftfy.fix_text(text)
+    text = ftfy.fix_text(text) if ftfy else text
     text = WHITESPACE_RE.sub(" ", text)
     text = MULTI_NEWLINE_RE.sub("\n\n", text)
     return text.strip()

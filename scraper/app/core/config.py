@@ -56,6 +56,7 @@ class Settings(BaseSettings):
             "www.churchofjesuschrist.org",
             "josephsmithpapers.org",
             "www.josephsmithpapers.org",
+            "rsc.byu.edu",
         ]
     )
 

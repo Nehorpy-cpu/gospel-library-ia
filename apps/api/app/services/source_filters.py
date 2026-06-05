@@ -9,6 +9,7 @@ CANONICAL_SOURCE_TYPES = (
     "church_manuals",
     "joseph_smith_papers",
     "byu_rsc",
+    "scriptures",
 )
 
 
@@ -17,9 +18,10 @@ SOURCE_ALIASES = {
     "byu_speeches_en": {"byu_speeches_en", "byu_speeches", "speeches_byu", "byu"},
     "discursos_sud": {"discursos_sud", "discurso_sud", "discursosud"},
     "general_conference": {"general_conference", "conference", "conferencia_general", "general-conference"},
-    "church_manuals": {"church_manuals", "manuals", "manuales", "church_manual"},
+    "church_manuals": {"church_manuals", "manuals", "manuales", "church_manual", "come_follow_me", "teachings_presidents"},
     "joseph_smith_papers": {"joseph_smith_papers", "jsp", "josephsmithpapers"},
     "byu_rsc": {"byu_rsc", "rsc", "religious_studies_center"},
+    "scriptures": {"scriptures", "scripture", "escrituras"},
 }
 
 SOURCE_LABELS = {
@@ -30,6 +32,7 @@ SOURCE_LABELS = {
     "church_manuals": "Manuales de la Iglesia",
     "joseph_smith_papers": "Joseph Smith Papers",
     "byu_rsc": "BYU Religious Studies Center",
+    "scriptures": "Escrituras",
 }
 
 

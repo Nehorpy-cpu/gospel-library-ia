@@ -24,6 +24,15 @@ class QueuePipeline:
                 discovered_from=item.get("discovered_from"),
                 status=CrawlStatus.QUEUED,
             )
+            if getattr(crawl_url, "_was_requeued", True) is False:
+                log.info(
+                    "crawl_url_skipped_already_processed",
+                    source_key=item["source_key"],
+                    url=item["url"],
+                    crawl_url_id=str(crawl_url.id),
+                    status=crawl_url.status,
+                )
+                return item
             fetch_url_task.delay(str(crawl_url.id))
             log.info(
                 "crawl_url_queued",

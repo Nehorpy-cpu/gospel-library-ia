@@ -8,9 +8,11 @@ import {
   CheckCircle2,
   Database,
   FileText,
+  Globe2,
   Play,
   RefreshCw,
   RotateCcw,
+  Save,
   Server,
   Tags,
   Users
@@ -46,6 +48,7 @@ function taskTime(task: Record<string, unknown>) {
 export function AdminDashboard() {
   const queryClient = useQueryClient();
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [sourceLimits, setSourceLimits] = useState<Record<string, number>>({});
   const status = useQuery({ queryKey: ["admin-status"], queryFn: () => ragApi.adminStatus(), refetchInterval: 15000 });
   const ingestion = useQuery({ queryKey: ["ingestion-status"], queryFn: () => ragApi.ingestionStatus(), refetchInterval: 15000 });
   const errors = useQuery({ queryKey: ["admin-errors"], queryFn: () => ragApi.adminErrors(), refetchInterval: 15000 });
@@ -54,6 +57,11 @@ export function AdminDashboard() {
   const authors = useQuery({ queryKey: ["admin-authors"], queryFn: () => ragApi.authors(), refetchInterval: 15000 });
   const topics = useQuery({ queryKey: ["admin-topics"], queryFn: () => ragApi.topics(), refetchInterval: 15000 });
   const sources = useQuery({ queryKey: ["admin-sources"], queryFn: () => ragApi.sourcesSummary(), refetchInterval: 15000 });
+  const sourceCatalog = useQuery({
+    queryKey: ["admin-source-catalog"],
+    queryFn: () => ragApi.adminSources(),
+    refetchInterval: 15000
+  });
   const scrape = useMutation({
     mutationFn: () => ragApi.scrape(),
     onSuccess: (data) => {
@@ -77,6 +85,24 @@ export function AdminDashboard() {
       refreshAll();
     },
     onError: (error) => setActionMessage(error instanceof Error ? error.message : "No se pudo reintentar la tarea.")
+  });
+  const updateSource = useMutation({
+    mutationFn: ({ sourceId, payload }: { sourceId: string; payload: { enabled?: boolean; maxPagesPerRun?: number } }) =>
+      ragApi.updateAdminSource(sourceId, payload),
+    onSuccess: (data) => {
+      setActionMessage(`Fuente actualizada: ${data.sourceId}`);
+      refreshAll();
+    },
+    onError: (error) => setActionMessage(error instanceof Error ? error.message : "No se pudo actualizar la fuente.")
+  });
+  const crawlSource = useMutation({
+    mutationFn: ({ sourceId, maxPagesPerRun }: { sourceId: string; maxPagesPerRun?: number }) =>
+      ragApi.crawlSource(sourceId, maxPagesPerRun ? { maxPagesPerRun } : undefined),
+    onSuccess: (data) => {
+      setActionMessage(`Crawl encolado para ${data.sourceId}: ${data.task_id}`);
+      refreshAll();
+    },
+    onError: (error) => setActionMessage(error instanceof Error ? error.message : "No se pudo ejecutar el crawl de fuente.")
   });
 
   const documentStatuses = documentSummary.data?.documents ?? [];
@@ -109,6 +135,7 @@ export function AdminDashboard() {
     void queryClient.invalidateQueries({ queryKey: ["admin-authors"] });
     void queryClient.invalidateQueries({ queryKey: ["admin-topics"] });
     void queryClient.invalidateQueries({ queryKey: ["admin-sources"] });
+    void queryClient.invalidateQueries({ queryKey: ["admin-source-catalog"] });
   }
 
   return (
@@ -249,6 +276,99 @@ export function AdminDashboard() {
               <EmptyState label="No hay documentos fallidos." />
             )}
           </div>
+        </div>
+      </Card>
+
+      <Card className="p-5">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="font-semibold">Fuentes doctrinales</h2>
+            <p className="text-sm text-muted-foreground">Catalogo auditable con limites por corrida, robots y crawls por fuente.</p>
+          </div>
+          <Badge>{sourceCatalog.data?.items?.length ?? 0} fuentes</Badge>
+        </div>
+        <div className="mt-4 grid gap-3">
+          {(sourceCatalog.data?.items ?? []).map((source) => {
+            const limit = sourceLimits[source.sourceId] ?? source.maxPagesPerRun;
+            return (
+              <div key={source.id} className="rounded-md border p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Globe2 className="h-4 w-4 text-primary" />
+                      <h3 className="font-medium">{source.name}</h3>
+                      <Badge>{source.enabled ? "activa" : "pausada"}</Badge>
+                      <Badge>{source.sourceType}</Badge>
+                    </div>
+                    <a className="mt-1 block truncate text-xs text-muted-foreground" href={source.baseUrl} target="_blank" rel="noreferrer">
+                      {source.baseUrl}
+                    </a>
+                    <p className="mt-2 text-xs text-muted-foreground">{source.robotsPolicyNotes ?? "Sin nota de robots registrada."}</p>
+                    <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                      <span>Idioma: {textValue(source.language)}</span>
+                      <span>Estrategia: {source.crawlStrategy}</span>
+                      <span>Docs: {formatCount(source.documentCount)}</span>
+                      <span>Indexing: {source.indexingMode}</span>
+                      <span>Tokens estimados: {formatCount(source.estimatedEmbeddingTokens)}</span>
+                      <span>Errores: {formatCount(source.errorCount)}</span>
+                      <span>Ultimo crawl: {source.lastCrawledAt ? new Date(source.lastCrawledAt).toLocaleString() : "sin ejecutar"}</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      Limite
+                      <input
+                        className="h-8 w-20 rounded-md border bg-background px-2 text-sm text-foreground"
+                        type="number"
+                        min={1}
+                        max={200}
+                        value={limit}
+                        onChange={(event) =>
+                          setSourceLimits((current) => ({ ...current, [source.sourceId]: Number(event.target.value || source.maxPagesPerRun) }))
+                        }
+                      />
+                    </label>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updateSource.isPending}
+                      onClick={() =>
+                        updateSource.mutate({
+                          sourceId: source.sourceId,
+                          payload: { maxPagesPerRun: limit }
+                        })
+                      }
+                    >
+                      <Save className="h-4 w-4" />
+                      Guardar limite
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updateSource.isPending}
+                      onClick={() =>
+                        updateSource.mutate({
+                          sourceId: source.sourceId,
+                          payload: { enabled: !source.enabled }
+                        })
+                      }
+                    >
+                      {source.enabled ? "Pausar" : "Activar"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={crawlSource.isPending || !source.enabled}
+                      onClick={() => crawlSource.mutate({ sourceId: source.sourceId, maxPagesPerRun: limit })}
+                    >
+                      <Play className="h-4 w-4" />
+                      Crawl limitado
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {!sourceCatalog.data?.items?.length ? <EmptyState label="No hay fuentes configuradas." /> : null}
         </div>
       </Card>
 

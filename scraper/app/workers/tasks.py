@@ -78,7 +78,13 @@ def discover_source_task(self, source_id: str):
         job = create_job(
             db,
             "discover_source",
-            {"source_id": source_id, "source_key": source.key, "base_url": source.base_url},
+            {
+                "source_id": source_id,
+                "source_key": source.key,
+                "base_url": source.base_url,
+                "max_pages_per_run": source.max_pages_per_run,
+                "crawl_strategy": source.crawl_strategy,
+            },
             status="running",
             source_id=source.id,
         )
@@ -86,9 +92,11 @@ def discover_source_task(self, source_id: str):
         try:
             before_count = db.scalar(select(func.count(CrawlUrl.id)).where(CrawlUrl.source_id == source.id)) or 0
             log.info("source_discovery_started", source_key=source.key, base_url=source.base_url, job_id=str(job.id))
-            run_spider(source.key, source.base_url)
+            run_spider(source.key, source.base_url, max_pages_per_run=source.max_pages_per_run)
             after_count = db.scalar(select(func.count(CrawlUrl.id)).where(CrawlUrl.source_id == source.id)) or 0
             documents_found = max(after_count - before_count, 0)
+            source.last_crawled_at = datetime.utcnow()
+            db.commit()
             finish_job(db, job.id, "completed", documents_found=documents_found)
             log.info("source_discovery_finished", source_key=source.key, discovered=documents_found, job_id=str(job.id))
             return {"source": source.key, "documents_found": documents_found, "job_id": str(job.id)}
@@ -116,7 +124,7 @@ def fetch_url_task(self, crawl_url_id: str):
             parser_for_url(crawl_url.url)
         except ValueError as exc:
             mark_url(db, crawl_url.id, CrawlStatus.SKIPPED_UNCHANGED, error=str(exc))
-            finish_job(db, job.id, "skipped", str(exc))
+            finish_job(db, job.id, "skipped", str(exc), documents_skipped=1)
             log.info("url_skipped_no_parser", crawl_url_id=crawl_url_id, url=crawl_url.url, job_id=str(job.id))
             return {"crawl_url_id": crawl_url_id, "skipped": True, "reason": "no_parser", "job_id": str(job.id)}
         crawl_url.status = CrawlStatus.FETCHING
@@ -154,7 +162,8 @@ def fetch_url_task(self, crawl_url_id: str):
                     "completed",
                     documents_found=1,
                     documents_created=1 if payload.get("action") == "created" else 0,
-                    documents_updated=1 if payload.get("action") != "created" else 0,
+                    documents_updated=1 if payload.get("action") == "updated" else 0,
+                    documents_skipped=1 if payload.get("action") == "unchanged" else 0,
                 )
                 return payload
             if "mpeg" in content_type or result.url.lower().split("?")[0].endswith(".mp3"):
@@ -165,7 +174,8 @@ def fetch_url_task(self, crawl_url_id: str):
                     "completed",
                     documents_found=1,
                     documents_created=1 if payload.get("action") == "created" else 0,
-                    documents_updated=1 if payload.get("action") != "created" else 0,
+                    documents_updated=1 if payload.get("action") == "updated" else 0,
+                    documents_skipped=1 if payload.get("action") == "unchanged" else 0,
                 )
                 return payload
             if not _looks_like_html(result.url, content_type):
@@ -177,7 +187,7 @@ def fetch_url_task(self, crawl_url_id: str):
                     content_type=content_type,
                     error=f"unsupported_content_type:{content_type or 'unknown'}",
                 )
-                finish_job(db, job.id, "skipped", f"unsupported_content_type:{content_type or 'unknown'}")
+                finish_job(db, job.id, "skipped", f"unsupported_content_type:{content_type or 'unknown'}", documents_skipped=1)
                 log.info(
                     "url_skipped_unsupported_content",
                     crawl_url_id=crawl_url_id,
@@ -208,11 +218,12 @@ def fetch_url_task(self, crawl_url_id: str):
                 "completed",
                 documents_found=1,
                 documents_created=1 if action == "created" else 0,
-                documents_updated=1 if action in {"updated", "unchanged"} else 0,
+                documents_updated=1 if action == "updated" else 0,
+                documents_skipped=1 if action == "unchanged" else 0,
             )
             return {"document_id": str(document_id), "assets": len(assets), "action": action, "job_id": str(job.id)}
         except Exception as exc:
-            finish_job(db, job.id, "failed", str(exc))
+            finish_job(db, job.id, "failed", str(exc), documents_failed=1)
             log.error("url_fetch_failed", crawl_url_id=crawl_url_id, url=crawl_url.url, error=str(exc), job_id=str(job.id))
             raise
 

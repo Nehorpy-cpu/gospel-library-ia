@@ -111,10 +111,49 @@ POST /api/admin/scrape
 POST /api/admin/reindex
 POST /api/admin/jobs/:id/retry
 GET  /api/admin/status
+GET  /api/admin/sources
+PATCH /api/admin/sources/:sourceId
+POST /api/admin/sources/:sourceId/crawl
 POST /api/exports/study
 ```
 
 El frontend consume esos endpoints con proxy interno de Next.
+
+## Fuentes e ingesta masiva controlada
+
+El catalogo de fuentes vive en PostgreSQL `sources` y se siembra con:
+
+```bash
+docker compose exec scraper-api python scripts/seed_sources.py
+```
+
+Fuentes configuradas:
+
+```txt
+byu_speeches_es
+byu_speeches_en
+discursos_sud
+general_conference
+church_manuals
+joseph_smith_papers
+byu_rsc
+come_follow_me
+teachings_presidents
+scriptures
+```
+
+La ingesta masiva siempre debe ser limitada. Desde Admin se puede listar fuentes,
+activar/desactivar, ajustar `maxPagesPerRun` y ejecutar crawl por fuente. Los
+documentos quedan disponibles para busqueda textual aunque no se generen
+embeddings.
+
+Docs:
+
+```txt
+docs/sources.md
+docs/ingestion.md
+docs/scraping-ethics.md
+```
 
 ## Auth y privacidad
 
