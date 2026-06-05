@@ -155,6 +155,7 @@ que Qdrant tenga `points_count > 0`.
 
 ```bash
 corepack pnpm install
+corepack pnpm build
 corepack pnpm test
 python -m unittest discover apps/api/tests
 python -m unittest discover rag/tests
@@ -174,6 +175,49 @@ repetir la validacion. Si la base persistida viene de una fase anterior, ejecuta
 ```bash
 docker compose exec scraper-api alembic upgrade head
 docker compose exec rag-api alembic upgrade head
+```
+
+## QA final local
+
+Checklist manual y evidencia de la ultima auditoria:
+
+```txt
+docs/QA_FINAL_CHECKLIST.md
+```
+
+Rutas frontend verificadas por HTTP:
+
+```txt
+/
+/library
+/admin
+/study
+/study/new
+/study/[workspaceId]
+/collections
+/favorites
+/history
+/authors
+/search
+```
+
+Flujos StudyWorkspace verificados con datos reales:
+
+```txt
+workspace create/list/open/delete
+notes create/update/delete
+citations create/delete
+sticky-notes create/update/delete
+source-filters create/delete
+related documents textual fallback
+```
+
+Observaciones actuales:
+
+```txt
+Qdrant doctrinal_chunks_v1: green, points_count=0
+Search/chat: textual_fallback activo sin 500
+Metadata: autores/temas derivados de documentos reales, calidad pendiente de limpieza
 ```
 
 ## Prisma

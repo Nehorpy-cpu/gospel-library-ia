@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 15 - Runtime stabilization completed.
+15_QA_FINAL - Completed.
 
 ## Phase tracker
 
@@ -300,3 +300,36 @@ After each phase:
 - Observed: worker logs show active scraping/assets/indexing tasks; Celery warns about running as root, but workers are running
 - Remaining risk: Qdrant has `points_count = 0` because OpenAI quota/embeddings are not active; semantic RAG remains pending until credits and embedding run are available
 - Status decision: `Completed`, because required local, Docker, runtime, and real endpoint checks passed.
+
+15_QA_FINAL: DONE
+16_DEPLOY_LOCAL_TO_CLOUD: PENDING
+17_AUTH_PRIVACY_PRODUCTION: PENDING
+18_MASSIVE_SOURCE_INGESTION: PENDING
+19_AI_COST_OPTIMIZATION: PENDING
+20_BETA_RELEASE: PENDING
+
+### 2026-06-05 - 15_QA_FINAL
+
+- Passed: `corepack pnpm install`
+- Passed: `corepack pnpm build`
+- Passed: `corepack pnpm test`
+- Passed: `corepack pnpm --dir apps/web build`
+- Passed: `corepack pnpm --dir apps/web lint`
+- Passed: `corepack pnpm --dir apps/web typecheck`
+- Passed: `python -m unittest discover apps/api/tests`
+- Passed: `python -m unittest discover rag/tests`
+- Passed: `python -m compileall apps/api/app rag/app scraper/app`
+- Passed: `docker compose config --quiet`
+- Passed: `docker compose down`
+- Passed: `docker compose up -d --build`
+- Passed: `docker compose ps`
+- Passed: HTTP 200 for `/`, `/library`, `/admin`, `/study`, `/study/new`, `/study/[workspaceId]`, `/collections`, `/favorites`, `/history`, `/authors`, and `/search`
+- Passed: HTTP 200 for `GET /api/documents`, `/api/documents/summary`, `/api/authors`, `/api/topics`, `/api/ingestion/status`, `/api/admin/status`, `/api/study-workspaces`, `/api/study/workspaces`, and `/api/study/workspaces/{id}/related`
+- Passed: HTTP 200 for `POST /api/search` and `POST /api/chat` in `textual_fallback` mode
+- Passed: StudyWorkspace create/list/open/delete, notes create/update/delete, citation create/delete, post-it create/update/delete, source filter create/delete, and related sources
+- Passed: `.env` is not tracked; no `NEXT_PUBLIC_OPENAI_API_KEY`; no hardcoded OpenAI key found
+- Implemented: `/authors` index page backed by real `/api/authors` data
+- Documented: `docs/QA_FINAL_CHECKLIST.md`
+- Remaining risk: Qdrant `doctrinal_chunks_v1` is green but has `points_count = 0`; semantic embeddings remain pending until OpenAI quota is available
+- Remaining risk: authors/topics are derived from real documents but metadata quality remains imperfect for many scraped documents
+- Status decision: `DONE`, because required local build, Docker runtime, endpoints, Study flows, security checks, and fallback behavior passed.
