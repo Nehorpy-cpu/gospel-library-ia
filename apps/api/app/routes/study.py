@@ -1,20 +1,20 @@
 from typing import Any
-from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from app.core.config import get_settings
 from app.core.logging import logger
+from app.services.auth import get_request_auth_context, normalize_user_id, require_user
 from app.services.db import get_conn
 from app.services.qdrant_admin import QdrantAdmin
 from app.services.source_filters import normalize_source_type, source_type_aliases
 
-router = APIRouter(prefix="/api/study-workspaces", tags=["study"])
-alias_router = APIRouter(prefix="/api/study", tags=["study"])
+router = APIRouter(prefix="/api/study-workspaces", tags=["study"], dependencies=[Depends(require_user)])
+alias_router = APIRouter(prefix="/api/study", tags=["study"], dependencies=[Depends(require_user)])
 log = logger(__name__)
 
 
@@ -136,14 +136,11 @@ class PostItUpdatePayload(BaseModel):
 
 def current_user_id(x_user_id: str | None = Header(default=None, alias="X-User-Id")) -> str:
     if not x_user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="X-User-Id header is required",
-        )
-    try:
-        return str(UUID(x_user_id))
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid X-User-Id header") from exc
+        context = get_request_auth_context()
+        if context:
+            return context.user_id
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    return normalize_user_id(x_user_id)
 
 
 def _ensure_payload_user(payload_user_id: str | None, user_id: str) -> None:

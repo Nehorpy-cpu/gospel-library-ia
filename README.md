@@ -62,6 +62,22 @@ QDRANT_URL=
 QDRANT_COLLECTION=doctrinal_chunks_v1
 ```
 
+Auth local/produccion:
+
+```txt
+AUTH_PROVIDER=clerk
+ALLOW_DEV_AUTH_HEADERS=true
+CLERK_SECRET_KEY=
+CLERK_JWKS_URL=
+CLERK_JWT_ISSUER=
+CLERK_WEBHOOK_SECRET=
+CLERK_ADMIN_EMAILS=
+ADMIN_USER_IDS=
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
+```
+
+No usar `NEXT_PUBLIC_OPENAI_API_KEY`. Las claves OpenAI y Clerk secretas solo pertenecen a backend/workers.
+
 ## Comandos
 
 ```bash
@@ -99,6 +115,50 @@ POST /api/exports/study
 ```
 
 El frontend consume esos endpoints con proxy interno de Next.
+
+## Auth y privacidad
+
+Proveedor elegido: Clerk.
+
+Modo local:
+
+```txt
+/sign-in
+/sign-up
+/access-denied
+```
+
+En local se puede entrar como usuario demo o admin local. Produccion debe usar `Authorization: Bearer <Clerk JWT>` y `ALLOW_DEV_AUTH_HEADERS=false`.
+
+Rutas frontend protegidas:
+
+```txt
+/study
+/study/new
+/study/:workspaceId
+/favorites
+/history
+/admin
+```
+
+Backend protegido:
+
+```txt
+/api/study-workspaces/*
+/api/study/*
+/api/profile/*
+/api/exports/*
+/api/talk-builder/*
+/api/admin/*
+```
+
+Admin se asigna por `public_metadata.role=admin` en Clerk, `CLERK_ADMIN_EMAILS` o `ADMIN_USER_IDS`.
+
+Guia completa:
+
+```txt
+docs/auth.md
+```
 
 ## StudyWorkspace runtime
 

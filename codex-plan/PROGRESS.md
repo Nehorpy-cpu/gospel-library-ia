@@ -2,7 +2,7 @@
 
 ## Current phase
 
-16_DEPLOY_LOCAL_TO_CLOUD - Completed.
+17_AUTH_PRIVACY_PRODUCTION - Done.
 
 ## Phase tracker
 
@@ -24,6 +24,7 @@
 | 14 | Calling focus | Needs follow-up | 2026-06-04 | 2026-06-04 | Added editable shared calling catalog, profile preferences API and DB migrations, persistent frontend preferences UI, chat payload support, dynamic RAG/fallback prompt section, and tests. Python compile, API tests, RAG tests, Prisma validation with local `DATABASE_URL`, web typecheck, `pnpm test`, and `git diff --check` passed. `next lint` remains blocked by interactive ESLint setup, web build remains blocked by local Next/Webpack `EISDIR readlink`, and `docker compose ps` remains blocked by unavailable Docker daemon. |
 | 15 | Runtime stabilization real data UI audit | Completed | 2026-06-04 | 2026-06-04 | Stabilized pnpm install on Windows with hoisted node linker, fixed Next build with a Windows-only readlink patch, added non-interactive ESLint, fixed Docker web context for shared catalog, added Study REST aliases and related fallback endpoint, added `/study/new`, removed frontend mock-data usage, applied live Alembic migrations, and verified Docker runtime healthy plus real endpoint smoke tests. |
 | 16 | Deploy local to cloud | Completed | 2026-06-05 | 2026-06-05 | Added production env examples, deploy provider guides, production checklist, safe production scripts, README production deploy section, and verified build/test/compose plus secret scans. |
+| 17 | Auth privacy production | Completed | 2026-06-05 | 2026-06-05 | Added Clerk-ready JWT validation, local auth fallback, frontend protected routes, backend role dependencies, user-scoped favorites/history, auth docs/env examples, and auth/privacy tests. Build, tests, Docker health, and protected route smoke checks passed. |
 
 ## Update rules
 
@@ -304,7 +305,7 @@ After each phase:
 
 15_QA_FINAL: DONE
 16_DEPLOY_LOCAL_TO_CLOUD: DONE
-17_AUTH_PRIVACY_PRODUCTION: PENDING
+17_AUTH_PRIVACY_PRODUCTION: DONE
 18_MASSIVE_SOURCE_INGESTION: PENDING
 19_AI_COST_OPTIMIZATION: PENDING
 20_BETA_RELEASE: PENDING
@@ -348,3 +349,25 @@ After each phase:
 - Verified: production example files contain no `sk-` OpenAI keys and no `NEXT_PUBLIC_OPENAI_API_KEY`.
 - Remaining manual steps: create real cloud resources, set provider secrets, run migrations in cloud shells, initialize Qdrant Cloud, deploy services, and run production smoke tests.
 - Status decision: `DONE`, because the project is prepared for manual cloud deployment without exposing secrets or breaking local runtime.
+
+### 2026-06-05 - Phase 17 Auth privacy production
+
+- Provider selected: Clerk.
+- Implemented: FastAPI auth dependency with Clerk JWKS JWT validation, deterministic internal UUID mapping, local dev header fallback, and admin role resolution from Clerk metadata, email allowlist, or user id allowlist.
+- Implemented: backend protection for `/api/admin/*`, `/api/study-workspaces/*`, `/api/study/*`, `/api/profile/*`, `/api/exports/*`, and `/api/talk-builder/*`.
+- Implemented: frontend middleware protection for `/study`, `/study/new`, `/study/[workspaceId]`, `/favorites`, `/history`, and `/admin`.
+- Implemented: `/sign-in`, `/sign-up`, `/access-denied`, persistent local session, login/logout controls, and user-scoped local favorites/history.
+- Documented: `docs/auth.md`, README auth section, and env examples for Clerk/local production flags.
+- Data migration decision: no DB schema change; existing demo-owned rows remain owned by `00000000-0000-4000-8000-000000000001`; legacy null user rows must be assigned to an owner or `legacy_private` before exposure.
+- Passed: `corepack pnpm install`
+- Passed: `corepack pnpm build`
+- Passed: `corepack pnpm test`
+- Passed: `corepack pnpm --dir apps/web typecheck`
+- Passed: `python -m unittest discover apps/api/tests`
+- Passed: `python -m unittest discover rag/tests`
+- Passed: `docker compose up -d --build`
+- Passed: `docker compose ps` shows web, api, rag-api, scraper-api, postgres, redis, qdrant, and minio healthy; workers running.
+- Passed: `/study` redirects to `/sign-in?next=%2Fstudy` without session.
+- Passed: `/api/study-workspaces` returns 401 without auth.
+- Passed: `/api/admin/status` returns 401 without auth, 403 for normal user, and 200 for local admin.
+- Status decision: `DONE`, because production auth/privacy controls are implemented and validated without deleting existing data.

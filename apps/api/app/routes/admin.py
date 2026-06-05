@@ -1,9 +1,10 @@
 import httpx
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
 from app.schemas.api import ReindexRequest
+from app.services.auth import require_admin
 from app.services.db import get_conn
 from app.services.qdrant_admin import QdrantAdmin
 from app.services.source_filters import canonical_source_options, normalize_source_type
@@ -83,7 +84,7 @@ def ingestion_status():
     }
 
 
-@router.get("/admin/errors")
+@router.get("/admin/errors", dependencies=[Depends(require_admin)])
 def admin_errors(limit: int = Query(default=20, ge=1, le=100)):
     with get_conn() as conn:
         failed_jobs = conn.execute(
@@ -162,7 +163,7 @@ def admin_errors(limit: int = Query(default=20, ge=1, le=100)):
     }
 
 
-@router.post("/admin/jobs/{job_id}/retry")
+@router.post("/admin/jobs/{job_id}/retry", dependencies=[Depends(require_admin)])
 def retry_ingestion_job(job_id: str):
     with get_conn() as conn:
         row = conn.execute(
@@ -186,7 +187,7 @@ def retry_ingestion_job(job_id: str):
     return {"task_id": row[0], "type": row[1], "status": row[2], "payload": row[3] or {}, "source": row[4]}
 
 
-@router.post("/admin/scrape")
+@router.post("/admin/scrape", dependencies=[Depends(require_admin)])
 async def run_scrape():
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(f"{get_settings().scraper_api_url}/admin/discover")
@@ -194,7 +195,7 @@ async def run_scrape():
         return response.json()
 
 
-@router.post("/admin/reindex")
+@router.post("/admin/reindex", dependencies=[Depends(require_admin)])
 async def reindex(payload: ReindexRequest):
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(f"{get_settings().rag_api_url}/admin/index", json=payload.model_dump(mode="json"))
@@ -204,7 +205,7 @@ async def reindex(payload: ReindexRequest):
         return response.json()
 
 
-@router.get("/admin/status")
+@router.get("/admin/status", dependencies=[Depends(require_admin)])
 def admin_status():
     qdrant = QdrantAdmin().ensure_collection()
     with get_conn() as conn:

@@ -20,6 +20,14 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_embedding_model: str = "text-embedding-3-large"
     openai_chat_model: str = "gpt-5.5"
+    env: str = "development"
+    auth_provider: str = "clerk"
+    allow_dev_auth_headers: bool = True
+    clerk_jwks_url: str = ""
+    clerk_jwt_issuer: str = ""
+    clerk_secret_key: str = ""
+    clerk_admin_emails: str = ""
+    admin_user_ids: str = ""
 
 
 @lru_cache

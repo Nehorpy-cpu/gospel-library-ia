@@ -5,14 +5,15 @@ from textwrap import wrap
 from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Header, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from pydantic import BaseModel, Field, field_validator
 from psycopg.rows import dict_row
 
 from app.core.logging import logger
+from app.services.auth import get_request_auth_context, normalize_user_id, require_user
 from app.services.db import get_conn
 
-router = APIRouter(prefix="/api/exports", tags=["exports"])
+router = APIRouter(prefix="/api/exports", tags=["exports"], dependencies=[Depends(require_user)])
 log = logger(__name__)
 
 ExportKind = Literal["notes", "quotes", "talk_drafts", "all"]
@@ -40,11 +41,11 @@ class StudyExportPayload(BaseModel):
 
 def current_user_id(x_user_id: str | None = Header(default=None, alias="X-User-Id")) -> str:
     if not x_user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="X-User-Id header is required")
-    try:
-        return str(UUID(x_user_id))
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid X-User-Id header") from exc
+        context = get_request_auth_context()
+        if context:
+            return context.user_id
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    return normalize_user_id(x_user_id)
 
 
 @router.post("/study")

@@ -3,17 +3,18 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from app.core.logging import logger
+from app.services.auth import get_request_auth_context, normalize_user_id, require_user
 from app.services.db import get_conn
 from app.services.scripture_refs import extract_scripture_refs, structured_scripture_refs
 from app.services.source_filters import normalize_source_type
 
-router = APIRouter(prefix="/api/talk-builder", tags=["talk-builder"])
+router = APIRouter(prefix="/api/talk-builder", tags=["talk-builder"], dependencies=[Depends(require_user)])
 log = logger(__name__)
 
 
@@ -42,11 +43,11 @@ class TalkDraftPayload(BaseModel):
 
 def current_user_id(x_user_id: str | None = Header(default=None, alias="X-User-Id")) -> str:
     if not x_user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="X-User-Id header is required")
-    try:
-        return str(UUID(x_user_id))
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid X-User-Id header") from exc
+        context = get_request_auth_context()
+        if context:
+            return context.user_id
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    return normalize_user_id(x_user_id)
 
 
 @router.post("/outline")

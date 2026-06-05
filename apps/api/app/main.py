@@ -47,6 +47,7 @@ SENSITIVE_API_PREFIXES = (
     "/api/chat",
     "/api/exports",
     "/api/profile",
+    "/api/study",
     "/api/study-workspaces",
     "/api/talk-builder",
 )

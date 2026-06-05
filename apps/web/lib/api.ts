@@ -17,13 +17,37 @@ import type { CallingFocus } from "@/lib/church-callings";
 const API_BASE_URL = process.env.NEXT_PUBLIC_RAG_API_URL ?? "/api";
 const MISSING_OPENAI_MESSAGE = "Falta configurar la clave de OpenAI para busqueda IA.";
 
+function readCookie(name: string) {
+  if (typeof document === "undefined") return undefined;
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+function authHeaders(): Record<string, string> {
+  const userId = readCookie("gospel_user_id");
+  if (!userId) return {};
+  return {
+    "X-User-Id": userId,
+    "X-User-Role": readCookie("gospel_user_role") ?? "user",
+    "X-User-Email": readCookie("gospel_user_email") ?? ""
+  };
+}
+
+function requestHeaders(initHeaders?: HeadersInit) {
+  const headers = new Headers(initHeaders);
+  if (!headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  for (const [key, value] of Object.entries(authHeaders())) {
+    headers.set(key, value);
+  }
+  return headers;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {})
-    }
+    headers: requestHeaders(init?.headers)
   });
   if (!response.ok) {
     const detail = await response.text();
@@ -45,10 +69,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 async function requestFile(path: string, init?: RequestInit): Promise<{ blob: Blob; filename: string }> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {})
-    }
+    headers: requestHeaders(init?.headers)
   });
   if (!response.ok) {
     throw new Error((await response.text()) || `Request failed: ${response.status}`);
@@ -62,7 +83,7 @@ async function requestFile(path: string, init?: RequestInit): Promise<{ blob: Bl
 }
 
 function studyHeaders(userId: string) {
-  return { "X-User-Id": userId };
+  return { ...authHeaders(), "X-User-Id": userId } satisfies Record<string, string>;
 }
 
 export function downloadBlob({ blob, filename }: { blob: Blob; filename: string }) {

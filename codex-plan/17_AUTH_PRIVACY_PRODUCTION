@@ -1,0 +1,125 @@
+Ejecuta la Fase 17: AUTH_PRIVACY_PRODUCTION.
+
+Objetivo:
+Implementar o completar autenticación real, privacidad por usuario y protección de rutas en producción.
+
+No romper datos existentes.
+No exponer notas personales entre usuarios.
+No exponer admin a usuarios normales.
+
+Tecnología sugerida:
+- Clerk si ya está previsto en el proyecto
+- Auth.js si el proyecto ya lo usa
+- Elegir una sola y documentarla
+
+Tareas obligatorias:
+
+1. Revisar estado actual de auth:
+   - verificar si existe Clerk
+   - verificar si existe Auth.js
+   - verificar si hay userId nullable
+   - verificar si hay roles
+   - verificar rutas protegidas
+
+2. Implementar login:
+   - página/sign-in si aplica
+   - página/sign-up si aplica
+   - logout
+   - sesión persistente
+   - estado loading de usuario
+
+3. Roles:
+   - user
+   - admin
+
+4. Protección frontend:
+   - /study requiere usuario autenticado
+   - /study/new requiere usuario autenticado
+   - /study/[workspaceId] requiere dueño o admin
+   - /favorites requiere usuario
+   - /history requiere usuario
+   - /admin requiere admin
+
+5. Protección backend:
+   - endpoints study requieren usuario
+   - endpoints admin requieren admin
+   - endpoints de favoritos/historial requieren usuario
+   - endpoints públicos como documents/search pueden seguir públicos si así se decide
+
+6. Aislamiento de datos:
+   - StudyWorkspace debe pertenecer a userId
+   - StudyNote debe pertenecer a userId
+   - SavedQuote debe pertenecer a userId
+   - StudyStickyNote debe pertenecer a userId
+   - Favorites debe pertenecer a userId
+   - History debe pertenecer a userId
+
+7. Migración de datos existentes:
+   - si hay datos con userId null, asignar a usuario demo local o mantener como legacy_private
+   - documentar decisión
+   - no borrar estudios existentes
+
+8. Middleware:
+   - crear middleware de auth en frontend
+   - crear dependency/middleware de auth en FastAPI
+   - validar token
+   - extraer userId
+   - extraer role
+
+9. Variables .env:
+   - CLERK_SECRET_KEY
+   - NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+   - CLERK_WEBHOOK_SECRET si aplica
+   - AUTH_SECRET si se usa Auth.js
+
+10. Seguridad:
+   - no guardar tokens en logs
+   - no imprimir headers Authorization
+   - no exponer user metadata sensible
+   - CORS seguro
+   - rate limiting básico para endpoints protegidos
+
+11. Admin:
+   - definir cómo se asigna admin
+   - por email allowlist o metadata de Clerk
+   - documentar procedimiento
+
+12. UI:
+   - mostrar nombre/email del usuario
+   - botón login/logout
+   - mensajes si no tiene acceso
+   - página 403 o acceso denegado
+   - estado de carga mientras valida sesión
+
+13. Tests:
+   - usuario no autenticado no puede acceder a /study
+   - usuario no puede leer workspace de otro usuario
+   - admin puede acceder a /admin
+   - user normal no puede acceder a /admin
+
+14. Documentación:
+   - actualizar README
+   - crear docs/auth.md
+   - actualizar .env.example
+   - explicar cómo configurar auth local y producción
+
+Validaciones:
+- corepack pnpm build
+- corepack pnpm test
+- python -m unittest discover apps/api/tests
+- rutas protegidas funcionan
+- datos privados no se filtran
+
+Resultado esperado:
+La app queda lista para usuarios reales, con privacidad y roles.
+
+Al terminar:
+1. Marcar 17_AUTH_PRIVACY_PRODUCTION como DONE.
+2. Hacer commit:
+   feat: fase 17 - production auth and privacy
+3. Entregar resumen:
+   - auth provider usado
+   - rutas protegidas
+   - cambios en DB
+   - variables necesarias
+   - pruebas ejecutadas
