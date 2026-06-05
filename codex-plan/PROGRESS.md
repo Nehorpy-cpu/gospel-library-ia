@@ -2,7 +2,7 @@
 
 ## Current phase
 
-15_QA_FINAL - Completed.
+16_DEPLOY_LOCAL_TO_CLOUD - Completed.
 
 ## Phase tracker
 
@@ -23,6 +23,7 @@
 | 13 | Deploy ready | Needs follow-up | 2026-06-04 | 2026-06-04 | Added API gateway Kubernetes deployment, aligned K8s images with CI `production` tags, fixed probes/config, included API in GHCR/Railway/K8s workflows, added MinIO healthcheck, and expanded production runbook/checklist. Static validation, Python compile, API tests, web typecheck, `pnpm test`, and `git diff --check` passed. `docker compose ps` and root `pnpm build` remain blocked by unavailable Docker daemon; web build remains blocked by local Next/Webpack `EISDIR readlink`. |
 | 14 | Calling focus | Needs follow-up | 2026-06-04 | 2026-06-04 | Added editable shared calling catalog, profile preferences API and DB migrations, persistent frontend preferences UI, chat payload support, dynamic RAG/fallback prompt section, and tests. Python compile, API tests, RAG tests, Prisma validation with local `DATABASE_URL`, web typecheck, `pnpm test`, and `git diff --check` passed. `next lint` remains blocked by interactive ESLint setup, web build remains blocked by local Next/Webpack `EISDIR readlink`, and `docker compose ps` remains blocked by unavailable Docker daemon. |
 | 15 | Runtime stabilization real data UI audit | Completed | 2026-06-04 | 2026-06-04 | Stabilized pnpm install on Windows with hoisted node linker, fixed Next build with a Windows-only readlink patch, added non-interactive ESLint, fixed Docker web context for shared catalog, added Study REST aliases and related fallback endpoint, added `/study/new`, removed frontend mock-data usage, applied live Alembic migrations, and verified Docker runtime healthy plus real endpoint smoke tests. |
+| 16 | Deploy local to cloud | Completed | 2026-06-05 | 2026-06-05 | Added production env examples, deploy provider guides, production checklist, safe production scripts, README production deploy section, and verified build/test/compose plus secret scans. |
 
 ## Update rules
 
@@ -302,7 +303,7 @@ After each phase:
 - Status decision: `Completed`, because required local, Docker, runtime, and real endpoint checks passed.
 
 15_QA_FINAL: DONE
-16_DEPLOY_LOCAL_TO_CLOUD: PENDING
+16_DEPLOY_LOCAL_TO_CLOUD: DONE
 17_AUTH_PRIVACY_PRODUCTION: PENDING
 18_MASSIVE_SOURCE_INGESTION: PENDING
 19_AI_COST_OPTIMIZATION: PENDING
@@ -333,3 +334,17 @@ After each phase:
 - Remaining risk: Qdrant `doctrinal_chunks_v1` is green but has `points_count = 0`; semantic embeddings remain pending until OpenAI quota is available
 - Remaining risk: authors/topics are derived from real documents but metadata quality remains imperfect for many scraped documents
 - Status decision: `DONE`, because required local build, Docker runtime, endpoints, Study flows, security checks, and fallback behavior passed.
+
+### 2026-06-05 - Phase 16 Deploy local to cloud
+
+- Implemented: production example env files for web, API, RAG, scraper, and workers.
+- Implemented: deploy guides for Vercel, Railway/Render services, Qdrant Cloud, Cloudflare R2, Supabase/PostgreSQL, and Upstash/Redis.
+- Implemented: production checklist with provisioning, secrets, backend, workers, frontend, and smoke tests.
+- Implemented: safe scripts `pnpm deploy:web`, `pnpm deploy:api`, `pnpm migrate:prod`, `pnpm seed:prod`, and `pnpm verify:prod`.
+- Updated: README with `Production Deploy` section and explicit no-wildcard CORS guidance.
+- Verified: `corepack pnpm build`
+- Verified: `corepack pnpm test`
+- Verified: `docker compose config --quiet`
+- Verified: production example files contain no `sk-` OpenAI keys and no `NEXT_PUBLIC_OPENAI_API_KEY`.
+- Remaining manual steps: create real cloud resources, set provider secrets, run migrations in cloud shells, initialize Qdrant Cloud, deploy services, and run production smoke tests.
+- Status decision: `DONE`, because the project is prepared for manual cloud deployment without exposing secrets or breaking local runtime.

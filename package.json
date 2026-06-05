@@ -12,6 +12,11 @@
     "embed": "curl -X POST http://localhost:8000/api/admin/reindex -H \"Content-Type: application/json\" -d \"{\\\"limit\\\":100,\\\"force\\\":false}\"",
     "seed": "docker compose exec scraper-api alembic upgrade head && docker compose exec rag-api alembic upgrade head && docker compose exec scraper-api python scripts/seed_sources.py && docker compose exec api python scripts/init_qdrant.py",
     "test": "docker compose config --quiet",
+    "deploy:web": "corepack pnpm --dir apps/web build && echo \"Deploy web manually with Vercel after setting production env vars.\"",
+    "deploy:api": "node scripts/production/deploy-api.mjs",
+    "migrate:prod": "node scripts/production/check-env.mjs migrate",
+    "seed:prod": "node scripts/production/check-env.mjs seed",
+    "verify:prod": "node scripts/production/verify-prod.mjs",
     "prisma:generate": "npm --prefix packages/database run generate",
     "prisma:migrate": "npm --prefix packages/database run migrate:deploy",
     "prisma:seed": "npm --prefix packages/database run seed:sql"

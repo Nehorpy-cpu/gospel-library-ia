@@ -342,6 +342,65 @@ Workflow:
 .github/workflows/deploy-vercel.yml
 ```
 
+## Production Deploy
+
+La fase cloud esta preparada para un despliegue manual en Vercel, Railway/Render,
+Qdrant Cloud, Cloudflare R2, Supabase/Railway PostgreSQL y Upstash/Railway Redis.
+No hay claves reales en el repositorio y los archivos `.env.production` reales
+deben vivir solo en el proveedor cloud.
+
+Ejemplos de variables:
+
+```txt
+apps/web/.env.production.example
+apps/api/.env.production.example
+rag/.env.production.example
+scraper/.env.production.example
+workers/.env.production.example
+```
+
+Guia por proveedor:
+
+```txt
+docs/deploy/vercel.md
+docs/deploy/railway.md
+docs/deploy/qdrant-cloud.md
+docs/deploy/cloudflare-r2.md
+docs/deploy/supabase-postgres.md
+docs/deploy/upstash-redis.md
+docs/deploy/production-checklist.md
+```
+
+Scripts seguros de preparacion/verificacion:
+
+```bash
+pnpm deploy:web
+pnpm deploy:api
+pnpm migrate:prod
+pnpm seed:prod
+pnpm verify:prod
+```
+
+`deploy:web` no incluye secretos y solo prepara el build antes del deploy manual.
+`deploy:api`, `migrate:prod` y `seed:prod` imprimen instrucciones seguras o
+validan variables; no ejecutan un despliegue cloud automatico. `verify:prod`
+requiere:
+
+```txt
+PROD_APP_URL
+PROD_API_URL
+PROD_RAG_URL
+PROD_SCRAPER_URL
+```
+
+CORS en produccion debe usar dominios explicitos:
+
+```txt
+CORS_ORIGINS=http://localhost:3000,https://app.gospel-library-ia.example
+```
+
+No usar `*` en produccion salvo una excepcion temporal y documentada.
+
 ## Deploy backend Railway
 
 Servicios:
