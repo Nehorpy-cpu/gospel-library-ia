@@ -297,6 +297,21 @@ model SourceLegacyCleanupAudit {
   @@map("source_legacy_cleanup_audit")
 }
 
+model DocumentMetadataRepairAudit {
+  id            String    @id @default(uuid()) @db.Uuid
+  documentId    String    @map("document_id") @db.Uuid
+  fieldName     String    @map("field_name") @db.VarChar(40)
+  previousValue String?   @map("previous_value")
+  repairedValue String    @map("repaired_value")
+  repairedFrom  String    @map("repaired_from") @db.VarChar(80)
+  repairedAt    DateTime  @default(now()) @map("repaired_at") @db.Timestamptz(6)
+  revertedAt    DateTime? @map("reverted_at") @db.Timestamptz(6)
+
+  @@unique([documentId, fieldName], map: "uq_document_metadata_repair_field")
+  @@index([documentId], map: "idx_document_metadata_repair_audit_document")
+  @@map("document_metadata_repair_audit")
+}
+
 model Author {
   id            String          @id @default(uuid()) @db.Uuid
   slug          String          @unique

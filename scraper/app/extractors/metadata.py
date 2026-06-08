@@ -160,14 +160,14 @@ def _title_from_text(text: str | None) -> str | None:
 def extract_title(soup: BeautifulSoup, url: str | None = None, text: str | None = None) -> str:
     candidates = [
         soup.find("h1").get_text(" ", strip=True) if soup.find("h1") else None,
-        _first_text(soup, "[data-testid*='title']"),
-        _first_text(soup, "[class*='title']"),
-        soup.title.get_text(" ", strip=True) if soup.title else None,
         meta_content(soup, "og:title", "twitter:title"),
         meta_content(soup, "title", "dc.title", "DC.title"),
+        soup.title.get_text(" ", strip=True) if soup.title else None,
         *_jsonld_values(soup, "headline", "name"),
-        _title_from_text(text),
+        _first_text(soup, "[data-testid*='title']"),
+        _first_text(soup, "[class*='title']"),
         _title_from_url(url),
+        _title_from_text(text),
     ]
     for candidate in candidates:
         value = _clean_value(candidate)
@@ -185,13 +185,15 @@ def extract_title(soup: BeautifulSoup, url: str | None = None, text: str | None 
     return "Untitled document"
 
 
-def extract_author(soup: BeautifulSoup) -> str | None:
+def extract_author(soup: BeautifulSoup, url: str | None = None) -> str | None:
     meta = meta_content(soup, "author", "article:author", "citation_author", "dc.creator", "DC.creator")
     if meta and (cleaned := _clean_author(meta)):
         return cleaned
     for value in _jsonld_values(soup, "author", "creator", "publisher"):
         if cleaned := _clean_author(value):
             return cleaned
+    if url_author := author_from_url(url):
+        return url_author
     selectors = [
         "[rel='author']",
         ".author",
@@ -225,6 +227,36 @@ def extract_author(soup: BeautifulSoup) -> str | None:
         if match and (cleaned := _clean_author(match.group(1))):
             return cleaned
     return None
+
+
+def author_from_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    parsed = urlparse(url)
+    if parsed.netloc.lower() not in {"speeches.byu.edu", "www.speeches.byu.edu"}:
+        return None
+    parts = [unquote(part) for part in parsed.path.strip("/").split("/") if part]
+    try:
+        talks_index = parts.index("talks")
+    except ValueError:
+        return None
+    if len(parts) <= talks_index + 2:
+        return None
+    slug = parts[talks_index + 1].strip().lower()
+    if not slug or slug in {"speakers", "topics", "all"}:
+        return None
+    words = [word for word in re.split(r"[-_]+", slug) if word]
+    if not 2 <= len(words) <= 8:
+        return None
+    formatted = []
+    for word in words:
+        if len(word) == 1:
+            formatted.append(f"{word.upper()}.")
+        elif word in {"jr", "sr"}:
+            formatted.append(f"{word.title()}.")
+        else:
+            formatted.append(word.title())
+    return " ".join(formatted)
 
 
 def _clean_author(value: str | None) -> str | None:

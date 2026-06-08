@@ -52,6 +52,26 @@ class SourceParsersTest(unittest.TestCase):
         self.assertEqual(document.source_key, "byu_speeches_es")
         self.assertEqual(document.language, "es")
 
+    def test_metadata_is_read_from_original_head_before_content_cleanup(self):
+        html = """
+        <html>
+          <head>
+            <meta property="og:title" content="A Reliable Metadata Title" />
+            <meta name="author" content="Dallin H. Oaks" />
+            <meta property="article:published_time" content="2025-01-14" />
+          </head>
+          <body><article><p>This body paragraph must not become the title.</p></article></body>
+        </html>
+        """
+        document = parser_for_url("https://speeches.byu.edu/talks/dallin-h-oaks/reliable-title/").parse(
+            "https://speeches.byu.edu/talks/dallin-h-oaks/reliable-title/",
+            html,
+        )
+
+        self.assertEqual(document.title, "A Reliable Metadata Title")
+        self.assertEqual(document.author, "Dallin H. Oaks")
+        self.assertEqual(document.published_at.date().isoformat(), "2025-01-14")
+
     def test_church_scriptures_source_type(self):
         document = parser_for_url("https://www.churchofjesuschrist.org/study/scriptures/bofm/alma/32").parse(
             "https://www.churchofjesuschrist.org/study/scriptures/bofm/alma/32",

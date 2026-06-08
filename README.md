@@ -299,6 +299,20 @@ Alembic mantiene cadenas independientes dentro de PostgreSQL:
 La tabla histórica compartida, si existe, se conserva como
 `public.legacy_alembic_version` y no controla ninguna migración activa.
 
+Para auditar y reparar metadatos históricos deterministas:
+
+```bash
+# Simulación sin escritura
+docker compose exec scraper-api python scripts/repair_metadata.py
+
+# Aplicación auditada e idempotente
+docker compose exec scraper-api python scripts/repair_metadata.py --apply
+```
+
+Las reparaciones quedan registradas en `document_metadata_repair_audit`.
+No se invoca OpenAI y los documentos afectados quedan pendientes de
+reindexación incremental.
+
 ## QA final local
 
 Checklist manual y evidencia de la ultima auditoria:

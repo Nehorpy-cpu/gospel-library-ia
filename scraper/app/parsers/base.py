@@ -25,18 +25,18 @@ class BaseParser(ABC):
         raise NotImplementedError
 
     def parse(self, url: str, html: str) -> ExtractedDocument:
+        metadata_soup = BeautifulSoup(html, "lxml")
         cleaned_html = clean_html(html)
-        soup = BeautifulSoup(cleaned_html, "lxml")
         text = html_to_text(cleaned_html)
         return ExtractedDocument(
             source_key=self.source_key,
             url=url,
-            title=extract_title(soup, url, text),
-            author=extract_author(soup),
-            published_at=extract_published_at(soup, text, url),
+            title=extract_title(metadata_soup, url, text),
+            author=extract_author(metadata_soup, url),
+            published_at=extract_published_at(metadata_soup, text, url),
             language=detect_language(text, url),
-            category=extract_category(soup),
-            tags=extract_tags(soup),
+            category=extract_category(metadata_soup),
+            tags=extract_tags(metadata_soup),
             scripture_refs=extract_scripture_refs(text),
             text=text,
             html=cleaned_html,

@@ -2,7 +2,7 @@
 
 ## Current phase
 
-22_ALEMBIC_VERSION_ISOLATION - Done.
+23_HISTORICAL_METADATA_QUALITY - Done.
 
 ## Phase tracker
 
@@ -30,6 +30,7 @@
 | 20 | Beta release | Completed | 2026-06-08 | 2026-06-08 | Prepared private beta 0.1.0-beta with beta landing, onboarding, allowlist, feedback, admin beta metrics, beta limits, privacy/terms pages, docs, changelog, and Docker/runtime smoke tests. |
 | 21 | Legacy source normalization | Completed | 2026-06-08 | 2026-06-08 | Disabled four duplicate or unbounded legacy source catalogs through a reversible audit migration, preserved all documents, retained canonical source context for Church URLs, and validated tests, Prisma, Alembic, data integrity, and Docker readiness. |
 | 22 | Alembic version isolation | Completed | 2026-06-08 | 2026-06-08 | Fixed explicit scraper/RAG version-table ownership, archived the obsolete shared Alembic table reversibly, and verified independent migration revisions, rollback, tests, and Docker health. |
+| 23 | Historical metadata quality | Completed | 2026-06-08 | 2026-06-08 | Extracted metadata before Readability cleanup, repaired 3,706 deterministic fields with reversible audit, rebuilt scraper services, and validated real API data, tests, Alembic, Prisma, and Docker. |
 
 ## Update rules
 
@@ -514,3 +515,26 @@ After each phase:
 - Passed: controlled scraper downgrade to `0009` restored `alembic_version`, and re-upgrade to `0010` archived it again without changing the RAG revision.
 - Passed: PostgreSQL, Redis, Qdrant, MinIO, scraper-api, and rag-api are healthy; scraper and RAG workers remain running.
 - Status decision: `DONE`, because migration ownership is explicit, the obsolete shared state is preserved but inactive, rollback works, and both services migrate independently.
+
+### 2026-06-08 - Phase 23 Historical metadata quality
+
+- Implemented: metadata extraction now reads the original HTML before Readability cleanup, preserving head metadata while continuing to clean document text.
+- Implemented: conservative title, author, and publication-date recovery from canonical source URLs and structured metadata.
+- Implemented: reversible `document_metadata_repair_audit` storage in SQLAlchemy/Alembic and Prisma.
+- Implemented: dry-run-by-default repair command with explicit `--apply`, field-level audit history, index invalidation, samples, and idempotent metadata markers.
+- Applied: `1,942` title repairs, `1,757` author repairs, and `7` publication-date repairs (`3,706` audited field repairs total).
+- Passed: controlled downgrade to `0010` restored prior metadata and removed repair markers; re-upgrade to `0011` and reapplication produced the same deterministic candidates.
+- Passed: final repair dry run returned zero pending changes.
+- Passed: `python -m unittest discover scraper/tests` (`15` tests).
+- Passed: `python -m unittest discover apps/api/tests` (`36` tests).
+- Passed: `python -m unittest discover rag/tests` (`12` tests, `3` skipped because optional local dependencies are unavailable).
+- Passed: `python -m compileall scraper/app scraper/scripts scraper/migrations/versions`.
+- Passed: Prisma schema validation with the local PostgreSQL connection.
+- Passed: `corepack pnpm test`.
+- Passed: `docker compose up -d --build` for scraper services and `docker compose ps`; all principal services are healthy and workers are running.
+- Passed: scraper Alembic revision is `0011 (head)`.
+- Passed: real `GET /api/documents?limit=5&search=Jesus` returned PostgreSQL documents with title, author, source, URL, and excerpt.
+- Runtime evidence: PostgreSQL contained `28,654` documents at final verification, with `0` placeholder titles and complete `source_type` and `source_url`; active workers continued increasing the total during validation.
+- Remaining risk: some non-talk/API/index pages retain imperfect metadata and some historical Portuguese text contains mojibake. They were not changed because this phase found no deterministic, reversible rule safe enough for those rows.
+- Remaining risk: duplicate detection and resolution were explicitly deferred to Phase 24.
+- Status decision: `DONE`, because historical metadata repairs are conservative, audited, reversible, idempotent, and validated against the live Docker stack without invoking OpenAI.
