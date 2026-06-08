@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+import asyncio
 import sys
 import unittest
 
@@ -68,7 +69,12 @@ class FakeConnection:
                     }
                 ]
             )
+        if "INSERT INTO beta_activity_events" in query:
+            return FakeResult([])
         return FakeResult([])
+
+    def commit(self):
+        return None
 
 
 @contextmanager
@@ -76,18 +82,38 @@ def fake_get_conn():
     yield FakeConnection()
 
 
+class FakeClient:
+    host = "127.0.0.1"
+
+
+class FakeRequest:
+    headers = {"X-User-Id": USER_ID}
+    client = FakeClient()
+
+
+class FakeLimiter:
+    async def check_daily(self, request, limit, scope):
+        return None
+
+
 class ExportsRoutesTest(unittest.TestCase):
     def setUp(self):
         self.original_get_conn = exports.get_conn
+        self.original_limiter = exports.limiter
         exports.get_conn = fake_get_conn
+        exports.limiter = FakeLimiter()
 
     def tearDown(self):
         exports.get_conn = self.original_get_conn
+        exports.limiter = self.original_limiter
 
     def test_markdown_export_preserves_source_attribution(self):
-        response = exports.export_study_material(
-            exports.StudyExportPayload(workspaceId=WORKSPACE_ID, kind="all", format="markdown"),
-            user_id=USER_ID,
+        response = asyncio.run(
+            exports.export_study_material(
+                exports.StudyExportPayload(workspaceId=WORKSPACE_ID, kind="all", format="markdown"),
+                request=FakeRequest(),
+                user_id=USER_ID,
+            )
         )
 
         content = response.body.decode("utf-8")
@@ -97,9 +123,12 @@ class ExportsRoutesTest(unittest.TestCase):
         self.assertIn("Alma 32:21", content)
 
     def test_pdf_export_returns_pdf_bytes(self):
-        response = exports.export_study_material(
-            exports.StudyExportPayload(workspaceId=WORKSPACE_ID, kind="quotes", format="pdf"),
-            user_id=USER_ID,
+        response = asyncio.run(
+            exports.export_study_material(
+                exports.StudyExportPayload(workspaceId=WORKSPACE_ID, kind="quotes", format="pdf"),
+                request=FakeRequest(),
+                user_id=USER_ID,
+            )
         )
 
         self.assertEqual(response.media_type, "application/pdf")
@@ -107,9 +136,12 @@ class ExportsRoutesTest(unittest.TestCase):
 
     def test_export_rejects_workspace_from_other_user(self):
         with self.assertRaises(Exception):
-            exports.export_study_material(
-                exports.StudyExportPayload(workspaceId=WORKSPACE_ID, kind="all", format="markdown"),
-                user_id="00000000-0000-4000-8000-000000000099",
+            asyncio.run(
+                exports.export_study_material(
+                    exports.StudyExportPayload(workspaceId=WORKSPACE_ID, kind="all", format="markdown"),
+                    request=FakeRequest(),
+                    user_id="00000000-0000-4000-8000-000000000099",
+                )
             )
 
 

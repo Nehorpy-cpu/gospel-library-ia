@@ -5,16 +5,20 @@ from textwrap import wrap
 from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from app.core.logging import logger
+from app.core.config import get_settings
 from app.services.auth import get_request_auth_context, normalize_user_id, require_user
 from app.services.db import get_conn
+from app.services.rate_limit import RateLimiter
 
 router = APIRouter(prefix="/api/exports", tags=["exports"], dependencies=[Depends(require_user)])
 log = logger(__name__)
+limiter = RateLimiter()
 
 ExportKind = Literal["notes", "quotes", "talk_drafts", "all"]
 ExportFormat = Literal["markdown", "pdf"]
@@ -49,13 +53,20 @@ def current_user_id(x_user_id: str | None = Header(default=None, alias="X-User-I
 
 
 @router.post("/study")
-def export_study_material(payload: StudyExportPayload, user_id: str | None = Header(default=None, alias="X-User-Id")):
+async def export_study_material(
+    payload: StudyExportPayload,
+    request: Request,
+    user_id: str | None = Header(default=None, alias="X-User-Id"),
+):
+    await limiter.check_daily(request, get_settings().max_user_exports_per_day, "exports")
     user_id = current_user_id(user_id)
     with get_conn() as conn:
         conn.row_factory = dict_row
         workspace = _require_workspace(conn, payload.workspaceId, user_id)
         notes = _load_notes(conn, payload, user_id)
         citations = _load_citations(conn, payload, user_id)
+        _record_export(conn, user_id, payload, len(notes), len(citations))
+        conn.commit()
 
     markdown = _render_markdown(workspace, notes, citations, payload.kind)
     filename = _filename(workspace["name"], payload.kind, payload.format)
@@ -93,6 +104,27 @@ def _require_workspace(conn, workspace_id: str, user_id: str) -> dict:
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Study workspace not found")
     return row
+
+
+def _record_export(conn, user_id: str, payload: StudyExportPayload, notes: int, citations: int) -> None:
+    conn.execute(
+        """
+        INSERT INTO beta_activity_events (user_id, kind, metadata)
+        VALUES (%(user_id)s, 'export', %(metadata)s)
+        """,
+        {
+            "user_id": user_id,
+            "metadata": Jsonb(
+                {
+                    "workspaceId": payload.workspaceId,
+                    "kind": payload.kind,
+                    "format": payload.format,
+                    "notes": notes,
+                    "citations": citations,
+                }
+            ),
+        },
+    )
 
 
 def _load_notes(conn, payload: StudyExportPayload, user_id: str) -> list[dict]:

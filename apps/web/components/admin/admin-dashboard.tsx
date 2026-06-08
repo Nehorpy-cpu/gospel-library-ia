@@ -10,6 +10,8 @@ import {
   DollarSign,
   FileText,
   Globe2,
+  MessageSquare as MessageIcon,
+  NotebookPen as NotebookIcon,
   PauseCircle,
   Play,
   PlayCircle,
@@ -66,6 +68,7 @@ export function AdminDashboard() {
     refetchInterval: 15000
   });
   const cost = useQuery({ queryKey: ["admin-cost"], queryFn: () => ragApi.adminCost(), refetchInterval: 15000 });
+  const beta = useQuery({ queryKey: ["admin-beta"], queryFn: () => ragApi.adminBeta(), refetchInterval: 15000 });
   const estimate = useQuery({
     queryKey: ["admin-indexing-estimate"],
     queryFn: () => ragApi.indexingEstimate({ limit: 100, force: false }),
@@ -168,6 +171,7 @@ export function AdminDashboard() {
     void queryClient.invalidateQueries({ queryKey: ["admin-source-catalog"] });
     void queryClient.invalidateQueries({ queryKey: ["admin-cost"] });
     void queryClient.invalidateQueries({ queryKey: ["admin-indexing-estimate"] });
+    void queryClient.invalidateQueries({ queryKey: ["admin-beta"] });
   }
 
   return (
@@ -249,6 +253,59 @@ export function AdminDashboard() {
               </div>
             ))}
             {!sources.data?.items?.length ? <p className="text-sm text-muted-foreground">Sin fuentes cargadas.</p> : null}
+          </div>
+        </div>
+      </Card>
+
+      <Card className="p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">Beta privada</h2>
+            <p className="text-sm text-muted-foreground">Usuarios beta, feedback, limites y metricas basicas.</p>
+          </div>
+          <Badge>{textValue(beta.data?.version?.version, "0.1.0-beta")}</Badge>
+        </div>
+        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+          <MetricCard icon={Users} label="Usuarios beta" value={formatCount(beta.data?.metrics?.betaUsers)} />
+          <MetricCard icon={CheckCircle2} label="Aprobados" value={formatCount(beta.data?.metrics?.approvedUsers)} tone="ok" />
+          <MetricCard icon={NotebookIcon} label="Workspaces" value={formatCount(beta.data?.metrics?.workspacesCreated)} />
+          <MetricCard icon={Save} label="Citas" value={formatCount(beta.data?.metrics?.savedQuotes)} />
+          <MetricCard icon={MessageIcon} label="Feedback" value={formatCount(beta.data?.metrics?.feedback)} />
+          <MetricCard icon={AlertCircle} label="Errores recientes" value={formatCount(beta.data?.metrics?.recentErrors)} tone={asNumber(beta.data?.metrics?.recentErrors) ? "danger" : "ok"} />
+        </div>
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          <div className="rounded-md border p-4">
+            <h3 className="text-sm font-semibold">Feedback recibido</h3>
+            <div className="mt-3 space-y-3">
+              {(beta.data?.feedback ?? []).slice(0, 6).map((item) => (
+                <div key={String(item.id)} className="rounded-md bg-muted/40 p-3 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{textValue(item.type)}</span>
+                    <Badge>{textValue(item.status)}</Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">{truncate(String(item.message ?? ""), 220)}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{textValue(item.page)} - {textValue(item.email)}</p>
+                </div>
+              ))}
+              {!beta.data?.feedback?.length ? <EmptyState label="Sin feedback recibido." /> : null}
+            </div>
+          </div>
+          <div className="rounded-md border p-4">
+            <h3 className="text-sm font-semibold">Usuarios beta</h3>
+            <div className="mt-3 space-y-3">
+              {(beta.data?.users ?? []).slice(0, 6).map((item) => (
+                <div key={String(item.id)} className="rounded-md bg-muted/40 p-3 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{textValue(item.email)}</span>
+                    <Badge>{textValue(item.status)}</Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {textValue(item.studyProfile)} - {textValue(item.preferredLanguage)}
+                  </p>
+                </div>
+              ))}
+              {!beta.data?.users?.length ? <EmptyState label="Sin usuarios beta registrados." /> : null}
+            </div>
           </div>
         </div>
       </Card>

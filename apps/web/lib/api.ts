@@ -245,6 +245,51 @@ export const ragApi = {
         body: JSON.stringify(payload ?? {})
       }
     );
+  },
+  betaStatus() {
+    return request<Record<string, unknown>>("/beta/status");
+  },
+  betaVersion() {
+    return request<Record<string, unknown>>("/beta/version");
+  },
+  requestBetaAccess(payload: { email: string; name?: string; message?: string }) {
+    return request<Record<string, unknown>>("/beta/request-access", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+  completeOnboarding(payload: { callingProfile: string; language: string; preferredSources: string[] }) {
+    return request<Record<string, unknown>>("/beta/onboarding", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+  submitFeedback(payload: { page: string; type: string; message: string; screenshotUrl?: string }) {
+    return request<Record<string, unknown>>("/feedback", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+  adminBeta() {
+    return request<{
+      version: Record<string, unknown>;
+      limits: Record<string, unknown>;
+      users: Array<Record<string, unknown>>;
+      feedback: Array<Record<string, unknown>>;
+      metrics: Record<string, unknown>;
+    }>("/admin/beta");
+  },
+  approveBetaUser(payload: { email: string; status?: "pending" | "approved" | "rejected"; notes?: string }) {
+    return request<Record<string, unknown>>("/admin/beta/approve", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+  updateFeedbackStatus(feedbackId: string, status: "new" | "reviewing" | "resolved" | "closed") {
+    return request<Record<string, unknown>>(`/admin/feedback/${encodeURIComponent(feedbackId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status })
+    });
   }
 };
 

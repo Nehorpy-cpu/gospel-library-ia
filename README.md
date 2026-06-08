@@ -515,6 +515,32 @@ CORS_ORIGINS=http://localhost:3000,https://app.gospel-library-ia.example
 
 No usar `*` en produccion salvo una excepcion temporal y documentada.
 
+## Beta privada
+
+Gospel Library IA Beta usa version `0.1.0-beta` y entorno `beta`. La landing local esta en:
+
+```txt
+http://localhost:3000/beta
+```
+
+Controles beta principales:
+
+```txt
+BETA_ALLOWLIST_ENABLED=false
+BETA_MAX_WORKSPACES_PER_USER=12
+MAX_USER_CHAT_MESSAGES_PER_DAY=50
+MAX_USER_TALK_BUILDER_PER_DAY=20
+MAX_USER_EXPORTS_PER_DAY=10
+```
+
+Docs:
+
+```txt
+CHANGELOG.md
+docs/beta-checklist.md
+docs/demo-script.md
+```
+
 ## Deploy backend Railway
 
 Servicios:

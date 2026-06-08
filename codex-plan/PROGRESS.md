@@ -2,7 +2,7 @@
 
 ## Current phase
 
-19_AI_COST_OPTIMIZATION - Done.
+20_BETA_RELEASE - Done.
 
 ## Phase tracker
 
@@ -27,6 +27,7 @@
 | 17 | Auth privacy production | Completed | 2026-06-05 | 2026-06-05 | Added Clerk-ready JWT validation, local auth fallback, frontend protected routes, backend role dependencies, user-scoped favorites/history, auth docs/env examples, and auth/privacy tests. Build, tests, Docker health, and protected route smoke checks passed. |
 | 18 | Massive source ingestion | Completed | 2026-06-05 | 2026-06-05 | Added controlled source catalog, seeds, incremental scraping limits, parser metadata improvements, admin source controls, ingestion metrics, source docs, and validated Docker/runtime with real documents and textual fallback. |
 | 19 | AI cost optimization | Completed | 2026-06-08 | 2026-06-08 | Added embedding cache, chunk-hash skip, cost estimate/admin dashboard, daily limits, OpenAI quota pause, low/balanced/quality modes, and docs. Unit tests, web build/typecheck, root Docker build, Docker runtime, RAG migration, and live cost endpoints passed after Docker Desktop became available. |
+| 20 | Beta release | Completed | 2026-06-08 | 2026-06-08 | Prepared private beta 0.1.0-beta with beta landing, onboarding, allowlist, feedback, admin beta metrics, beta limits, privacy/terms pages, docs, changelog, and Docker/runtime smoke tests. |
 
 ## Update rules
 
@@ -310,7 +311,7 @@ After each phase:
 17_AUTH_PRIVACY_PRODUCTION: DONE
 18_MASSIVE_SOURCE_INGESTION: DONE
 19_AI_COST_OPTIMIZATION: DONE
-20_BETA_RELEASE: PENDING
+20_BETA_RELEASE: DONE
 
 ### 2026-06-05 - 15_QA_FINAL
 
@@ -444,3 +445,31 @@ After each phase:
 - Passed: `GET /api/admin/cost` with admin headers.
 - Evidence: cost endpoint returned `tokensUsedToday=0`, `cacheEntries=0`, `indexing.paused=false`.
 - Status decision: `Completed`, because the Docker/runtime checks previously blocked by inactive Docker Desktop now pass.
+
+### 2026-06-08 - Phase 20 Beta release
+
+- Implemented: beta identity `Gospel Library IA Beta`, version `0.1.0-beta`, and beta environment config.
+- Implemented: frontend `/beta`, `/onboarding`, `/privacy`, `/terms`, global feedback button, and admin beta panel.
+- Implemented: API endpoints `GET /api/beta/version`, `GET /api/beta/status`, `POST /api/beta/request-access`, `POST /api/beta/onboarding`, `POST /api/feedback`, `GET /api/admin/beta`, `POST /api/admin/beta/approve`, and `PATCH /api/admin/feedback/{feedback_id}`.
+- Implemented: beta tables `beta_access`, `beta_feedback`, and `beta_activity_events` in Alembic and Prisma migrations.
+- Implemented: beta limits for workspaces, chat/search, talk builder, and exports; export events are recorded without exposing private content.
+- Documented: `CHANGELOG.md`, `docs/beta-checklist.md`, `docs/demo-script.md`, and README beta section.
+- Passed: `corepack pnpm install --frozen-lockfile`
+- Passed: `corepack pnpm test`
+- Passed: `corepack pnpm build`
+- Passed: `corepack pnpm --dir apps/web build`
+- Passed: `corepack pnpm --dir apps/web typecheck`
+- Passed: `python -m unittest discover apps/api/tests`
+- Passed: `python -m unittest discover rag/tests`
+- Passed: `python -m compileall apps/api/app scraper/migrations/versions`
+- Passed: `DATABASE_URL=postgresql://gospel:gospel@localhost:5432/gospel_library corepack pnpm --dir packages/database exec prisma validate`
+- Passed: `docker compose config --quiet`
+- Passed: `docker compose up -d --build`
+- Passed: `docker compose exec -T scraper-api alembic upgrade head`, applying `0008_beta_release`.
+- Passed: `docker compose exec -T rag-api alembic upgrade head`
+- Passed: `docker compose ps` shows web, api, rag-api, scraper-api, postgres, redis, qdrant, and minio healthy; workers running.
+- Passed: `/beta` returns HTTP 200.
+- Passed: `/api/beta/version` returns `0.1.0-beta`.
+- Passed: beta request-access, onboarding, feedback, admin approval, beta status, and admin beta metrics smoke tests against the live Docker stack.
+- Remaining production tasks: configure real beta allowlist emails, Sentry DSN, backup monitoring, cloud secrets, and first-user invite process before inviting external users.
+- Status decision: `DONE`, because private beta controls, docs, migrations, builds, tests, and Docker runtime smoke checks passed.

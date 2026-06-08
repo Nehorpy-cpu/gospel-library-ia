@@ -446,6 +446,16 @@ def create_workspace(payload: WorkspacePayload, user_id: str | None = Header(def
     _ensure_payload_user(payload.userId, user_id)
     with get_conn() as conn:
         conn.row_factory = dict_row
+        workspace_count = conn.execute(
+            """
+            SELECT count(*)::int
+            FROM study_workspaces
+            WHERE user_id = %(user_id)s AND deleted_at IS NULL
+            """,
+            {"user_id": user_id},
+        ).fetchone()[0]
+        if workspace_count >= get_settings().beta_max_workspaces_per_user:
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Beta workspace limit reached")
         row = conn.execute(
             """
             INSERT INTO study_workspaces (user_id, name, description, source_filters, settings)

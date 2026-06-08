@@ -10,6 +10,7 @@ from redis import Redis
 from app.core.config import get_settings
 from app.core.logging import configure_logging, logger
 from app.routes.admin import router as admin_router
+from app.routes.beta import router as beta_router
 from app.routes.exports import router as exports_router
 from app.routes.profile import router as profile_router
 from app.routes.public import router as public_router
@@ -35,6 +36,7 @@ app.add_middleware(
 )
 app.include_router(public_router)
 app.include_router(admin_router)
+app.include_router(beta_router)
 app.include_router(study_router)
 app.include_router(study_alias_router)
 app.include_router(talk_builder_router)

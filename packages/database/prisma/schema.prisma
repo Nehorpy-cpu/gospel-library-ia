@@ -663,6 +663,57 @@ model AiRuntimeState {
   @@map("ai_runtime_state")
 }
 
+model BetaAccess {
+  id                    String    @id @default(uuid()) @db.Uuid
+  userId                String?   @map("user_id") @db.Uuid
+  email                 String    @unique(map: "uq_beta_access_email") @db.VarChar(320)
+  name                  String?
+  status                String    @default("pending") @db.VarChar(32)
+  studyProfile          String?   @map("study_profile") @db.VarChar(160)
+  preferredLanguage     String?   @map("preferred_language") @db.VarChar(16)
+  preferredSources      Json      @default("[]") @map("preferred_sources")
+  requestMessage        String?   @map("request_message")
+  adminNotes            String?   @map("admin_notes")
+  approvedAt            DateTime? @map("approved_at") @db.Timestamptz(6)
+  onboardingCompletedAt DateTime? @map("onboarding_completed_at") @db.Timestamptz(6)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status])
+  @@index([userId])
+  @@map("beta_access")
+}
+
+model BetaFeedback {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String?  @map("user_id") @db.Uuid
+  email         String?  @db.VarChar(320)
+  page          String
+  type          String   @default("other") @db.VarChar(80)
+  message       String
+  screenshotUrl String?  @map("screenshot_url")
+  status        String   @default("new") @db.VarChar(40)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+  @@map("beta_feedback")
+}
+
+model BetaActivityEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  kind      String   @db.VarChar(80)
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([userId, createdAt])
+  @@index([kind, createdAt])
+  @@map("beta_activity_events")
+}
+
 model MediaAsset {
   id            String    @id @default(uuid()) @db.Uuid
   documentId    String    @map("document_id") @db.Uuid

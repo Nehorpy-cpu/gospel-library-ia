@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     chat_rate_limit_per_minute: int = 30
     max_user_chat_messages_per_day: int = 50
     max_user_talk_builder_per_day: int = 20
+    max_user_exports_per_day: int = 10
+    beta_max_workspaces_per_user: int = 12
+    beta_allowlist_enabled: bool = False
+    beta_environment: str = "beta"
+    beta_version: str = "0.1.0-beta"
     ai_cost_mode: str = "balanced"
     rag_top_k: int = 12
     openai_api_key: str = ""

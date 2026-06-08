@@ -25,6 +25,7 @@ import {
 import { useTheme } from "next-themes";
 
 import { AudioDock } from "@/components/layout/audio-dock";
+import { FeedbackButton } from "@/components/beta/feedback-button";
 import { GlobalSearch } from "@/components/search/global-search";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -35,6 +36,7 @@ import { useUIStore } from "@/stores/ui-store";
 
 const nav = [
   { href: "/", label: "Inicio", icon: Home },
+  { href: "/beta", label: "Beta", icon: Compass },
   { href: "/search", label: "Busqueda", icon: Search },
   { href: "/chat", label: "Chat IA", icon: Bot },
   { href: "/library", label: "Biblioteca", icon: Library },
@@ -150,6 +152,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <GlobalSearch />
       <AudioDock />
+      <FeedbackButton />
     </div>
   );
 }

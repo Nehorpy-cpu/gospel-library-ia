@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const USER_PATHS = ["/study", "/favorites", "/history"];
+const USER_PATHS = ["/study", "/favorites", "/history", "/onboarding"];
 const ADMIN_PATHS = ["/admin"];
 
 function matches(pathname: string, prefixes: string[]) {
@@ -38,5 +38,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/study/:path*", "/favorites/:path*", "/history/:path*", "/admin/:path*"]
+  matcher: ["/study/:path*", "/favorites/:path*", "/history/:path*", "/onboarding", "/admin/:path*"]
 };

@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from fastapi import Depends, Header, HTTPException, status
+from psycopg.rows import dict_row
 
 try:
     import jwt
@@ -12,6 +13,7 @@ except ImportError:  # pragma: no cover - exercised only in incomplete local Pyt
     PyJWKClient = None
 
 from app.core.config import get_settings
+from app.services.db import get_conn
 
 
 @dataclass(frozen=True)
@@ -130,6 +132,7 @@ def get_request_auth_context() -> AuthContext | None:
 
 
 def require_user(context: AuthContext = Depends(current_auth_context)) -> AuthContext:
+    _require_beta_access(context)
     return context
 
 
@@ -137,3 +140,28 @@ def require_admin(context: AuthContext = Depends(current_auth_context)) -> AuthC
     if context.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
     return context
+
+
+def _require_beta_access(context: AuthContext) -> None:
+    settings = get_settings()
+    if not settings.beta_allowlist_enabled or context.role == "admin":
+        return
+    if not context.email:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Beta access requires an approved email")
+    try:
+        with get_conn() as conn:
+            conn.row_factory = dict_row
+            row = conn.execute(
+                """
+                SELECT status
+                FROM beta_access
+                WHERE lower(email) = lower(%(email)s)
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                {"email": context.email},
+            ).fetchone()
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Beta access check unavailable") from exc
+    if not row or row["status"] != "approved":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Beta access pending")
