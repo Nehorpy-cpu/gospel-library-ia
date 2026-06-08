@@ -3,19 +3,22 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, field_validator
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from app.core.logging import logger
 from app.services.auth import get_request_auth_context, normalize_user_id, require_user
+from app.core.config import get_settings
 from app.services.db import get_conn
+from app.services.rate_limit import RateLimiter
 from app.services.scripture_refs import extract_scripture_refs, structured_scripture_refs
 from app.services.source_filters import normalize_source_type
 
 router = APIRouter(prefix="/api/talk-builder", tags=["talk-builder"], dependencies=[Depends(require_user)])
 log = logger(__name__)
+limiter = RateLimiter()
 
 
 class TalkBuilderRequest(BaseModel):
@@ -51,7 +54,8 @@ def current_user_id(x_user_id: str | None = Header(default=None, alias="X-User-I
 
 
 @router.post("/outline")
-def generate_outline(payload: TalkBuilderRequest, user_id: str | None = Header(default=None, alias="X-User-Id")):
+async def generate_outline(payload: TalkBuilderRequest, request: Request, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    await limiter.check_daily(request, get_settings().max_user_talk_builder_per_day, "talk-builder")
     user_id = current_user_id(user_id)
     scripture_refs = _request_scripture_refs(payload)
     try:

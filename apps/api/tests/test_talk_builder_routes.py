@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+import asyncio
 import sys
 import unittest
 
@@ -98,18 +99,38 @@ def fake_get_conn():
     yield FakeConnection()
 
 
+class FakeClient:
+    host = "127.0.0.1"
+
+
+class FakeRequest:
+    headers = {"X-User-Id": USER_ID}
+    client = FakeClient()
+
+
+class FakeLimiter:
+    async def check_daily(self, request, limit, scope):
+        return None
+
+
 class TalkBuilderRoutesTest(unittest.TestCase):
     def setUp(self):
         self.original_get_conn = talk_builder.get_conn
+        self.original_limiter = talk_builder.limiter
         talk_builder.get_conn = fake_get_conn
+        talk_builder.limiter = FakeLimiter()
 
     def tearDown(self):
         talk_builder.get_conn = self.original_get_conn
+        talk_builder.limiter = self.original_limiter
 
     def test_outline_uses_real_documents_and_saved_quotes(self):
-        response = talk_builder.generate_outline(
-            talk_builder.TalkBuilderRequest(topic="Fe en Jesucristo", scriptureRefs=["Alma 32:21"]),
-            user_id=USER_ID,
+        response = asyncio.run(
+            talk_builder.generate_outline(
+                talk_builder.TalkBuilderRequest(topic="Fe en Jesucristo", scriptureRefs=["Alma 32:21"]),
+                request=FakeRequest(),
+                user_id=USER_ID,
+            )
         )
 
         self.assertEqual(response["status"], "ready")

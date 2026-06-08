@@ -1,6 +1,8 @@
 from app.retrieval.types import RetrievedChunk
 from app.schemas.search import Citation
 
+MAX_CONTEXT_CHARS_PER_CHUNK = 2400
+
 
 class CitationBuilder:
     def build(self, chunks: list[RetrievedChunk]) -> list[Citation]:
@@ -36,5 +38,6 @@ class CitationBuilder:
                 f"Section: {chunk.section_title or ''}",
                 f"Scripture refs: {', '.join(chunk.metadata.get('scripture_refs') or [])}",
             ]
-            blocks.append(f"[{index}]\n" + "\n".join(meta) + f"\nText:\n{chunk.text}")
+            text = chunk.text[:MAX_CONTEXT_CHARS_PER_CHUNK]
+            blocks.append(f"[{index}]\n" + "\n".join(meta) + f"\nText:\n{text}")
         return "\n\n---\n\n".join(blocks)

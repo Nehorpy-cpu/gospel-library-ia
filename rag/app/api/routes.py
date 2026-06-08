@@ -4,7 +4,7 @@ from urllib.request import Request as UrlRequest
 from urllib.request import urlopen
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from redis import Redis
 from sqlalchemy import text
@@ -19,6 +19,7 @@ from app.retrieval.bm25 import BM25Retriever
 from app.retrieval.hybrid import HybridSearchService
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.schemas.search import IndexRequest, SearchRequest, SearchResponse, SearchResult
+from app.services.ai_cost import AiCostService
 from app.services.qdrant_service import QdrantService
 from app.workers.tasks import index_documents_task, index_pending_task
 
@@ -226,7 +227,14 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)):
         return _no_vectors_chat_response(request, db)
     if _missing_openai_api_key():
         return _missing_openai_response()
-    return await RAGOrchestrator().answer(db, request)
+    try:
+        return await RAGOrchestrator().answer(db, request)
+    except Exception as exc:
+        if _is_openai_quota_error(exc):
+            fallback = _no_vectors_chat_response(request, db)
+            fallback.warnings.append("OpenAI quota is unavailable; using local textual sources only.")
+            return fallback
+        raise
 
 
 @router.post("/chat/stream")
@@ -257,18 +265,58 @@ async def chat_stream(request: ChatRequest, db: Session = Depends(get_db)):
         return _missing_openai_response()
 
     async def events():
-        async for event in RAGOrchestrator().stream_answer(db, request):
-            yield {"event": event["type"], "data": json.dumps(event, default=str)}
+        try:
+            async for event in RAGOrchestrator().stream_answer(db, request):
+                yield {"event": event["type"], "data": json.dumps(event, default=str)}
+        except Exception as exc:
+            if not _is_openai_quota_error(exc):
+                raise
+            fallback = _no_vectors_chat_response(request, db)
+            fallback.warnings.append("OpenAI quota is unavailable; using local textual sources only.")
+            yield {
+                "event": "grounding",
+                "data": json.dumps({"type": "grounding", "grounded": fallback.grounded, "warnings": fallback.warnings}),
+            }
+            yield {"event": "delta", "data": json.dumps({"type": "delta", "content": fallback.message})}
+            yield {"event": "done", "data": json.dumps({"type": "done"})}
 
     return EventSourceResponse(events())
 
 
 @router.post("/admin/index")
-def index(request: IndexRequest):
+def index(request: IndexRequest, db: Session = Depends(get_db)):
     if _missing_openai_api_key():
         return _missing_openai_response()
+    cost_service = AiCostService()
+    if cost_service.is_indexing_paused(db):
+        return JSONResponse(status_code=409, content={"status": "indexing_paused", "state": cost_service.indexing_state(db)})
     if request.document_ids:
         task = index_documents_task.delay([str(item) for item in request.document_ids], request.force)
     else:
         task = index_pending_task.delay(request.limit, request.force)
     return {"task_id": task.id}
+
+
+@router.get("/admin/indexing/estimate")
+def indexing_estimate(
+    limit: int = Query(default=100, ge=1, le=5000),
+    force: bool = False,
+    db: Session = Depends(get_db),
+):
+    estimate = AiCostService().estimate_indexing(db, limit=limit, force=force)
+    return estimate.as_dict()
+
+
+@router.get("/admin/cost")
+def admin_cost(db: Session = Depends(get_db)):
+    return AiCostService().usage_summary(db)
+
+
+@router.post("/admin/indexing/pause")
+def pause_indexing(db: Session = Depends(get_db)):
+    return {"state": AiCostService().pause_indexing(db, "manual_pause", "admin_pause")}
+
+
+@router.post("/admin/indexing/resume")
+def resume_indexing(db: Session = Depends(get_db)):
+    return {"state": AiCostService().resume_indexing(db)}

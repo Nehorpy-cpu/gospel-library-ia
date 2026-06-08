@@ -79,7 +79,9 @@ async def search(payload: SearchRequest, request: Request):
 
 @router.post("/chat")
 async def chat(payload: ChatRequest, request: Request):
-    await limiter.check(request, get_settings().chat_rate_limit_per_minute)
+    settings = get_settings()
+    await limiter.check(request, settings.chat_rate_limit_per_minute)
+    await limiter.check_daily(request, settings.max_user_chat_messages_per_day, "chat")
     if _qdrant_points_count() <= 0:
         return _local_chat_response(payload, ["Busqueda semantica no disponible todavia."])
     try:

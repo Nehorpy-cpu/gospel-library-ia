@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator
 
 from openai import AsyncOpenAI
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.core.config import get_settings
 
@@ -11,7 +11,7 @@ class OpenAIService:
         self.settings = get_settings()
         self.client = AsyncOpenAI(api_key=self.settings.openai_api_key)
 
-    @retry(retry=retry_if_exception_type(Exception), stop=stop_after_attempt(5), wait=wait_exponential(min=2, max=60), reraise=True)
+    @retry(retry=retry_if_exception(lambda exc: not _is_insufficient_quota(exc)), stop=stop_after_attempt(5), wait=wait_exponential(min=2, max=60), reraise=True)
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
         response = await self.client.embeddings.create(
             model=self.settings.openai_embedding_model,
@@ -39,3 +39,8 @@ class OpenAIService:
             delta = event.choices[0].delta.content
             if delta:
                 yield delta
+
+
+def _is_insufficient_quota(exc: BaseException) -> bool:
+    value = str(exc).lower()
+    return "insufficient_quota" in value

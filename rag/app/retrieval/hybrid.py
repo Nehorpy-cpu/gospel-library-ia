@@ -34,13 +34,13 @@ class HybridSearchService:
         rewritten = await self.query_planner.rewrite(query, detected_language, filters)
 
         semantic = await self.semantic.search(
-            db, rewritten, filters, limit=self.settings.retrieval_semantic_limit
+            db, rewritten, filters, limit=self.settings.effective_retrieval_semantic_limit
         )
-        bm25 = self.bm25.search(db, rewritten, filters, limit=self.settings.retrieval_bm25_limit)
+        bm25 = self.bm25.search(db, rewritten, filters, limit=self.settings.effective_retrieval_bm25_limit)
         merged = self.ranker.merge(semantic, bm25)
         diversified = self._diversify(merged)
-        final_limit = limit or self.settings.retrieval_final_limit
-        if use_reranker:
+        final_limit = min(limit or self.settings.effective_retrieval_final_limit, self.settings.effective_retrieval_final_limit)
+        if use_reranker and self.settings.ai_cost_mode != "low":
             diversified = await self.reranker.rerank(rewritten, diversified, final_limit)
         return rewritten, self._fit_context(diversified[:final_limit])
 
@@ -62,7 +62,7 @@ class HybridSearchService:
         used = 0
         for item in items:
             tokens = count_tokens(item.text)
-            if used + tokens > self.settings.retrieval_context_token_budget:
+            if used + tokens > self.settings.effective_retrieval_context_token_budget:
                 continue
             fitted.append(item)
             used += tokens

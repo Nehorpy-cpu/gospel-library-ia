@@ -181,6 +181,22 @@ export const ragApi = {
       body: JSON.stringify({ limit: 100, force: false })
     });
   },
+  indexingEstimate(params?: { limit?: number; force?: boolean }) {
+    const searchParams = new URLSearchParams();
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    if (params?.force !== undefined) searchParams.set("force", String(params.force));
+    const query = searchParams.toString();
+    return request<Record<string, unknown>>(`/admin/indexing/estimate${query ? `?${query}` : ""}`);
+  },
+  adminCost() {
+    return request<Record<string, unknown>>("/admin/cost");
+  },
+  pauseIndexing() {
+    return request<{ state: Record<string, unknown> }>("/admin/indexing/pause", { method: "POST" });
+  },
+  resumeIndexing() {
+    return request<{ state: Record<string, unknown> }>("/admin/indexing/resume", { method: "POST" });
+  },
   scrape() {
     return request<{ task_id: string }>("/admin/scrape", { method: "POST" });
   },

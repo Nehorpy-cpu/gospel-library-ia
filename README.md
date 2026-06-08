@@ -62,6 +62,21 @@ QDRANT_URL=
 QDRANT_COLLECTION=doctrinal_chunks_v1
 ```
 
+Control de costos IA:
+
+```txt
+AI_COST_MODE=balanced
+RAG_TOP_K=12
+CHUNK_SIZE=650
+CHUNK_OVERLAP=120
+MAX_DAILY_EMBEDDING_TOKENS=100000
+MAX_USER_CHAT_MESSAGES_PER_DAY=50
+MAX_USER_TALK_BUILDER_PER_DAY=20
+EMBEDDING_TOKEN_PRICE_PER_1K=0.00013
+```
+
+Ver tambien [docs/ai-costs.md](docs/ai-costs.md) para estimacion previa, cache de embeddings, limites y manejo de `insufficient_quota`.
+
 Auth local/produccion:
 
 ```txt
@@ -576,3 +591,5 @@ Reglas principales:
 3. No usar datos mock cuando existan datos reales en PostgreSQL, Qdrant, Redis o workers.
 4. No llamar OpenAI en seeds ni tests locales.
 5. Mantener la app usable con busqueda textual cuando no haya embeddings.
+
+Fase 19 documenta controles de costo, cache y limites diarios en `docs/ai-costs.md`.

@@ -75,7 +75,7 @@ class LLMReranker:
             return candidates[:limit]
 
     def _fit_budget(self, candidates: list[RetrievedChunk]) -> list[RetrievedChunk]:
-        budget = self.settings.retrieval_candidate_token_budget
+        budget = self.settings.effective_retrieval_candidate_token_budget
         fitted: list[RetrievedChunk] = []
         used = 0
         for item in candidates:

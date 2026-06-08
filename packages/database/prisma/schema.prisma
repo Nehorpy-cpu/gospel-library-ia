@@ -529,6 +529,7 @@ model DocumentChunk {
 
   document        Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
   embeddings      Embedding[]
+  embeddingCaches EmbeddingCache[]
   tags            ChunkTag[]
   scriptures      ChunkScriptureReference[]
   notes           Note[]
@@ -608,6 +609,58 @@ model Embedding {
   @@index([modelId])
   @@index([contentHash])
   @@map("embeddings")
+}
+
+model EmbeddingCache {
+  id          String    @id @default(uuid()) @db.Uuid
+  contentHash String    @map("content_hash") @db.VarChar(64)
+  model       String    @db.VarChar(128)
+  dimensions  Int
+  vector      Json?
+  vectorId    String?   @map("vector_id") @db.Uuid
+  chunkId     String?   @map("chunk_id") @db.Uuid
+  tokenCount  Int       @default(0) @map("token_count")
+  hitCount    Int       @default(0) @map("hit_count")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  lastUsedAt  DateTime? @map("last_used_at") @db.Timestamptz(6)
+
+  chunk       DocumentChunk? @relation(fields: [chunkId], references: [id], onDelete: SetNull)
+
+  @@unique([contentHash, model])
+  @@index([model])
+  @@index([chunkId])
+  @@map("embedding_cache")
+}
+
+model AiUsageEvent {
+  id               String    @id @default(uuid()) @db.Uuid
+  kind             String    @db.VarChar(64)
+  model            String?   @db.VarChar(128)
+  userId           String?   @map("user_id") @db.Uuid
+  workspaceId      String?   @map("workspace_id") @db.Uuid
+  documentId       String?   @map("document_id") @db.Uuid
+  chunkId          String?   @map("chunk_id") @db.Uuid
+  inputTokens      Int       @default(0) @map("input_tokens")
+  outputTokens     Int       @default(0) @map("output_tokens")
+  estimatedCostUsd Float     @default(0) @map("estimated_cost_usd")
+  status           String    @default("ok") @db.VarChar(64)
+  errorCode        String?   @map("error_code") @db.VarChar(128)
+  metadata         Json      @default("{}")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt])
+  @@index([kind])
+  @@index([userId, createdAt])
+  @@map("ai_usage_events")
+}
+
+model AiRuntimeState {
+  key       String   @id @db.VarChar(120)
+  value     Json     @default("{}")
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("ai_runtime_state")
 }
 
 model MediaAsset {

@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://web:3000"
     rate_limit_per_minute: int = 120
     chat_rate_limit_per_minute: int = 30
+    max_user_chat_messages_per_day: int = 50
+    max_user_talk_builder_per_day: int = 20
+    ai_cost_mode: str = "balanced"
+    rag_top_k: int = 12
     openai_api_key: str = ""
     openai_embedding_model: str = "text-embedding-3-large"
     openai_chat_model: str = "gpt-5.5"

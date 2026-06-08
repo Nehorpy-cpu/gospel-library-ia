@@ -22,13 +22,13 @@ class SourceCrawlRequest(BaseModel):
     maxPagesPerRun: int | None = Field(default=None, ge=1, le=200)
 
 
-def _is_missing_openai_response(response: httpx.Response) -> bool:
-    if response.status_code != 503:
-        return False
+def _passthrough_rag_response(response: httpx.Response) -> JSONResponse | None:
+    if response.status_code < 400:
+        return None
     try:
-        return response.json().get("status") == "missing_api_key"
+        return JSONResponse(status_code=response.status_code, content=response.json())
     except ValueError:
-        return False
+        return JSONResponse(status_code=response.status_code, content={"detail": response.text})
 
 
 @router.get("/ingestion/status")
@@ -342,8 +342,44 @@ async def run_scrape():
 async def reindex(payload: ReindexRequest):
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(f"{get_settings().rag_api_url}/admin/index", json=payload.model_dump(mode="json"))
-        if _is_missing_openai_response(response):
-            return JSONResponse(status_code=503, content=response.json())
+        passthrough = _passthrough_rag_response(response)
+        if passthrough:
+            return passthrough
+        response.raise_for_status()
+        return response.json()
+
+
+@router.get("/admin/indexing/estimate", dependencies=[Depends(require_admin)])
+async def indexing_estimate(limit: int = Query(default=100, ge=1, le=5000), force: bool = False):
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.get(
+            f"{get_settings().rag_api_url}/admin/indexing/estimate",
+            params={"limit": limit, "force": force},
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+@router.get("/admin/cost", dependencies=[Depends(require_admin)])
+async def admin_cost():
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.get(f"{get_settings().rag_api_url}/admin/cost")
+        response.raise_for_status()
+        return response.json()
+
+
+@router.post("/admin/indexing/pause", dependencies=[Depends(require_admin)])
+async def pause_indexing():
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(f"{get_settings().rag_api_url}/admin/indexing/pause")
+        response.raise_for_status()
+        return response.json()
+
+
+@router.post("/admin/indexing/resume", dependencies=[Depends(require_admin)])
+async def resume_indexing():
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(f"{get_settings().rag_api_url}/admin/indexing/resume")
         response.raise_for_status()
         return response.json()
 

@@ -1,4 +1,5 @@
 import time
+from datetime import UTC, datetime
 
 import redis
 from fastapi import HTTPException, Request
@@ -32,3 +33,20 @@ class RateLimiter:
             _memory[key] = (hits, expires)
         if hits > max_hits:
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+    async def check_daily(self, request: Request, limit: int, scope: str) -> None:
+        ip = request.client.host if request.client else "unknown"
+        user_id = request.headers.get("X-User-Id", "anonymous")
+        today = datetime.now(UTC).strftime("%Y%m%d")
+        key = f"daily:{scope}:{today}:{user_id}:{ip}"
+        if self.redis:
+            hits = self.redis.incr(key)
+            self.redis.expire(key, 60 * 60 * 36)
+        else:
+            count, expires = _memory.get(key, (0, time.time() + 60 * 60 * 36))
+            if time.time() > expires:
+                count = 0
+            hits = count + 1
+            _memory[key] = (hits, expires)
+        if hits > limit:
+            raise HTTPException(status_code=429, detail="Daily AI usage limit exceeded")

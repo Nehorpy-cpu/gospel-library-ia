@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+import asyncio
 import sys
 import unittest
 
@@ -143,6 +144,74 @@ class AdminRoutesTest(unittest.TestCase):
 
         self.assertEqual(response["sourceId"], "byu_speeches_en")
         self.assertEqual(response["maxPagesPerRun"], 5)
+
+    def test_indexing_estimate_proxies_to_rag(self):
+        original_client = admin.httpx.AsyncClient
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"documentsToIndex": 1, "estimatedCostUsd": 0.01}
+
+        class FakeClient:
+            def __init__(self, timeout):
+                self.timeout = timeout
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return None
+
+            async def get(self, url, params=None):
+                self.url = url
+                self.params = params
+                return FakeResponse()
+
+        admin.httpx.AsyncClient = FakeClient
+        try:
+            response = asyncio.run(admin.indexing_estimate(limit=10, force=False))
+        finally:
+            admin.httpx.AsyncClient = original_client
+
+        self.assertEqual(response["documentsToIndex"], 1)
+
+    def test_reindex_returns_paused_state_from_rag(self):
+        original_client = admin.httpx.AsyncClient
+
+        class FakeResponse:
+            status_code = 409
+            text = '{"status":"indexing_paused"}'
+
+            def json(self):
+                return {"status": "indexing_paused"}
+
+            def raise_for_status(self):
+                raise AssertionError("paused response should be passed through")
+
+        class FakeClient:
+            def __init__(self, timeout):
+                self.timeout = timeout
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return None
+
+            async def post(self, url, json=None):
+                return FakeResponse()
+
+        admin.httpx.AsyncClient = FakeClient
+        try:
+            response = asyncio.run(admin.reindex(admin.ReindexRequest(limit=10, force=False)))
+        finally:
+            admin.httpx.AsyncClient = original_client
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("indexing_paused", response.body.decode())
 
 
 if __name__ == "__main__":

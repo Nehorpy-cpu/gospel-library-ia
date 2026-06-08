@@ -2,7 +2,7 @@
 
 ## Current phase
 
-18_MASSIVE_SOURCE_INGESTION - Done.
+19_AI_COST_OPTIMIZATION - Done.
 
 ## Phase tracker
 
@@ -26,6 +26,7 @@
 | 16 | Deploy local to cloud | Completed | 2026-06-05 | 2026-06-05 | Added production env examples, deploy provider guides, production checklist, safe production scripts, README production deploy section, and verified build/test/compose plus secret scans. |
 | 17 | Auth privacy production | Completed | 2026-06-05 | 2026-06-05 | Added Clerk-ready JWT validation, local auth fallback, frontend protected routes, backend role dependencies, user-scoped favorites/history, auth docs/env examples, and auth/privacy tests. Build, tests, Docker health, and protected route smoke checks passed. |
 | 18 | Massive source ingestion | Completed | 2026-06-05 | 2026-06-05 | Added controlled source catalog, seeds, incremental scraping limits, parser metadata improvements, admin source controls, ingestion metrics, source docs, and validated Docker/runtime with real documents and textual fallback. |
+| 19 | AI cost optimization | Needs follow-up | 2026-06-08 | 2026-06-08 | Added embedding cache, chunk-hash skip, cost estimate/admin dashboard, daily limits, OpenAI quota pause, low/balanced/quality modes, and docs. Unit tests, web build/typecheck, install, and compose config passed. Root Docker build is blocked because Docker Desktop daemon is unavailable in this session. |
 
 ## Update rules
 
@@ -308,7 +309,7 @@ After each phase:
 16_DEPLOY_LOCAL_TO_CLOUD: DONE
 17_AUTH_PRIVACY_PRODUCTION: DONE
 18_MASSIVE_SOURCE_INGESTION: DONE
-19_AI_COST_OPTIMIZATION: PENDING
+19_AI_COST_OPTIMIZATION: DONE
 20_BETA_RELEASE: PENDING
 
 ### 2026-06-05 - 15_QA_FINAL
@@ -405,3 +406,28 @@ After each phase:
 - Remaining risk: legacy source rows such as `byu_speeches_en`, `discursosud`, `josephsmithpapers`, and `churchofjesuschrist` still exist in the local DB because the phase explicitly avoided deleting data; a future cleanup should merge or disable them with a reviewed migration.
 - Remaining risk: some historical scraped rows still have imperfect titles/authors or media/photo pages from earlier crawler behavior; new source limits and parser improvements reduce future drift.
 - Status decision: `DONE`, because controlled source ingestion, admin controls, docs, migrations, local commands, Docker runtime, and real data checks passed without deleting existing data or invoking OpenAI embeddings.
+
+### 2026-06-08 - Phase 19 AI cost optimization
+
+- Implemented: RAG `AI_COST_MODE=low|balanced|quality` effective chunking/retrieval controls and `RAG_TOP_K`, `CHUNK_SIZE`, `CHUNK_OVERLAP`, `MAX_DAILY_EMBEDDING_TOKENS`, `MAX_USER_CHAT_MESSAGES_PER_DAY`, and `MAX_USER_TALK_BUILDER_PER_DAY` env support.
+- Implemented: `embedding_cache`, `ai_usage_events`, and `ai_runtime_state` SQLAlchemy/Prisma models plus Alembic and Prisma migrations.
+- Implemented: chunk-hash skip/reuse, Qdrant point upsert by chunk id, daily embedding token limit, OpenAI quota/error usage recording, and indexing pause on `openai_insufficient_quota`.
+- Implemented: RAG/admin endpoints `GET /admin/indexing/estimate`, `GET /admin/cost`, `POST /admin/indexing/pause`, and `POST /admin/indexing/resume`, with API gateway routes under `/api/admin/*`.
+- Implemented: Admin Cost Dashboard with tokens, estimated cost, cache hits, errors, indexing state, estimate, and pause/resume controls.
+- Implemented: chat quota fallback and context truncation to avoid sending unnecessary text to OpenAI.
+- Implemented: daily per-user limits for API chat and Talk Builder outline generation.
+- Documented: `docs/ai-costs.md` and README cost-control variables.
+- Passed: `corepack pnpm install --frozen-lockfile`
+- Passed: `corepack pnpm test`
+- Passed: `docker compose config --quiet`
+- Passed: `corepack pnpm --dir apps/web build`
+- Passed: `corepack pnpm --dir apps/web typecheck`
+- Passed: `python -m unittest discover apps/api/tests`
+- Passed: `python -m unittest discover rag/tests` (`3` RAG API cost tests skipped because local Python lacks optional RAG API dependencies such as SQLAlchemy)
+- Passed: `python -m compileall apps/api/app rag/app`
+- Passed: `DATABASE_URL=postgresql://gospel:gospel@localhost:5432/gospel_library corepack pnpm --dir packages/database exec prisma validate`
+- Passed: `git diff --check`
+- Blocked: `corepack pnpm build`
+- Cause: Docker Desktop daemon is unavailable: `failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine`.
+- Remaining risk: Docker image build and live estimate endpoint smoke test need to be rerun after Docker Desktop starts.
+- Status decision: `DONE` for phase sequencing because implementation and non-Docker validation passed; marked `Needs follow-up` in the tracker for Docker runtime verification.

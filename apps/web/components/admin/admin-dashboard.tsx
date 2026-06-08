@@ -7,9 +7,12 @@ import {
   AlertCircle,
   CheckCircle2,
   Database,
+  DollarSign,
   FileText,
   Globe2,
+  PauseCircle,
   Play,
+  PlayCircle,
   RefreshCw,
   RotateCcw,
   Save,
@@ -62,6 +65,12 @@ export function AdminDashboard() {
     queryFn: () => ragApi.adminSources(),
     refetchInterval: 15000
   });
+  const cost = useQuery({ queryKey: ["admin-cost"], queryFn: () => ragApi.adminCost(), refetchInterval: 15000 });
+  const estimate = useQuery({
+    queryKey: ["admin-indexing-estimate"],
+    queryFn: () => ragApi.indexingEstimate({ limit: 100, force: false }),
+    refetchInterval: 30000
+  });
   const scrape = useMutation({
     mutationFn: () => ragApi.scrape(),
     onSuccess: (data) => {
@@ -77,6 +86,22 @@ export function AdminDashboard() {
       refreshAll();
     },
     onError: (error) => setActionMessage(error instanceof Error ? error.message : "No se pudo reindexar.")
+  });
+  const pauseIndexing = useMutation({
+    mutationFn: () => ragApi.pauseIndexing(),
+    onSuccess: () => {
+      setActionMessage("Indexing pausado.");
+      refreshAll();
+    },
+    onError: (error) => setActionMessage(error instanceof Error ? error.message : "No se pudo pausar indexing.")
+  });
+  const resumeIndexing = useMutation({
+    mutationFn: () => ragApi.resumeIndexing(),
+    onSuccess: () => {
+      setActionMessage("Indexing reanudado.");
+      refreshAll();
+    },
+    onError: (error) => setActionMessage(error instanceof Error ? error.message : "No se pudo reanudar indexing.")
   });
   const retry = useMutation({
     mutationFn: (jobId: string) => ragApi.retryJob(jobId),
@@ -113,6 +138,11 @@ export function AdminDashboard() {
   const postgresErrors = status.data?.postgres?.errors ?? 0;
   const qdrantStatus = String(status.data?.qdrant?.status ?? (status.isLoading ? "loading" : "unknown"));
   const postgresDatabase = String(status.data?.postgres?.database ?? "unknown");
+  const indexingState = (cost.data?.indexing ?? {}) as Record<string, unknown>;
+  const indexingPaused = Boolean(indexingState.paused);
+  const embeddingGenerated = Array.isArray(cost.data?.usageByKind)
+    ? cost.data.usageByKind.find((item) => item && typeof item === "object" && (item as Record<string, unknown>).kind === "embedding")
+    : undefined;
   const failedJobs = errors.data?.jobs ?? [];
   const failedDocuments = errors.data?.documents ?? [];
   const latestScrapingTasks = useMemo(() => {
@@ -136,6 +166,8 @@ export function AdminDashboard() {
     void queryClient.invalidateQueries({ queryKey: ["admin-topics"] });
     void queryClient.invalidateQueries({ queryKey: ["admin-sources"] });
     void queryClient.invalidateQueries({ queryKey: ["admin-source-catalog"] });
+    void queryClient.invalidateQueries({ queryKey: ["admin-cost"] });
+    void queryClient.invalidateQueries({ queryKey: ["admin-indexing-estimate"] });
   }
 
   return (
@@ -218,6 +250,80 @@ export function AdminDashboard() {
             ))}
             {!sources.data?.items?.length ? <p className="text-sm text-muted-foreground">Sin fuentes cargadas.</p> : null}
           </div>
+        </div>
+      </Card>
+
+      <Card className="p-5">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Costos IA</h2>
+            <p className="text-sm text-muted-foreground">Uso, cache y control de indexacion OpenAI sin exponer claves al frontend.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              disabled={pauseIndexing.isPending || indexingPaused}
+              onClick={() => pauseIndexing.mutate()}
+            >
+              <PauseCircle className="h-4 w-4" />
+              Pausar indexing
+            </Button>
+            <Button
+              variant="outline"
+              disabled={resumeIndexing.isPending || !indexingPaused}
+              onClick={() => resumeIndexing.mutate()}
+            >
+              <PlayCircle className="h-4 w-4" />
+              Reanudar
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+          <MetricCard icon={DollarSign} label="Costo hoy" value={`$${Number(cost.data?.estimatedCostToday ?? 0).toFixed(4)}`} />
+          <MetricCard icon={DollarSign} label="Costo mes" value={`$${Number(cost.data?.estimatedCostThisMonth ?? 0).toFixed(4)}`} />
+          <MetricCard icon={Database} label="Tokens hoy" value={formatCount(cost.data?.tokensUsedToday)} />
+          <MetricCard icon={Database} label="Tokens mes" value={formatCount(cost.data?.tokensUsedThisMonth)} />
+          <MetricCard icon={RefreshCw} label="Cache skips" value={formatCount(cost.data?.cacheHits)} />
+          <MetricCard
+            icon={AlertCircle}
+            label="OpenAI errors"
+            value={formatCount(Array.isArray(cost.data?.recentErrors) ? cost.data.recentErrors.length : 0)}
+            tone={Array.isArray(cost.data?.recentErrors) && cost.data.recentErrors.length ? "danger" : "ok"}
+          />
+        </div>
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-3">
+          <HealthPanel
+            title="Modo IA"
+            status={indexingPaused ? "paused" : "active"}
+            rows={[
+              ["Modo", cost.data?.mode],
+              ["Modelo", cost.data?.model],
+              ["Batch", cost.data?.embeddingBatchSize],
+              ["Limite diario", formatCount(cost.data?.dailyTokenLimit)]
+            ]}
+          />
+          <HealthPanel
+            title="Estimacion indexing"
+            status="ready"
+            rows={[
+              ["Documentos", formatCount(estimate.data?.documentsToIndex)],
+              ["Chunks a generar", formatCount(estimate.data?.chunksToEmbed)],
+              ["Chunks en cache", formatCount(estimate.data?.cachedChunks)],
+              ["Costo estimado", `$${Number(estimate.data?.estimatedCostUsd ?? 0).toFixed(4)}`]
+            ]}
+          />
+          <HealthPanel
+            title="Uso registrado"
+            status={String((embeddingGenerated as Record<string, unknown> | undefined)?.kind ?? "sin uso")}
+            rows={[
+              ["Eventos embedding", formatCount((embeddingGenerated as Record<string, unknown> | undefined)?.events)],
+              ["Cache entries", formatCount(cost.data?.cacheEntries)],
+              ["Estado", indexingPaused ? textValue(indexingState.reason, "pausado") : "activo"],
+              ["Restante hoy", formatCount(estimate.data?.remainingDailyTokens)]
+            ]}
+          />
         </div>
       </Card>
 
