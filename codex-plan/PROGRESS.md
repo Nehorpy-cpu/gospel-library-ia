@@ -2,7 +2,7 @@
 
 ## Current phase
 
-21_LEGACY_SOURCE_NORMALIZATION - Done.
+22_ALEMBIC_VERSION_ISOLATION - Done.
 
 ## Phase tracker
 
@@ -29,6 +29,7 @@
 | 19 | AI cost optimization | Completed | 2026-06-08 | 2026-06-08 | Added embedding cache, chunk-hash skip, cost estimate/admin dashboard, daily limits, OpenAI quota pause, low/balanced/quality modes, and docs. Unit tests, web build/typecheck, root Docker build, Docker runtime, RAG migration, and live cost endpoints passed after Docker Desktop became available. |
 | 20 | Beta release | Completed | 2026-06-08 | 2026-06-08 | Prepared private beta 0.1.0-beta with beta landing, onboarding, allowlist, feedback, admin beta metrics, beta limits, privacy/terms pages, docs, changelog, and Docker/runtime smoke tests. |
 | 21 | Legacy source normalization | Completed | 2026-06-08 | 2026-06-08 | Disabled four duplicate or unbounded legacy source catalogs through a reversible audit migration, preserved all documents, retained canonical source context for Church URLs, and validated tests, Prisma, Alembic, data integrity, and Docker readiness. |
+| 22 | Alembic version isolation | Completed | 2026-06-08 | 2026-06-08 | Fixed explicit scraper/RAG version-table ownership, archived the obsolete shared Alembic table reversibly, and verified independent migration revisions, rollback, tests, and Docker health. |
 
 ## Update rules
 
@@ -494,3 +495,22 @@ After each phase:
 - Passed: scraper `/ready` reports PostgreSQL, Redis, and Qdrant as `ok`.
 - Remaining risk: scraper and RAG migrations currently use the same default Alembic version table in the shared database. Isolating their version tables should be handled as a separate phase.
 - Status decision: `DONE`, because legacy catalogs can no longer create duplicate jobs, prior state is recoverable, and existing data remains intact.
+
+### 2026-06-08 - Phase 22 Alembic version isolation
+
+- Implemented: explicit `public.scraper_alembic_version` ownership for scraper migrations.
+- Implemented: explicit `public.rag_alembic_version` ownership for RAG migrations.
+- Implemented: reversible scraper migration `0010` that renames the obsolete shared `public.alembic_version` table to `public.legacy_alembic_version`.
+- Preserved: the historical shared revision value `0002` remains available in the archived table.
+- Documented: independent migration-table ownership in README and `codex-plan/22_ALEMBIC_VERSION_ISOLATION.md`.
+- Passed: `python -m compileall scraper/migrations rag/migrations scraper/tests`
+- Passed: `python -m unittest discover scraper/tests` (`7` tests)
+- Passed: `python -m unittest discover apps/api/tests` (`36` tests)
+- Passed: `python -m unittest discover rag/tests` (`12` tests, `3` skipped because optional local dependencies are unavailable)
+- Passed: `corepack pnpm test`
+- Passed: `docker compose up -d --build scraper-api rag-api`
+- Passed: scraper `alembic upgrade head`, reaching `0010 (head)`.
+- Passed: RAG `alembic upgrade head`, remaining independently at `0003 (head)`.
+- Passed: controlled scraper downgrade to `0009` restored `alembic_version`, and re-upgrade to `0010` archived it again without changing the RAG revision.
+- Passed: PostgreSQL, Redis, Qdrant, MinIO, scraper-api, and rag-api are healthy; scraper and RAG workers remain running.
+- Status decision: `DONE`, because migration ownership is explicit, the obsolete shared state is preserved but inactive, rollback works, and both services migrate independently.

@@ -291,6 +291,14 @@ docker compose exec scraper-api alembic upgrade head
 docker compose exec rag-api alembic upgrade head
 ```
 
+Alembic mantiene cadenas independientes dentro de PostgreSQL:
+
+- scraper: `public.scraper_alembic_version`
+- RAG: `public.rag_alembic_version`
+
+La tabla histórica compartida, si existe, se conserva como
+`public.legacy_alembic_version` y no controla ninguna migración activa.
+
 ## QA final local
 
 Checklist manual y evidencia de la ultima auditoria:

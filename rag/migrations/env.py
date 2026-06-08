@@ -14,13 +14,16 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+VERSION_TABLE = "rag_alembic_version"
+VERSION_TABLE_SCHEMA = "public"
 
 
 def run_migrations_offline() -> None:
     context.configure(
         url=get_settings().database_url,
         target_metadata=target_metadata,
-        version_table="rag_alembic_version",
+        version_table=VERSION_TABLE,
+        version_table_schema=VERSION_TABLE_SCHEMA,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -36,7 +39,8 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
-            version_table="rag_alembic_version",
+            version_table=VERSION_TABLE,
+            version_table_schema=VERSION_TABLE_SCHEMA,
         )
         with context.begin_transaction():
             context.run_migrations()
