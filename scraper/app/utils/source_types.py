@@ -23,6 +23,8 @@ def source_type_for_url(source_key: str | None, url: str | None) -> str:
             return "scriptures"
         if "news" in host or "/news" in path:
             return "church_news"
+        if source_key in {"general_conference", "church_manuals", "scriptures"}:
+            return source_key
         return "churchofjesuschrist"
 
     legacy_map = {

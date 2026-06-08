@@ -285,6 +285,18 @@ model Source {
   @@map("sources")
 }
 
+model SourceLegacyCleanupAudit {
+  sourceId           String   @id @map("source_id") @db.Uuid
+  sourceKey          String   @map("source_key") @db.VarChar(100)
+  previousEnabled    Boolean  @map("previous_enabled")
+  previousSourceType String?  @map("previous_source_type") @db.VarChar(100)
+  previousConfig     Json     @default("{}") @map("previous_config")
+  replacementKey     String?  @map("replacement_key") @db.VarChar(100)
+  migratedAt         DateTime @default(now()) @map("migrated_at") @db.Timestamptz(6)
+
+  @@map("source_legacy_cleanup_audit")
+}
+
 model Author {
   id            String          @id @default(uuid()) @db.Uuid
   slug          String          @unique

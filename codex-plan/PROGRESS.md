@@ -2,7 +2,7 @@
 
 ## Current phase
 
-20_BETA_RELEASE - Done.
+21_LEGACY_SOURCE_NORMALIZATION - Done.
 
 ## Phase tracker
 
@@ -28,6 +28,7 @@
 | 18 | Massive source ingestion | Completed | 2026-06-05 | 2026-06-05 | Added controlled source catalog, seeds, incremental scraping limits, parser metadata improvements, admin source controls, ingestion metrics, source docs, and validated Docker/runtime with real documents and textual fallback. |
 | 19 | AI cost optimization | Completed | 2026-06-08 | 2026-06-08 | Added embedding cache, chunk-hash skip, cost estimate/admin dashboard, daily limits, OpenAI quota pause, low/balanced/quality modes, and docs. Unit tests, web build/typecheck, root Docker build, Docker runtime, RAG migration, and live cost endpoints passed after Docker Desktop became available. |
 | 20 | Beta release | Completed | 2026-06-08 | 2026-06-08 | Prepared private beta 0.1.0-beta with beta landing, onboarding, allowlist, feedback, admin beta metrics, beta limits, privacy/terms pages, docs, changelog, and Docker/runtime smoke tests. |
+| 21 | Legacy source normalization | Completed | 2026-06-08 | 2026-06-08 | Disabled four duplicate or unbounded legacy source catalogs through a reversible audit migration, preserved all documents, retained canonical source context for Church URLs, and validated tests, Prisma, Alembic, data integrity, and Docker readiness. |
 
 ## Update rules
 
@@ -473,3 +474,23 @@ After each phase:
 - Passed: beta request-access, onboarding, feedback, admin approval, beta status, and admin beta metrics smoke tests against the live Docker stack.
 - Remaining production tasks: configure real beta allowlist emails, Sentry DSN, backup monitoring, cloud secrets, and first-user invite process before inviting external users.
 - Status decision: `DONE`, because private beta controls, docs, migrations, builds, tests, and Docker runtime smoke checks passed.
+
+### 2026-06-08 - Phase 21 Legacy source normalization
+
+- Implemented: reversible Alembic and Prisma migrations that disable `byu_speeches_en`, `discursosud`, `josephsmithpapers`, and `churchofjesuschrist` legacy source catalogs.
+- Implemented: `source_legacy_cleanup_audit` records each source's prior enabled state, source type, and configuration for downgrade safety.
+- Implemented: safe source-type normalization and canonical replacement annotations without deleting, moving, or reclassifying existing documents.
+- Implemented: canonical Church crawl context is retained for child URLs that do not match a more specific path.
+- Passed: `python -m compileall scraper/app scraper/migrations/versions`
+- Passed: `python -m unittest discover scraper/tests` (`6` tests)
+- Passed: `python -m unittest discover apps/api/tests` (`36` tests)
+- Passed: `python -m unittest discover rag/tests` (`12` tests, `3` skipped because optional local dependencies are unavailable)
+- Passed: `corepack pnpm test`
+- Passed: Prisma schema validation with the local PostgreSQL connection.
+- Passed: `docker compose exec -T scraper-api alembic upgrade head`
+- Passed: scraper Alembic revision is `0009 (head)`.
+- Passed: all four legacy sources are disabled, all four audit rows exist, canonical replacements remain enabled, and orphaned document source references are `0`.
+- Runtime evidence: document count rose from `27,459` to `27,759` while background ingestion was active; the migration contains no document mutations and the count did not decrease.
+- Passed: scraper `/ready` reports PostgreSQL, Redis, and Qdrant as `ok`.
+- Remaining risk: scraper and RAG migrations currently use the same default Alembic version table in the shared database. Isolating their version tables should be handled as a separate phase.
+- Status decision: `DONE`, because legacy catalogs can no longer create duplicate jobs, prior state is recoverable, and existing data remains intact.
