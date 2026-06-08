@@ -26,7 +26,7 @@
 | 16 | Deploy local to cloud | Completed | 2026-06-05 | 2026-06-05 | Added production env examples, deploy provider guides, production checklist, safe production scripts, README production deploy section, and verified build/test/compose plus secret scans. |
 | 17 | Auth privacy production | Completed | 2026-06-05 | 2026-06-05 | Added Clerk-ready JWT validation, local auth fallback, frontend protected routes, backend role dependencies, user-scoped favorites/history, auth docs/env examples, and auth/privacy tests. Build, tests, Docker health, and protected route smoke checks passed. |
 | 18 | Massive source ingestion | Completed | 2026-06-05 | 2026-06-05 | Added controlled source catalog, seeds, incremental scraping limits, parser metadata improvements, admin source controls, ingestion metrics, source docs, and validated Docker/runtime with real documents and textual fallback. |
-| 19 | AI cost optimization | Needs follow-up | 2026-06-08 | 2026-06-08 | Added embedding cache, chunk-hash skip, cost estimate/admin dashboard, daily limits, OpenAI quota pause, low/balanced/quality modes, and docs. Unit tests, web build/typecheck, install, and compose config passed. Root Docker build is blocked because Docker Desktop daemon is unavailable in this session. |
+| 19 | AI cost optimization | Completed | 2026-06-08 | 2026-06-08 | Added embedding cache, chunk-hash skip, cost estimate/admin dashboard, daily limits, OpenAI quota pause, low/balanced/quality modes, and docs. Unit tests, web build/typecheck, root Docker build, Docker runtime, RAG migration, and live cost endpoints passed after Docker Desktop became available. |
 
 ## Update rules
 
@@ -431,3 +431,16 @@ After each phase:
 - Cause: Docker Desktop daemon is unavailable: `failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine`.
 - Remaining risk: Docker image build and live estimate endpoint smoke test need to be rerun after Docker Desktop starts.
 - Status decision: `DONE` for phase sequencing because implementation and non-Docker validation passed; marked `Needs follow-up` in the tracker for Docker runtime verification.
+
+### 2026-06-08 - Phase 19 Docker follow-up
+
+- Passed: `docker version` after Docker Desktop became available.
+- Passed: `corepack pnpm build`
+- Passed: `docker compose up -d --build`
+- Passed: `docker compose ps` shows web, api, rag-api, scraper-api, postgres, redis, qdrant, and minio healthy; workers running.
+- Passed: `docker compose exec -T rag-api alembic upgrade head`, applying `0003_ai_cost_optimization`.
+- Passed: `GET /api/admin/indexing/estimate?limit=5&force=false` with admin headers.
+- Evidence: estimate returned `documentsToIndex=5`, `estimatedChunks=6`, `chunksToEmbed=6`, `estimatedTokens=1706`, `estimatedCostUsd=0.000222`, `mode=balanced`.
+- Passed: `GET /api/admin/cost` with admin headers.
+- Evidence: cost endpoint returned `tokensUsedToday=0`, `cacheEntries=0`, `indexing.paused=false`.
+- Status decision: `Completed`, because the Docker/runtime checks previously blocked by inactive Docker Desktop now pass.
