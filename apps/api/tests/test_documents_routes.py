@@ -135,6 +135,16 @@ class DocumentRoutesTest(unittest.TestCase):
         self.assertEqual(by_key["byu_speeches_en"]["documentCount"], 3)
         self.assertTrue(by_key["byu_speeches_en"]["canonical"])
 
+    def test_default_document_filter_only_hides_confirmed_duplicates(self):
+        sql = public.confirmed_duplicate_filter("d")
+
+        self.assertIn("duplicate_document_id = d.id", sql)
+        self.assertIn("review_status = 'confirmed'", sql)
+        self.assertIn("'exact_duplicate'", sql)
+        self.assertIn("'probable_duplicate'", sql)
+        self.assertNotIn("translation", sql)
+        self.assertNotIn("related_media", sql)
+
 
 if __name__ == "__main__":
     unittest.main()

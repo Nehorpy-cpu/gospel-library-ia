@@ -2,7 +2,7 @@
 
 ## Current phase
 
-23_HISTORICAL_METADATA_QUALITY - Done.
+24_DUPLICATE_DETECTION_RESOLUTION - Done.
 
 ## Phase tracker
 
@@ -31,6 +31,7 @@
 | 21 | Legacy source normalization | Completed | 2026-06-08 | 2026-06-08 | Disabled four duplicate or unbounded legacy source catalogs through a reversible audit migration, preserved all documents, retained canonical source context for Church URLs, and validated tests, Prisma, Alembic, data integrity, and Docker readiness. |
 | 22 | Alembic version isolation | Completed | 2026-06-08 | 2026-06-08 | Fixed explicit scraper/RAG version-table ownership, archived the obsolete shared Alembic table reversibly, and verified independent migration revisions, rollback, tests, and Docker health. |
 | 23 | Historical metadata quality | Completed | 2026-06-08 | 2026-06-08 | Extracted metadata before Readability cleanup, repaired 3,706 deterministic fields with reversible audit, rebuilt scraper services, and validated real API data, tests, Alembic, Prisma, and Docker. |
+| 24 | Duplicate detection resolution | Completed | 2026-06-12 | 2026-06-12 | Classified 15,618 historical relationships without deleting documents, preserved translations and related media, excluded only confirmed duplicates from discovery, and verified rollback, idempotence, integrity, tests, and Docker runtime. |
 
 ## Update rules
 
@@ -538,3 +539,29 @@ After each phase:
 - Remaining risk: some non-talk/API/index pages retain imperfect metadata and some historical Portuguese text contains mojibake. They were not changed because this phase found no deterministic, reversible rule safe enough for those rows.
 - Remaining risk: duplicate detection and resolution were explicitly deferred to Phase 24.
 - Status decision: `DONE`, because historical metadata repairs are conservative, audited, reversible, idempotent, and validated against the live Docker stack without invoking OpenAI.
+
+### 2026-06-12 - Phase 24 Duplicate detection resolution
+
+- Implemented: reversible `document_duplicate_relations` persistence in SQLAlchemy, Alembic, and Prisma.
+- Implemented: dry-run-by-default and idempotent `resolve_duplicates.py --apply` command.
+- Implemented: URL, meaningful content hash, real media checksum, metadata, and local text-similarity detection without OpenAI.
+- Implemented: `exact_duplicate`, `probable_duplicate`, `translation`, `revised_edition`, `related_media`, and `not_duplicate` classifications.
+- Implemented: canonical selection by official source, metadata quality, valid content length, media, relationship count, and age.
+- Implemented: canonical-chain flattening so no selected canonical document is hidden by another confirmed relation.
+- Implemented: default duplicate exclusion in document listings, summaries, source/author/topic aggregation, PostgreSQL fallback search, BM25, semantic retrieval, and incremental indexing.
+- Preserved: translations, revised editions, related media, pending probable matches, direct document access, and every physical document.
+- Applied: `7,994` confirmed exact duplicates, `773` probable duplicates pending review, `5,028` translations, `1,305` related-media relationships, `517` not-duplicate decisions, and `1` revised edition.
+- Evidence: `15,618` decisions persisted; physical document count remained `32,140`; hidden canonical count is `0`.
+- Passed: repeated dry-run after apply returned zero pending decisions.
+- Passed: controlled downgrade to `0011` removed only duplicate decisions; re-upgrade to `0012` and reapply restored the same deterministic result without reducing document count.
+- Passed: orphan checks for assets, chunks, notes, highlights, saved citations, post-its, and both duplicate foreign keys returned `0`.
+- Passed: `python -m unittest discover scraper/tests` (`26` tests).
+- Passed: `python -m unittest discover apps/api/tests` (`37` tests).
+- Passed: `python -m unittest discover rag/tests` (`13` tests, `3` skipped because optional local dependencies are unavailable).
+- Passed: Python compile validation, Prisma validation, `corepack pnpm test`, and web typecheck.
+- Passed: `docker compose config --quiet`, full Docker build, principal service health checks, and worker startup.
+- Passed: real `/api/documents`, `/api/search`, and `/api/chat` smoke tests; textual fallback and grounded citations excluded confirmed duplicates.
+- Preserved: Qdrant collection `doctrinal_chunks_v1`; no OpenAI call or embedding generation was performed.
+- Remaining risk: the `773` probable matches remain visible and require explicit review before confirmation.
+- Operational note: run the resolver periodically after large ingestion batches; new documents are not silently hidden until a decision is persisted.
+- Status decision: `DONE`, because all required safeguards and validations passed without deleting data or breaking existing endpoint contracts.

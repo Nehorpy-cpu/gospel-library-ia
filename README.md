@@ -313,6 +313,28 @@ Las reparaciones quedan registradas en `document_metadata_repair_audit`.
 No se invoca OpenAI y los documentos afectados quedan pendientes de
 reindexación incremental.
 
+### Resolucion de duplicados historicos
+
+La auditoria de duplicados es conservadora y no elimina documentos ni mueve
+relaciones:
+
+```bash
+# Simulacion sin escritura
+docker compose exec scraper-api python scripts/resolve_duplicates.py
+
+# Persistencia auditada e idempotente
+docker compose exec scraper-api python scripts/resolve_duplicates.py --apply
+```
+
+El detector combina URL normalizada, hash de contenido valido, metadata,
+checksums reales de media y similitud textual local. Las decisiones se guardan
+en `document_duplicate_relations`. La biblioteca, la busqueda textual y RAG
+excluyen por defecto solo duplicados `exact_duplicate` o
+`probable_duplicate` confirmados. Traducciones, ediciones revisadas, media
+relacionada y casos pendientes siguen visibles. El downgrade a `0011` elimina
+solo las decisiones de duplicidad y restaura el comportamiento anterior sin
+modificar documentos.
+
 ## QA final local
 
 Checklist manual y evidencia de la ultima auditoria:

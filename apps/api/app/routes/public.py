@@ -40,6 +40,18 @@ router = APIRouter(prefix="/api")
 limiter = RateLimiter()
 
 
+def confirmed_duplicate_filter(alias: str = "d") -> str:
+    return f"""
+    NOT EXISTS (
+      SELECT 1
+      FROM document_duplicate_relations duplicate_relation
+      WHERE duplicate_relation.duplicate_document_id = {alias}.id
+        AND duplicate_relation.review_status = 'confirmed'
+        AND duplicate_relation.classification IN ('exact_duplicate', 'probable_duplicate')
+    )
+    """.strip()
+
+
 def _is_missing_openai_response(response: httpx.Response) -> bool:
     if response.status_code != 503:
         return False
@@ -109,11 +121,12 @@ DOCUMENT_STATUSES = ("READY", "PENDING", "FAILED", "INDEXED")
 def documents_summary():
     with get_conn() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT
-              CASE WHEN is_indexed THEN 'INDEXED' ELSE upper(coalesce(status, 'PENDING')) END AS status,
+              CASE WHEN d.is_indexed THEN 'INDEXED' ELSE upper(coalesce(d.status, 'PENDING')) END AS status,
               count(*)::int
-            FROM documents
+            FROM documents d
+            WHERE {confirmed_duplicate_filter("d")}
             GROUP BY 1
             """
         ).fetchall()
@@ -146,6 +159,7 @@ def documents(
         status_expr = "d.status" if "status" in columns else "'READY'"
         text_column = "text" if "text" in columns else "content_text"
         where = [f"d.{deleted_filter}" if deleted_filter != "1=1" else deleted_filter]
+        where.append(confirmed_duplicate_filter("d"))
         params: dict = {"limit": limit, "offset": offset}
         if search_term:
             where.append(
@@ -244,6 +258,7 @@ def sources_summary():
             FROM documents d
             JOIN sources s ON s.id = d.source_id
             WHERE {deleted_filter}
+              AND {confirmed_duplicate_filter("d")}
             GROUP BY 1, 2, 3
             ORDER BY document_count DESC, source_type
             """
@@ -335,7 +350,7 @@ def authors(q: str | None = None, limit: int = 30):
             ).fetchall()
             if rows:
                 return {"items": [{"id": r[0], "name": r[1], "slug": r[2]} for r in rows]}
-        fallback_where = "author IS NOT NULL AND author <> ''"
+        fallback_where = f"author IS NOT NULL AND author <> '' AND {confirmed_duplicate_filter('documents')}"
         fallback_params: dict = {"limit": limit}
         if q:
             fallback_where += " AND author ILIKE %(q_like)s"
@@ -367,7 +382,7 @@ def topics(limit: int = 50):
             if rows:
                 return {"items": [{"id": r[0], "name": r[1], "slug": r[2]} for r in rows]}
         rows = conn.execute(
-            """
+            f"""
             SELECT name, sum(count)::int AS count
             FROM (
               SELECT value AS name, count(*)::int AS count
@@ -375,11 +390,13 @@ def topics(limit: int = 50):
               CROSS JOIN LATERAL jsonb_array_elements_text(
                 CASE WHEN jsonb_typeof(d.tags) = 'array' THEN d.tags ELSE '[]'::jsonb END
               ) AS tag(value)
+              WHERE {confirmed_duplicate_filter("d")}
               GROUP BY value
               UNION ALL
               SELECT category AS name, count(*)::int AS count
-              FROM documents
+              FROM documents d
               WHERE category IS NOT NULL AND category <> ''
+                AND {confirmed_duplicate_filter("d")}
               GROUP BY category
             ) topics
             GROUP BY name
@@ -390,9 +407,10 @@ def topics(limit: int = 50):
         ).fetchall()
         if not rows:
             rows = conn.execute(
-                """
+                f"""
                 SELECT title AS name, 1::int AS count
-                FROM documents
+                FROM documents d
+                WHERE {confirmed_duplicate_filter("d")}
                 ORDER BY updated_at DESC, title
                 LIMIT %(limit)s
                 """,
@@ -420,6 +438,7 @@ def _document_search(query: str, limit: int, filters=None, language: str | None 
         scripture_refs_expr = "d.scripture_refs" if "scripture_refs" in columns else "'[]'::jsonb"
         source_type_expr = f"COALESCE(d.{metadata_column}->>'source_type', s.key)"
         filter_where, filter_params = _metadata_filter_sql(filters, language, source_type_expr, columns)
+        filter_where.append(confirmed_duplicate_filter("d"))
         rows = conn.execute(
             f"""
             SELECT

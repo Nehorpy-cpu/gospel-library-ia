@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from qdrant_client.models import PointStruct
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,19 @@ from app.services.qdrant_service import QdrantService, point_id_for_chunk
 from app.utils.tokens import count_tokens
 
 
+NOT_CONFIRMED_DUPLICATE = text(
+    """
+    NOT EXISTS (
+      SELECT 1
+      FROM document_duplicate_relations duplicate_relation
+      WHERE duplicate_relation.duplicate_document_id = documents.id
+        AND duplicate_relation.review_status = 'confirmed'
+        AND duplicate_relation.classification IN ('exact_duplicate', 'probable_duplicate')
+    )
+    """
+)
+
+
 class IndexingService:
     def __init__(self) -> None:
         self.settings = get_settings()
@@ -29,7 +42,7 @@ class IndexingService:
     async def index_pending(self, db: Session, limit: int, force: bool = False) -> int:
         if self.costs.is_indexing_paused(db):
             return 0
-        stmt = select(Document).where(Document.text.is_not(None)).limit(limit)
+        stmt = select(Document).where(Document.text.is_not(None)).where(NOT_CONFIRMED_DUPLICATE).limit(limit)
         if not force:
             stmt = stmt.where(Document.is_indexed.is_(False))
         documents = db.scalars(stmt).all()
@@ -41,7 +54,9 @@ class IndexingService:
         return total
 
     async def index_document_ids(self, db: Session, document_ids: list[UUID], force: bool = False) -> int:
-        documents = db.scalars(select(Document).where(Document.id.in_(document_ids))).all()
+        documents = db.scalars(
+            select(Document).where(Document.id.in_(document_ids)).where(NOT_CONFIRMED_DUPLICATE)
+        ).all()
         total = 0
         for document in documents:
             total += await self.index_document(db, document, force=force)

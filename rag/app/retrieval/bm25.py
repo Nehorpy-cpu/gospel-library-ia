@@ -7,9 +7,23 @@ from app.retrieval.types import RetrievedChunk
 from app.schemas.search import MetadataFilter
 
 
+CONFIRMED_DUPLICATE_FILTER = """
+NOT EXISTS (
+  SELECT 1
+  FROM document_duplicate_relations duplicate_relation
+  WHERE duplicate_relation.duplicate_document_id = d.id
+    AND duplicate_relation.review_status = 'confirmed'
+    AND duplicate_relation.classification IN ('exact_duplicate', 'probable_duplicate')
+)
+""".strip()
+
+
 class BM25Retriever:
     def search(self, db: Session, query: str, filters: MetadataFilter, limit: int) -> list[RetrievedChunk]:
-        where = ["dc.search_vector @@ plainto_tsquery('simple', :query)"]
+        where = [
+            "dc.search_vector @@ plainto_tsquery('simple', :query)",
+            CONFIRMED_DUPLICATE_FILTER,
+        ]
         params: dict = {"query": query, "limit": limit}
 
         if filters.languages:
@@ -93,7 +107,8 @@ class BM25Retriever:
         limit: int,
     ) -> list[RetrievedChunk]:
         where = [
-            "(d.title ILIKE :q_like OR coalesce(d.text, '') ILIKE :q_like OR coalesce(d.author, '') ILIKE :q_like)"
+            "(d.title ILIKE :q_like OR coalesce(d.text, '') ILIKE :q_like OR coalesce(d.author, '') ILIKE :q_like)",
+            CONFIRMED_DUPLICATE_FILTER,
         ]
         params: dict = {"query": query, "q_like": f"%{query}%", "limit": limit}
 

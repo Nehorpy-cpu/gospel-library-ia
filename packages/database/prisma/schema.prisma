@@ -437,6 +437,8 @@ model Document {
   studyHighlights  StudyHighlight[]
   savedCitations   SavedCitation[]
   postIts          PostIt[]
+  canonicalDuplicates DocumentDuplicateRelation[] @relation("CanonicalDocumentDuplicates")
+  duplicateRelation   DocumentDuplicateRelation?  @relation("DuplicateDocumentRelation")
 
   @@unique([sourceId, canonicalUrl])
   @@unique([sourceId, canonicalId])
@@ -447,6 +449,27 @@ model Document {
   @@index([contentHash])
   @@index([visibility, status])
   @@map("documents")
+}
+
+model DocumentDuplicateRelation {
+  id                    String   @id @default(uuid()) @db.Uuid
+  canonicalDocumentId   String   @map("canonical_document_id") @db.Uuid
+  duplicateDocumentId   String   @unique @map("duplicate_document_id") @db.Uuid
+  classification        String   @db.VarChar(40)
+  detectionRule         String   @map("detection_rule") @db.VarChar(80)
+  confidence            Float
+  reviewStatus          String   @default("pending") @map("review_status") @db.VarChar(24)
+  evidence              Json     @default("{}")
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  reviewedAt            DateTime? @map("reviewed_at") @db.Timestamptz(6)
+
+  canonicalDocument     Document @relation("CanonicalDocumentDuplicates", fields: [canonicalDocumentId], references: [id], onDelete: Cascade)
+  duplicateDocument     Document @relation("DuplicateDocumentRelation", fields: [duplicateDocumentId], references: [id], onDelete: Cascade)
+
+  @@index([canonicalDocumentId])
+  @@index([classification, reviewStatus])
+  @@map("document_duplicate_relations")
 }
 
 model DocumentVersion {

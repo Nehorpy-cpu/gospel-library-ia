@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.models.document import DocumentChunk
@@ -23,7 +23,25 @@ class SemanticRetriever:
         limit: int,
     ) -> list[RetrievedChunk]:
         vector = (await self.openai.embed_texts([query]))[0]
-        points = self.qdrant.search(vector, limit=limit, filters=filters.model_dump())
+        points = self.qdrant.search(vector, limit=max(limit * 3, limit), filters=filters.model_dump())
+        duplicate_ids = {
+            str(value)
+            for value in db.scalars(
+                text(
+                    """
+                    SELECT duplicate_document_id
+                    FROM document_duplicate_relations
+                    WHERE review_status = 'confirmed'
+                      AND classification IN ('exact_duplicate', 'probable_duplicate')
+                    """
+                )
+            ).all()
+        }
+        points = [
+            point
+            for point in points
+            if point.payload and str(point.payload.get("document_id")) not in duplicate_ids
+        ][:limit]
         chunk_ids = [UUID(str(point.payload["chunk_id"])) for point in points if point.payload]
         chunks_by_id = {
             chunk.id: chunk for chunk in db.scalars(select(DocumentChunk).where(DocumentChunk.id.in_(chunk_ids))).all()
