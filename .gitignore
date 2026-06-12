@@ -1,8 +1,18 @@
 .env
+.env.local
+*.env.local
 .env.*
 !.env.example
 !**/.env.example
 !**/.env.production.example
+
+serviceAccount.json
+**/serviceAccount.json
+*.json.key
+*.pem
+*.p12
+secrets/
+.secrets/
 
 node_modules/
 .next/
