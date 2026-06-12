@@ -1,6 +1,6 @@
 # QA Final Checklist
 
-Fecha de ejecucion: 2026-06-05
+Fecha de ejecucion: 2026-06-12
 
 ## Automatic checks
 
@@ -94,25 +94,24 @@ Fecha de ejecucion: 2026-06-05
 - [x] StudyWorkspace usa `X-User-Id` y filtra por propietario.
 - [x] Admin queda preparado para proteccion por middleware/rate limit.
 
-## Manual browser pass
+## Browser pass
 
-Playwright/browser automation no estuvo disponible localmente en esta sesion.
-La verificacion visual queda como checklist manual antes del despliegue:
-
-- [ ] Revisar navegacion movil en `/`, `/library`, `/study`, `/study/new`,
-  `/admin`, `/search` y `/authors`.
-- [ ] Confirmar que formularios muestran errores amigables al dejar campos
-  requeridos vacios.
-- [ ] Confirmar que search/chat muestran el aviso de fallback cuando Qdrant
-  tiene cero vectores o OpenAI no tiene cuota.
-- [ ] Confirmar que botones de admin muestran estado de accion al ejecutar
-  scraping/reindex.
-- [ ] Confirmar contraste y scroll en desktop y mobile.
+- [x] Browser automation opened `/`, `/library`, `/collections`, `/authors`,
+  and `/search` with real content.
+- [x] Anonymous `/admin`, `/study`, `/study/new`, `/favorites`, and `/history`
+  redirect to `/sign-in`.
+- [x] Mobile checks at 390x844 found no horizontal overflow on `/`,
+  `/library`, `/search`, and `/collections`.
+- [x] No browser console errors or warnings were observed.
+- [x] Search/chat display textual fallback behavior with zero vectors.
+- [ ] Repeat the visual pass against the production preview after cloud
+  credentials, Clerk, and edge policies are configured.
 
 ## Remaining risks
 
 - Qdrant no tiene vectores porque embeddings/OpenAI siguen pendientes.
-- Muchos documentos no tienen autor confiable; los autores/temas son reales,
-  pero la calidad de metadata debe limpiarse en una fase posterior.
+- Algunos autores/temas historicos siguen malformados o con mojibake.
+- El fallback textual es estable, pero lento bajo concurrencia local porque el
+  esquema runtime no tiene indice full-text.
 - Celery emite advertencias por correr como root en contenedores locales; no
   bloquea QA local, pero debe endurecerse antes de produccion estricta.

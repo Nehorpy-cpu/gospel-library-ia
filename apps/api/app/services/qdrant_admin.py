@@ -8,7 +8,7 @@ class QdrantAdmin:
     def __init__(self) -> None:
         settings = get_settings()
         self.settings = settings
-        self.client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
+        self.client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key or None)
 
     def ensure_collection(self) -> dict:
         existing = [c.name for c in self.client.get_collections().collections]

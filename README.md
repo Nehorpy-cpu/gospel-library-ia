@@ -105,9 +105,10 @@ pnpm embed
 pnpm seed
 pnpm test
 pnpm prisma:generate
-pnpm prisma:migrate
-pnpm prisma:seed
 ```
+
+`pnpm prisma:migrate` y `pnpm prisma:seed` quedan reservados para un entorno
+donde Prisma haya sido elegido explicitamente como propietario de migraciones.
 
 ## Endpoints finales
 
@@ -381,15 +382,22 @@ Metadata: autores/temas derivados de documentos reales, calidad pendiente de lim
 ## Prisma
 
 ```bash
-cd packages/database
-npm install
-npm run generate
-npm run migrate:deploy
-npm run migrate:post
-npm run seed:sql
+corepack pnpm install --frozen-lockfile
+corepack pnpm --dir packages/database exec prisma generate
+corepack pnpm --dir packages/database exec prisma validate
 ```
 
-El SQL post-migrate agrega FTS, GIN, trigram, JSONB indexes y plantillas de particionado.
+El runtime actual usa Alembic como propietario de migraciones:
+
+```bash
+docker compose exec scraper-api alembic upgrade head
+docker compose exec rag-api alembic upgrade head
+```
+
+Prisma se valida y genera como contrato de esquema/cliente. No ejecutar
+`prisma migrate deploy`, `migrate:post` o `seed:sql` sobre produccion hasta
+reparar su historial inicial y elegir Prisma explicitamente como unico
+propietario de migraciones.
 
 ## Qdrant
 
@@ -527,6 +535,14 @@ docs/deploy/cloudflare-r2.md
 docs/deploy/supabase-postgres.md
 docs/deploy/upstash-redis.md
 docs/deploy/production-checklist.md
+```
+
+Runbooks y evidencia de release:
+
+```txt
+docs/BACKUP_RESTORE_RUNBOOK.md
+docs/ROLLBACK_RUNBOOK.md
+docs/FINAL_RELEASE_REPORT.md
 ```
 
 Scripts seguros de preparacion/verificacion:

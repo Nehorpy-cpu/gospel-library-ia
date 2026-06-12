@@ -2,7 +2,7 @@
 
 ## Current phase
 
-24_DUPLICATE_DETECTION_RESOLUTION - Done.
+25_FINAL_PRODUCTION_READINESS - Done.
 
 ## Phase tracker
 
@@ -32,6 +32,7 @@
 | 22 | Alembic version isolation | Completed | 2026-06-08 | 2026-06-08 | Fixed explicit scraper/RAG version-table ownership, archived the obsolete shared Alembic table reversibly, and verified independent migration revisions, rollback, tests, and Docker health. |
 | 23 | Historical metadata quality | Completed | 2026-06-08 | 2026-06-08 | Extracted metadata before Readability cleanup, repaired 3,706 deterministic fields with reversible audit, rebuilt scraper services, and validated real API data, tests, Alembic, Prisma, and Docker. |
 | 24 | Duplicate detection resolution | Completed | 2026-06-12 | 2026-06-12 | Classified 15,618 historical relationships without deleting documents, preserved translations and related media, excluded only confirmed duplicates from discovery, and verified rollback, idempotence, integrity, tests, and Docker runtime. |
+| 25 | Final production readiness | Completed | 2026-06-12 | 2026-06-12 | Passed frozen install, builds, tests, empty/existing migrations, isolated PostgreSQL/Qdrant restore drills, MinIO verification, browser/API/RAG/security/load smoke tests, and full Docker health. Added runbooks and corrected StudyWorkspace creation, dependency startup ordering, and invalid asset retries. |
 
 ## Update rules
 
@@ -565,3 +566,55 @@ After each phase:
 - Remaining risk: the `773` probable matches remain visible and require explicit review before confirmation.
 - Operational note: run the resolver periodically after large ingestion batches; new documents are not silently hidden until a decision is persisted.
 - Status decision: `DONE`, because all required safeguards and validations passed without deleting data or breaking existing endpoint contracts.
+
+### 2026-06-12 - Phase 25 Final production readiness
+
+- Passed: `corepack pnpm install --frozen-lockfile`; lockfile remained unchanged.
+- Passed: `corepack pnpm build`, `corepack pnpm test`, web build, and web
+  typecheck.
+- Passed: API tests (`38`), scraper tests (`29`), local RAG tests (`13`, with
+  `3` optional-dependency skips), and containerized RAG tests (`13`, no skips).
+- Passed: Python compile validation for API, RAG, and scraper applications.
+- Passed: Prisma generate and validate; runtime migration ownership is
+  explicitly documented as scraper/RAG Alembic.
+- Passed: empty database migration to scraper `0012` and RAG `0003`.
+- Passed: existing database upgrade to the same heads without reducing the
+  document count.
+- Passed: PostgreSQL custom dump and isolated restore with exact critical-table
+  count matches.
+- Passed: Qdrant snapshot download and isolated collection restore; primary
+  collection remained `doctrinal_chunks_v1`.
+- Passed: MinIO bucket/object listing plus sampled object reads.
+- Passed: all `22` runtime foreign keys validated and all checked orphan counts
+  returned `0`.
+- Passed: full `docker compose down` and `docker compose up -d --build`; web,
+  API, scraper API, RAG API, PostgreSQL, Redis, Qdrant, and MinIO are healthy,
+  with all workers running.
+- Passed: real frontend/API smoke tests, textual fallback search, grounded chat
+  with real citations, StudyWorkspace CRUD/isolation, admin RBAC, CORS,
+  security headers, secret scan, and browser mobile checks.
+- Passed: browser routes rendered without console errors; protected routes
+  redirected anonymous users to sign-in.
+- Passed: basic load test with zero request errors. Local p95 was `457 ms` for
+  health, `597 ms` for documents, `14,320 ms` for textual search, and `8,333
+  ms` for fallback chat.
+- Fixed: StudyWorkspace creation failed with psycopg `dict_row` because a
+  count row was read positionally.
+- Fixed: empty Qdrant API keys are no longer sent over local HTTP.
+- Fixed: workers wait for healthy dependencies instead of logging Redis
+  restoration connection errors at startup.
+- Fixed: empty/login HTML and invalid PDF asset responses are rejected once
+  instead of being parsed and retried repeatedly.
+- Added: backup/restore runbook, rollback runbook, final release report, and
+  Phase 25 plan.
+- Remaining risk: Qdrant has `0` vectors, so live semantic search requires
+  OpenAI quota and indexing before it can be production-verified.
+- Remaining risk: PostgreSQL textual fallback needs a runtime full-text index
+  before meaningful concurrent production traffic.
+- Remaining risk: some historical author/topic metadata remains malformed or
+  mojibake.
+- Remaining manual gates: cloud credentials/resources, managed PITR, R2
+  versioning, Clerk, Sentry, WAF, DNS/SSL, and production restore/load drills.
+- Status decision: `DONE`, because every mandatory local validation passed and
+  the remaining items require external credentials, cloud provisioning, or a
+  separately authorized performance/data-quality phase.

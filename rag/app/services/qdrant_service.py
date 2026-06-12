@@ -9,7 +9,10 @@ from app.core.config import get_settings
 class QdrantService:
     def __init__(self) -> None:
         self.settings = get_settings()
-        self.client = QdrantClient(url=self.settings.qdrant_url, api_key=self.settings.qdrant_api_key)
+        self.client = QdrantClient(
+            url=self.settings.qdrant_url,
+            api_key=self.settings.qdrant_api_key or None,
+        )
 
     def ensure_collection(self) -> None:
         existing = [collection.name for collection in self.client.get_collections().collections]

@@ -95,9 +95,9 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       minio:
-        condition: service_started
+        condition: service_healthy
     command: uvicorn app.api:app --host 0.0.0.0 --port 8080
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/ready', timeout=3)\""]
@@ -113,9 +113,12 @@ services:
       - path: .env
         required: false
     depends_on:
-      - redis
-      - postgres
-      - minio
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     command: celery -A app.workers.celery_app worker -Q scraping --loglevel=info --concurrency=4
     restart: unless-stopped
 
@@ -127,9 +130,12 @@ services:
       - path: .env
         required: false
     depends_on:
-      - redis
-      - postgres
-      - minio
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     command: celery -A app.workers.celery_app worker -Q assets --loglevel=info --concurrency=4
     restart: unless-stopped
 
@@ -141,9 +147,12 @@ services:
       - path: .env
         required: false
     depends_on:
-      - redis
-      - postgres
-      - minio
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     command: celery -A app.workers.celery_app worker -Q ocr --loglevel=info --concurrency=2
     restart: unless-stopped
 
@@ -165,8 +174,10 @@ services:
       MAX_DAILY_EMBEDDING_TOKENS: ${MAX_DAILY_EMBEDDING_TOKENS:-100000}
       MAX_USER_CHAT_MESSAGES_PER_DAY: ${MAX_USER_CHAT_MESSAGES_PER_DAY:-50}
     depends_on:
-      - redis
-      - postgres
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     command: celery -A app.workers.celery_app worker -Q indexing --loglevel=info --concurrency=2
     restart: unless-stopped
 
@@ -193,9 +204,9 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       qdrant:
-        condition: service_started
+        condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8090
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8090/ready', timeout=3)\""]
@@ -221,9 +232,12 @@ services:
       MAX_DAILY_EMBEDDING_TOKENS: ${MAX_DAILY_EMBEDDING_TOKENS:-100000}
       MAX_USER_CHAT_MESSAGES_PER_DAY: ${MAX_USER_CHAT_MESSAGES_PER_DAY:-50}
     depends_on:
-      - redis
-      - postgres
-      - qdrant
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
     command: celery -A app.workers.celery_app worker -Q rag-indexing --loglevel=info --concurrency=2
     restart: unless-stopped
 
@@ -235,8 +249,10 @@ services:
       - path: .env
         required: false
     depends_on:
-      - redis
-      - postgres
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     command: celery -A app.workers.celery_app beat --loglevel=info
     restart: unless-stopped
 
@@ -356,9 +372,9 @@ services:
       POSTGRES_USER: gospel
       POSTGRES_PASSWORD: gospel
       SCHEDULE: "@daily"
-      BACKUP_KEEP_DAYS: 7
-      BACKUP_KEEP_WEEKS: 4
-      BACKUP_KEEP_MONTHS: 6
+      BACKUP_KEEP_DAYS: ${POSTGRES_BACKUP_KEEP_DAYS:-7}
+      BACKUP_KEEP_WEEKS: ${POSTGRES_BACKUP_KEEP_WEEKS:-4}
+      BACKUP_KEEP_MONTHS: ${POSTGRES_BACKUP_KEEP_MONTHS:-6}
     volumes:
       - postgres_backups:/backups
     depends_on:

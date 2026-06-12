@@ -193,21 +193,15 @@ docker compose --profile observability up -d
 
 ## Backup And Restore
 
-PostgreSQL:
+The tested local procedures and safety checks are documented in:
 
 ```txt
-Use managed PITR.
-Run daily logical dumps to R2.
-Keep 7 daily, 4 weekly, 6 monthly backups.
-Run monthly restore drills.
+docs/BACKUP_RESTORE_RUNBOOK.md
+docs/ROLLBACK_RUNBOOK.md
 ```
 
-Restore drill:
-
-```bash
-createdb gospel_library_restore
-pg_restore --dbname=gospel_library_restore --clean --if-exists latest.dump
-```
+Production PostgreSQL must use managed PITR plus daily logical dumps. Keep 7
+daily, 4 weekly, and 6 monthly copies, and run a monthly isolated restore drill.
 
 Qdrant:
 

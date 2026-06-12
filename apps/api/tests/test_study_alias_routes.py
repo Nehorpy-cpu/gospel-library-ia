@@ -27,6 +27,23 @@ class FakeConnection:
 
     def execute(self, sql, params=None):
       query = str(sql)
+      if "SELECT count(*)::int AS workspace_count" in query:
+          return FakeResult([{"workspace_count": 0}])
+      if "INSERT INTO study_workspaces" in query:
+          return FakeResult(
+              [
+                  {
+                      "id": WORKSPACE_ID,
+                      "user_id": USER_ID,
+                      "name": params["name"],
+                      "description": params["description"],
+                      "source_filters": params["source_filters"].obj,
+                      "settings": params["settings"].obj,
+                      "created_at": None,
+                      "updated_at": None,
+                  }
+              ]
+          )
       if "information_schema.columns" in query:
           return FakeResult(
               [
@@ -91,6 +108,9 @@ class FakeConnection:
           )
       return FakeResult([])
 
+    def commit(self):
+        return None
+
 
 @contextmanager
 def fake_get_conn():
@@ -121,6 +141,19 @@ class StudyAliasRoutesTest(unittest.TestCase):
         self.assertEqual(response["warning"], "Busqueda semantica no disponible todavia.")
         self.assertEqual(response["results"][0]["title"], "La fe en Jesucristo")
         self.assertEqual(response["results"][0]["sourceType"], "byu_speeches_es")
+
+    def test_create_workspace_accepts_dict_row_factory_count(self):
+        payload = study.WorkspacePayload(
+            name="Fe en Jesucristo",
+            description="Alma 32",
+            sourceFilters={"language": "es"},
+            settings={"mainReference": "Alma 32"},
+        )
+
+        response = study.create_workspace(payload=payload, user_id=USER_ID)
+
+        self.assertEqual(response["id"], WORKSPACE_ID)
+        self.assertEqual(response["name"], "Fe en Jesucristo")
 
 
 if __name__ == "__main__":

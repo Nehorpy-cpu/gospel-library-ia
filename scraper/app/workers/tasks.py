@@ -14,6 +14,7 @@ from app.models.enums import AssetType, CrawlStatus
 from app.parsers.sources import parser_for_url
 from app.repositories import create_asset, create_job, finish_job, mark_url, start_job
 from app.schemas.document import ExtractedAsset
+from app.services.asset_validation import asset_response_error
 from app.services.fetcher import Fetcher
 from app.services.ingestion import (
     mark_document_indexed,
@@ -276,7 +277,6 @@ def _handle_direct_asset(db, crawl_url: CrawlUrl, content: bytes, asset_type: st
 @celery_app.task(bind=True, autoretry_for=(Exception,), retry_backoff=True, retry_jitter=True, max_retries=5)
 def download_asset_task(self, document_id: str, asset_payload: dict):
     asset = ExtractedAsset.model_validate(asset_payload)
-    result = _run_async(Fetcher().fetch_http(asset.url))
     with SessionLocal() as db:
         document = db.get(Document, UUID(document_id))
         job = create_job(
@@ -288,6 +288,32 @@ def download_asset_task(self, document_id: str, asset_payload: dict):
         )
         start_job(db, job.id)
         try:
+            result = _run_async(Fetcher().fetch_http(asset.url))
+            response_error = asset_response_error(
+                asset_type=str(asset.asset_type),
+                final_url=result.url,
+                status_code=result.status_code,
+                content=result.content,
+                content_type=result.content_type,
+            )
+            if response_error:
+                finish_job(db, job.id, "failed", response_error)
+                log.warning(
+                    "asset_download_rejected",
+                    document_id=document_id,
+                    url=asset.url,
+                    final_url=result.url,
+                    error=response_error,
+                    job_id=str(job.id),
+                )
+                return {
+                    "document_id": document_id,
+                    "asset": asset.asset_type,
+                    "url": asset.url,
+                    "job_id": str(job.id),
+                    "status": "rejected",
+                    "error": response_error,
+                }
             persist_asset(db, document_id=UUID(document_id), asset=asset, content=result.content)
             if asset.asset_type == AssetType.PDF:
                 needs_ocr = persist_pdf_text_if_needed(

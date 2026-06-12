@@ -26,6 +26,8 @@
 - [ ] Deploy `api`.
 - [ ] Run scraper Alembic migrations.
 - [ ] Run RAG Alembic migrations.
+- [ ] Validate/generate Prisma client only; do not run Prisma migrations unless
+      Prisma has been selected as the sole production migration owner.
 - [ ] Initialize Qdrant collection.
 - [ ] Verify `GET /`, `/health`, and `/ready` for every API.
 
