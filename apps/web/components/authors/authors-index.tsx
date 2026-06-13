@@ -63,7 +63,9 @@ export function AuthorsIndex() {
       ) : authors.isError ? (
         <Card className="p-6 text-sm text-destructive">No se pudieron cargar los autores.</Card>
       ) : items.length === 0 ? (
-        <Card className="p-6 text-sm text-muted-foreground">No hay autores reales para mostrar con este filtro.</Card>
+        <Card className="p-6 text-sm text-muted-foreground">
+          {query.trim() ? "No hay autores para este filtro." : "No hay autores cargados todavía."}
+        </Card>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((item) => {

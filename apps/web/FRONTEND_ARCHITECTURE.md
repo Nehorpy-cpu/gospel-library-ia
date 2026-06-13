@@ -3,7 +3,7 @@
 ## Principios
 
 - App Router con Server Components en paginas y Client Components solo para interaccion.
-- API proxy `/api/rag/*` para evitar CORS y ocultar URLs internas.
+- Cliente API unico con origen publico validado mediante `NEXT_PUBLIC_API_URL`.
 - Estado servidor en TanStack Query.
 - Estado local persistente en Zustand.
 - Componentes UI pequenos, accesibles y consistentes con shadcn/ui.
@@ -98,7 +98,7 @@ aplicacion sin cambiar la doctrina.
 
 ## Produccion
 
-- Configurar `NEXT_PUBLIC_APP_URL`.
-- Usar `RAG_INTERNAL_URL` para comunicacion server-to-server.
-- Mantener `NEXT_PUBLIC_RAG_API_URL=/api/rag` salvo que exista gateway publico.
+- Configurar `NEXT_PUBLIC_APP_URL=https://www.estudiopy.com`.
+- Configurar `NEXT_PUBLIC_API_URL=https://api.estudiopy.com`.
+- El cliente agrega `/api` a cada ruta y no usa rewrites de host interno.
 - Ejecutar `npm run typecheck` y `npm run build` en CI.

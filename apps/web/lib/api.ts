@@ -13,8 +13,8 @@ import { chatRequestSchema, searchRequestSchema } from "@/lib/validators";
 import type { SourceFilterOption } from "@/lib/source-filters";
 import type { TalkBuilderOutline, TalkBuilderRequest, TalkDraftResponse } from "@/types/talk-builder";
 import type { CallingFocus } from "@/lib/church-callings";
+import { apiFetch } from "@/lib/api-client";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_RAG_API_URL ?? "/api";
 const MISSING_OPENAI_MESSAGE = "Falta configurar la clave de OpenAI para busqueda IA.";
 
 function readCookie(name: string) {
@@ -45,7 +45,7 @@ function requestHeaders(initHeaders?: HeadersInit) {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await apiFetch(path, {
     ...init,
     headers: requestHeaders(init?.headers)
   });
@@ -67,7 +67,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 async function requestFile(path: string, init?: RequestInit): Promise<{ blob: Blob; filename: string }> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await apiFetch(path, {
     ...init,
     headers: requestHeaders(init?.headers)
   });

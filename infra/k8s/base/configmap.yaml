@@ -5,10 +5,9 @@ metadata:
 data:
   ENV: production
   LOG_LEVEL: INFO
-  NEXT_PUBLIC_APP_URL: https://gospellibraryia.example.com
-  NEXT_PUBLIC_RAG_API_URL: /api
-  API_INTERNAL_URL: http://api:8000
-  RAG_INTERNAL_URL: http://rag-api:8090
+  NEXT_PUBLIC_APP_URL: https://www.estudiopy.com
+  NEXT_PUBLIC_API_URL: https://api.estudiopy.com
+  NEXT_PUBLIC_ENVIRONMENT: production
   SCRAPER_INTERNAL_URL: http://scraper-api:8080
   QDRANT_URL: http://qdrant:6333
   QDRANT_COLLECTION: doctrinal_chunks_v1

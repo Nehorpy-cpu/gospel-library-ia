@@ -7,7 +7,8 @@
   "installCommand": "npm install",
   "outputDirectory": ".next",
   "env": {
-    "NEXT_PUBLIC_RAG_API_URL": "/api/rag",
-    "RAG_INTERNAL_URL": "https://api.gospellibraryia.com"
+    "NEXT_PUBLIC_API_URL": "https://api.estudiopy.com",
+    "NEXT_PUBLIC_APP_URL": "https://www.estudiopy.com",
+    "NEXT_PUBLIC_ENVIRONMENT": "production"
   }
 }

@@ -81,7 +81,7 @@ export function LibraryGrid() {
       {documents.isError ? <p className="text-sm text-accent">No se pudo cargar la biblioteca real.</p> : null}
       {documents.isLoading ? <p className="text-sm text-muted-foreground">Cargando documentos...</p> : null}
       {!documents.isLoading && !documents.isError && items.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No hay documentos reales cargados para este filtro.</p>
+        <p className="text-sm text-muted-foreground">No hay documentos cargados todavía.</p>
       ) : null}
       <div ref={parentRef} className="h-[calc(100vh-170px)] overflow-auto">
         <div style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative" }}>

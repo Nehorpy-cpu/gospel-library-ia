@@ -63,10 +63,9 @@ apps/web
 Required variables:
 
 ```txt
-NEXT_PUBLIC_APP_URL=https://gospellibraryia.example.com
-NEXT_PUBLIC_RAG_API_URL=/api
-API_INTERNAL_URL=https://api.gospellibraryia.example.com
-RAG_INTERNAL_URL=https://rag.gospellibraryia.example.com
+NEXT_PUBLIC_APP_URL=https://www.estudiopy.com
+NEXT_PUBLIC_API_URL=https://api.estudiopy.com
+NEXT_PUBLIC_ENVIRONMENT=production
 NEXT_PUBLIC_SENTRY_DSN=
 ```
 

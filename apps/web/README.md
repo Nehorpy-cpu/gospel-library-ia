@@ -29,7 +29,6 @@ Frontend Next.js 15 App Router para Gospel Library IA.
 /history           Historial
 /preferences       Preferencias de llamamiento
 /admin             Dashboard admin
-/api/rag/*         Proxy hacia FastAPI RAG
 ```
 
 ## UI/UX
@@ -49,12 +48,17 @@ Variables:
 
 ```txt
 NEXT_PUBLIC_APP_URL=http://localhost:3000
-NEXT_PUBLIC_RAG_API_URL=/api/rag
-RAG_INTERNAL_URL=http://rag-api:8090
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_ENVIRONMENT=development
 ```
 
-En desarrollo local fuera de Docker, `RAG_INTERNAL_URL` puede apuntar a:
+En Vercel:
 
 ```txt
-http://localhost:8090
+NEXT_PUBLIC_APP_URL=https://www.estudiopy.com
+NEXT_PUBLIC_API_URL=https://api.estudiopy.com
+NEXT_PUBLIC_ENVIRONMENT=production
 ```
+
+`NEXT_PUBLIC_API_URL` contiene solo el origen. El cliente agrega `/api` a los
+endpoints de FastAPI.
