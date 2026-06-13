@@ -18,8 +18,14 @@ class FakeResult:
 
 
 class FakeConnection:
+    def __init__(self):
+        self.last_query = ""
+        self.last_params = None
+
     def execute(self, sql, params=None):
         query = str(sql)
+        self.last_query = query
+        self.last_params = params
         if "information_schema.columns" in query:
             return FakeResult(
                 [
@@ -144,6 +150,19 @@ class DocumentRoutesTest(unittest.TestCase):
         self.assertIn("'probable_duplicate'", sql)
         self.assertNotIn("translation", sql)
         self.assertNotIn("related_media", sql)
+
+    def test_documents_can_exclude_seed_content(self):
+        connection = FakeConnection()
+
+        @contextmanager
+        def tracked_get_conn():
+            yield connection
+
+        public.get_conn = tracked_get_conn
+        public.documents(includeSeed=False)
+
+        self.assertIn("seed_content", connection.last_query)
+        self.assertIn("<> 'true'", connection.last_query)
 
 
 if __name__ == "__main__":

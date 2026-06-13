@@ -147,6 +147,7 @@ def documents(
     sourceType: str | None = None,
     search: str | None = None,
     cursor: str | None = None,
+    includeSeed: bool = True,
 ):
     limit = max(1, min(limit, 100))
     offset = max(0, offset)
@@ -184,6 +185,8 @@ def documents(
         if source_type_values:
             where.append(f"({source_type_expr} = ANY(%(source_types)s) OR s.key = ANY(%(source_types)s))")
             params["source_types"] = source_type_values
+        if not includeSeed:
+            where.append(f"coalesce(d.{metadata_column}->>'seed_content', 'false') <> 'true'")
         if cursor:
             where.append("d.id::text > %(cursor)s")
             params["cursor"] = cursor
@@ -207,7 +210,10 @@ def documents(
           FROM documents d
           JOIN sources s ON s.id = d.source_id
           WHERE {" AND ".join(where)}
-          ORDER BY d.updated_at DESC, d.id
+          ORDER BY
+            CASE WHEN d.{metadata_column}->>'seed_content' = 'true' THEN 1 ELSE 0 END ASC,
+            d.updated_at DESC,
+            d.id
           LIMIT %(limit)s
           OFFSET %(offset)s
         """
