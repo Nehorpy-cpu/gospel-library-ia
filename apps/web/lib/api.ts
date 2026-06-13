@@ -17,6 +17,14 @@ import { apiFetch } from "@/lib/api-client";
 
 const MISSING_OPENAI_MESSAGE = "Falta configurar la clave de OpenAI para busqueda IA.";
 
+type DocumentListResponse = {
+  items?: StudyDocument[];
+  documents?: StudyDocument[];
+  total?: number;
+  limit?: number;
+  offset?: number;
+};
+
 function readCookie(name: string) {
   if (typeof document === "undefined") return undefined;
   const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
@@ -133,9 +141,10 @@ export const ragApi = {
     if (params?.status) searchParams.set("status", params.status);
     if (params?.sourceType) searchParams.set("sourceType", params.sourceType);
     const query = searchParams.toString();
-    return request<{ items: StudyDocument[]; total?: number; limit?: number; offset?: number }>(
-      `/documents${query ? `?${query}` : ""}`
-    );
+    return request<DocumentListResponse>(`/documents${query ? `?${query}` : ""}`).then((response) => ({
+      ...response,
+      items: response.items ?? response.documents ?? []
+    }));
   },
   document(documentId: string) {
     return request<Record<string, unknown>>(`/documents/${encodeURIComponent(documentId)}`);

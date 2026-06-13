@@ -9,8 +9,9 @@ Render and are called directly through `NEXT_PUBLIC_API_URL`.
 
 - Framework: Next.js
 - Root directory: `apps/web`
-- Build command: `npm run build`
-- Output: Next.js default/standalone
+- Install command: `corepack pnpm install --frozen-lockfile`
+- Build command: `corepack pnpm build`
+- Output directory: leave empty (Next.js uses `.next`)
 - Node: 22
 
 ## Required variables
@@ -38,3 +39,6 @@ prefix to every backend route.
 
 See [FRONTEND_API_URL_TROUBLESHOOTING.md](./FRONTEND_API_URL_TROUBLESHOOTING.md)
 for DNS and environment-variable diagnostics.
+
+See [VERCEL_FRONTEND_ROOT_AND_API_URL.md](./VERCEL_FRONTEND_ROOT_AND_API_URL.md)
+for the complete root-directory audit and stale-deployment checks.
