@@ -110,6 +110,10 @@ pnpm prisma:generate
 `pnpm prisma:migrate` y `pnpm prisma:seed` quedan reservados para un entorno
 donde Prisma haya sido elegido explicitamente como propietario de migraciones.
 
+Para inicializar de forma conservadora una base Supabase vacia usada por la API
+principal desplegada, consultar
+[`docs/deploy/SUPABASE_SCHEMA_INIT_RUNBOOK.md`](docs/deploy/SUPABASE_SCHEMA_INIT_RUNBOOK.md).
+
 ## Endpoints finales
 
 ```txt

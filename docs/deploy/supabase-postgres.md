@@ -29,3 +29,13 @@ DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST:5432/gospel_library?sslmode
 
 Rollback is backup-first: restore from PITR or snapshot, then redeploy the
 previous service image.
+
+## Bootstrap for the deployed main API
+
+When the Supabase database is empty and only `apps/api` is available in the
+deployment environment, use the conservative schema initializer documented in
+[SUPABASE_SCHEMA_INIT_RUNBOOK.md](SUPABASE_SCHEMA_INIT_RUNBOOK.md).
+
+It creates only the tables required by the current API, study workspace, beta,
+and delegated chat contracts. It is idempotent, does not seed rows, and does
+not replace the longer-term migration ownership strategy above.
