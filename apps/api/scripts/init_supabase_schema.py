@@ -320,6 +320,15 @@ TABLE_SPECS = (
 )
 
 EXPECTED_TABLES = tuple(spec.name for spec in TABLE_SPECS)
+PRIMARY_ENDPOINT_TABLES = (
+    "sources",
+    "documents",
+    "document_chunks",
+    "ingestion_jobs",
+    "authors",
+    "tags",
+    "document_duplicate_relations",
+)
 
 SCHEMA_STATEMENTS = (
     """
@@ -753,6 +762,318 @@ INDEX_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_beta_activity_kind_created ON beta_activity_events(kind, created_at DESC)",
 )
 
+ALTER_TABLE_STATEMENTS = (
+    """
+    ALTER TABLE IF EXISTS sources
+      ADD COLUMN IF NOT EXISTS source_type varchar(100),
+      ADD COLUMN IF NOT EXISTS language varchar(16),
+      ADD COLUMN IF NOT EXISTS default_language varchar(16),
+      ADD COLUMN IF NOT EXISTS is_official boolean NOT NULL DEFAULT false,
+      ADD COLUMN IF NOT EXISTS trust_level integer NOT NULL DEFAULT 5,
+      ADD COLUMN IF NOT EXISTS scraping_enabled boolean NOT NULL DEFAULT true,
+      ADD COLUMN IF NOT EXISTS enabled boolean NOT NULL DEFAULT true,
+      ADD COLUMN IF NOT EXISTS crawl_strategy varchar(80) NOT NULL DEFAULT 'html_discovery',
+      ADD COLUMN IF NOT EXISTS rate_limit integer NOT NULL DEFAULT 30,
+      ADD COLUMN IF NOT EXISTS max_pages_per_run integer NOT NULL DEFAULT 25,
+      ADD COLUMN IF NOT EXISTS last_crawled_at timestamptz,
+      ADD COLUMN IF NOT EXISTS robots_policy_notes text,
+      ADD COLUMN IF NOT EXISTS config jsonb NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now()
+    """,
+    """
+    ALTER TABLE IF EXISTS crawl_urls
+      ADD COLUMN IF NOT EXISTS discovered_from text,
+      ADD COLUMN IF NOT EXISTS http_status integer,
+      ADD COLUMN IF NOT EXISTS content_type varchar(255),
+      ADD COLUMN IF NOT EXISTS content_hash varchar(64),
+      ADD COLUMN IF NOT EXISTS etag varchar(255),
+      ADD COLUMN IF NOT EXISTS last_modified varchar(255),
+      ADD COLUMN IF NOT EXISTS error text,
+      ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS last_crawled_at timestamptz,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now()
+    """,
+    """
+    ALTER TABLE IF EXISTS documents
+      ADD COLUMN IF NOT EXISTS crawl_url_id uuid,
+      ADD COLUMN IF NOT EXISTS author text,
+      ADD COLUMN IF NOT EXISTS published_at timestamptz,
+      ADD COLUMN IF NOT EXISTS language varchar(16),
+      ADD COLUMN IF NOT EXISTS category text,
+      ADD COLUMN IF NOT EXISTS tags jsonb NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS scripture_refs jsonb NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS text text,
+      ADD COLUMN IF NOT EXISTS raw_metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS content_hash varchar(64),
+      ADD COLUMN IF NOT EXISTS status varchar(64) NOT NULL DEFAULT 'READY',
+      ADD COLUMN IF NOT EXISTS version integer NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS is_indexed boolean NOT NULL DEFAULT false,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS deleted_at timestamptz
+    """,
+    """
+    ALTER TABLE IF EXISTS document_assets
+      ADD COLUMN IF NOT EXISTS source_url text,
+      ADD COLUMN IF NOT EXISTS mime_type varchar(255),
+      ADD COLUMN IF NOT EXISTS size_bytes bigint,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now()
+    """,
+    """
+    ALTER TABLE IF EXISTS document_chunks
+      ADD COLUMN IF NOT EXISTS chunker_version varchar(64) NOT NULL DEFAULT 'smart-v1',
+      ADD COLUMN IF NOT EXISTS language varchar(16),
+      ADD COLUMN IF NOT EXISTS title text,
+      ADD COLUMN IF NOT EXISTS section_title text,
+      ADD COLUMN IF NOT EXISTS page_number integer,
+      ADD COLUMN IF NOT EXISTS start_char integer,
+      ADD COLUMN IF NOT EXISTS end_char integer,
+      ADD COLUMN IF NOT EXISTS token_count integer,
+      ADD COLUMN IF NOT EXISTS text_hash varchar(64),
+      ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS search_vector tsvector,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now()
+    """,
+    """
+    ALTER TABLE IF EXISTS ingestion_jobs
+      ADD COLUMN IF NOT EXISTS source_id uuid,
+      ADD COLUMN IF NOT EXISTS source varchar(100),
+      ADD COLUMN IF NOT EXISTS priority integer NOT NULL DEFAULT 5,
+      ADD COLUMN IF NOT EXISTS payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS documents_found integer NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS documents_created integer NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS documents_updated integer NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS documents_skipped integer NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS documents_failed integer NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS errors jsonb NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS error text,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS started_at timestamptz,
+      ADD COLUMN IF NOT EXISTS finished_at timestamptz
+    """,
+    """
+    ALTER TABLE IF EXISTS authors
+      ADD COLUMN IF NOT EXISTS sort_name text,
+      ADD COLUMN IF NOT EXISTS normalized_name text,
+      ADD COLUMN IF NOT EXISTS bio text,
+      ADD COLUMN IF NOT EXISTS birth_date date,
+      ADD COLUMN IF NOT EXISTS death_date date,
+      ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now()
+    """,
+    """
+    ALTER TABLE IF EXISTS tags
+      ADD COLUMN IF NOT EXISTS normalized_name text,
+      ADD COLUMN IF NOT EXISTS language varchar(16) NOT NULL DEFAULT 'es',
+      ADD COLUMN IF NOT EXISTS description text,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now()
+    """,
+    """
+    ALTER TABLE IF EXISTS document_duplicate_relations
+      ADD COLUMN IF NOT EXISTS review_status varchar(24) NOT NULL DEFAULT 'pending',
+      ADD COLUMN IF NOT EXISTS evidence jsonb NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS reviewed_at timestamptz
+    """,
+    """
+    ALTER TABLE IF EXISTS chat_sessions
+      ADD COLUMN IF NOT EXISTS user_id uuid,
+      ADD COLUMN IF NOT EXISTS title text,
+      ADD COLUMN IF NOT EXISTS language varchar(16),
+      ADD COLUMN IF NOT EXISTS mode varchar(64) NOT NULL DEFAULT 'doctrinal_assistant',
+      ADD COLUMN IF NOT EXISTS summary text,
+      ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now()
+    """,
+    """
+    ALTER TABLE IF EXISTS chat_messages
+      ADD COLUMN IF NOT EXISTS citations jsonb NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now()
+    """,
+    """
+    ALTER TABLE IF EXISTS study_workspaces
+      ADD COLUMN IF NOT EXISTS user_id uuid,
+      ADD COLUMN IF NOT EXISTS description text,
+      ADD COLUMN IF NOT EXISTS source_filters jsonb NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS settings jsonb NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS client_rev integer NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS server_rev integer NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS deleted_at timestamptz
+    """,
+    """
+    ALTER TABLE IF EXISTS study_workspace_sources
+      ADD COLUMN IF NOT EXISTS user_id uuid,
+      ADD COLUMN IF NOT EXISTS source_key varchar(100),
+      ADD COLUMN IF NOT EXISTS language varchar(16),
+      ADD COLUMN IF NOT EXISTS author text,
+      ADD COLUMN IF NOT EXISTS category text,
+      ADD COLUMN IF NOT EXISTS tags jsonb NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS deleted_at timestamptz
+    """,
+    """
+    ALTER TABLE IF EXISTS study_notes
+      ADD COLUMN IF NOT EXISTS user_id uuid,
+      ADD COLUMN IF NOT EXISTS document_id uuid,
+      ADD COLUMN IF NOT EXISTS chunk_id uuid,
+      ADD COLUMN IF NOT EXISTS title text,
+      ADD COLUMN IF NOT EXISTS selected_text text,
+      ADD COLUMN IF NOT EXISTS selection_range jsonb NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS scripture_refs jsonb NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS color varchar(32) NOT NULL DEFAULT 'yellow',
+      ADD COLUMN IF NOT EXISTS position jsonb NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS client_rev integer NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS server_rev integer NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS deleted_at timestamptz
+    """,
+    """
+    ALTER TABLE IF EXISTS study_highlights
+      ADD COLUMN IF NOT EXISTS user_id uuid,
+      ADD COLUMN IF NOT EXISTS chunk_id uuid,
+      ADD COLUMN IF NOT EXISTS note_id uuid,
+      ADD COLUMN IF NOT EXISTS scripture_refs jsonb NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS color varchar(32) NOT NULL DEFAULT 'yellow',
+      ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS client_rev integer NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS server_rev integer NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS deleted_at timestamptz
+    """,
+    """
+    ALTER TABLE IF EXISTS saved_citations
+      ADD COLUMN IF NOT EXISTS user_id uuid,
+      ADD COLUMN IF NOT EXISTS chunk_id uuid,
+      ADD COLUMN IF NOT EXISTS selected_text text,
+      ADD COLUMN IF NOT EXISTS citation_url text,
+      ADD COLUMN IF NOT EXISTS source_url text,
+      ADD COLUMN IF NOT EXISTS source_title text,
+      ADD COLUMN IF NOT EXISTS source_author text,
+      ADD COLUMN IF NOT EXISTS location jsonb NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS scripture_refs jsonb NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS client_rev integer NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS server_rev integer NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS deleted_at timestamptz
+    """,
+    """
+    ALTER TABLE IF EXISTS post_its
+      ADD COLUMN IF NOT EXISTS user_id uuid,
+      ADD COLUMN IF NOT EXISTS document_id uuid,
+      ADD COLUMN IF NOT EXISTS color varchar(32) NOT NULL DEFAULT 'yellow',
+      ADD COLUMN IF NOT EXISTS position jsonb NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS source_filters jsonb NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS pinned boolean NOT NULL DEFAULT false,
+      ADD COLUMN IF NOT EXISTS client_rev integer NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS server_rev integer NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS deleted_at timestamptz
+    """,
+    """
+    ALTER TABLE IF EXISTS user_preferences
+      ADD COLUMN IF NOT EXISTS calling_category varchar(120),
+      ADD COLUMN IF NOT EXISTS calling_name varchar(200),
+      ADD COLUMN IF NOT EXISTS custom_calling_name varchar(200),
+      ADD COLUMN IF NOT EXISTS calling_focus_enabled boolean NOT NULL DEFAULT false,
+      ADD COLUMN IF NOT EXISTS settings jsonb NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now()
+    """,
+    """
+    ALTER TABLE IF EXISTS beta_access
+      ADD COLUMN IF NOT EXISTS user_id uuid,
+      ADD COLUMN IF NOT EXISTS name text,
+      ADD COLUMN IF NOT EXISTS status varchar(32) NOT NULL DEFAULT 'pending',
+      ADD COLUMN IF NOT EXISTS study_profile varchar(160),
+      ADD COLUMN IF NOT EXISTS preferred_language varchar(16),
+      ADD COLUMN IF NOT EXISTS preferred_sources jsonb NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS request_message text,
+      ADD COLUMN IF NOT EXISTS admin_notes text,
+      ADD COLUMN IF NOT EXISTS approved_at timestamptz,
+      ADD COLUMN IF NOT EXISTS onboarding_completed_at timestamptz,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now()
+    """,
+    """
+    ALTER TABLE IF EXISTS beta_feedback
+      ADD COLUMN IF NOT EXISTS user_id uuid,
+      ADD COLUMN IF NOT EXISTS email varchar(320),
+      ADD COLUMN IF NOT EXISTS type varchar(80) NOT NULL DEFAULT 'other',
+      ADD COLUMN IF NOT EXISTS screenshot_url text,
+      ADD COLUMN IF NOT EXISTS status varchar(40) NOT NULL DEFAULT 'new',
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now()
+    """,
+    """
+    ALTER TABLE IF EXISTS beta_activity_events
+      ADD COLUMN IF NOT EXISTS user_id uuid,
+      ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now()
+    """,
+)
+
+TYPE_ALIGNMENT_STATEMENTS = (
+    """
+    DO $$
+    DECLARE current_type text;
+    BEGIN
+      SELECT udt_name INTO current_type
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'documents' AND column_name = 'status';
+      IF current_type IS NOT NULL AND current_type NOT IN ('varchar', 'text') THEN
+        ALTER TABLE documents ALTER COLUMN status DROP DEFAULT;
+        ALTER TABLE documents ALTER COLUMN status TYPE varchar(64) USING status::text;
+        ALTER TABLE documents ALTER COLUMN status SET DEFAULT 'READY';
+      END IF;
+    END
+    $$
+    """,
+    """
+    DO $$
+    DECLARE current_type text;
+    BEGIN
+      SELECT udt_name INTO current_type
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'ingestion_jobs' AND column_name = 'status';
+      IF current_type IS NOT NULL AND current_type NOT IN ('varchar', 'text') THEN
+        ALTER TABLE ingestion_jobs ALTER COLUMN status DROP DEFAULT;
+        ALTER TABLE ingestion_jobs ALTER COLUMN status TYPE varchar(64) USING status::text;
+        ALTER TABLE ingestion_jobs ALTER COLUMN status SET DEFAULT 'queued';
+      END IF;
+    END
+    $$
+    """,
+    """
+    DO $$
+    DECLARE current_type text;
+    BEGIN
+      SELECT udt_name INTO current_type
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'chat_messages' AND column_name = 'role';
+      IF current_type IS NOT NULL AND current_type NOT IN ('varchar', 'text') THEN
+        ALTER TABLE chat_messages ALTER COLUMN role TYPE varchar(32) USING role::text;
+      END IF;
+    END
+    $$
+    """,
+)
+
 SEARCH_VECTOR_STATEMENTS = (
     """
     CREATE OR REPLACE FUNCTION update_chunk_search_vector()
@@ -785,6 +1106,30 @@ SEARCH_VECTOR_STATEMENTS = (
     """,
 )
 
+REQUIRED_COLUMN_TYPES = {
+    ("sources", "id"): {"uuid"},
+    ("sources", "config"): {"jsonb"},
+    ("documents", "id"): {"uuid"},
+    ("documents", "source_id"): {"uuid"},
+    ("documents", "tags"): {"jsonb"},
+    ("documents", "scripture_refs"): {"jsonb"},
+    ("documents", "raw_metadata"): {"jsonb"},
+    ("documents", "is_indexed"): {"bool"},
+    ("documents", "status"): {"text", "varchar"},
+    ("documents", "created_at"): {"timestamptz"},
+    ("documents", "updated_at"): {"timestamptz"},
+    ("document_chunks", "id"): {"uuid"},
+    ("document_chunks", "document_id"): {"uuid"},
+    ("document_chunks", "metadata"): {"jsonb"},
+    ("document_chunks", "search_vector"): {"tsvector"},
+    ("ingestion_jobs", "id"): {"uuid"},
+    ("ingestion_jobs", "status"): {"text", "varchar"},
+    ("ingestion_jobs", "payload"): {"jsonb"},
+    ("ingestion_jobs", "errors"): {"jsonb"},
+    ("document_duplicate_relations", "duplicate_document_id"): {"uuid"},
+    ("chat_messages", "role"): {"text", "varchar"},
+}
+
 
 def get_existing_tables(conn) -> set[str]:
     rows = conn.execute(
@@ -816,11 +1161,54 @@ def validate_required_columns(conn) -> dict[str, tuple[str, ...]]:
     return missing
 
 
-def initialize_schema(conn) -> tuple[list[str], list[str]]:
+def get_existing_columns(conn) -> dict[str, set[str]]:
+    rows = conn.execute(
+        """
+        SELECT table_name, column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = ANY(%s)
+        """,
+        (list(EXPECTED_TABLES),),
+    ).fetchall()
+    columns = {table_name: set() for table_name in EXPECTED_TABLES}
+    for table_name, column_name in rows:
+        columns[table_name].add(column_name)
+    return columns
+
+
+def validate_required_types(conn) -> dict[str, tuple[str, str, tuple[str, ...]]]:
+    rows = conn.execute(
+        """
+        SELECT table_name, column_name, udt_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = ANY(%s)
+        """,
+        (list(EXPECTED_TABLES),),
+    ).fetchall()
+    actual_types = {(table_name, column_name): udt_name for table_name, column_name, udt_name in rows}
+    incompatible = {}
+    for key, expected_types in REQUIRED_COLUMN_TYPES.items():
+        actual_type = actual_types.get(key)
+        if actual_type is not None and actual_type not in expected_types:
+            table_name, column_name = key
+            incompatible[f"{table_name}.{column_name}"] = (
+                table_name,
+                actual_type,
+                tuple(sorted(expected_types)),
+            )
+    return incompatible
+
+
+def initialize_schema(conn) -> tuple[list[str], list[str], dict[str, list[str]]]:
     conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("gospel_library_schema_init_v1",))
     existing_before = get_existing_tables(conn)
+    columns_before = get_existing_columns(conn)
 
     for statement in SCHEMA_STATEMENTS:
+        conn.execute(statement)
+    for statement in ALTER_TABLE_STATEMENTS:
+        conn.execute(statement)
+    for statement in TYPE_ALIGNMENT_STATEMENTS:
         conn.execute(statement)
 
     missing_columns = validate_required_columns(conn)
@@ -831,6 +1219,17 @@ def initialize_schema(conn) -> tuple[list[str], list[str]]:
         raise RuntimeError(
             "Existing tables are not compatible with the API schema. "
             f"Missing columns: {details}. No tables or data were removed."
+        )
+
+    incompatible_types = validate_required_types(conn)
+    if incompatible_types:
+        details = "; ".join(
+            f"{name}: found {actual}, expected {'/'.join(expected)}"
+            for name, (_, actual, expected) in sorted(incompatible_types.items())
+        )
+        raise RuntimeError(
+            "Existing columns use incompatible PostgreSQL types. "
+            f"{details}. Types were not changed automatically."
         )
 
     for statement in INDEX_STATEMENTS:
@@ -845,7 +1244,13 @@ def initialize_schema(conn) -> tuple[list[str], list[str]]:
 
     created = sorted(existing_after - existing_before)
     verified = sorted(existing_after & existing_before)
-    return created, verified
+    columns_after = get_existing_columns(conn)
+    added_columns = {
+        table_name: sorted(columns_after[table_name] - columns_before.get(table_name, set()))
+        for table_name in verified
+        if columns_after[table_name] - columns_before.get(table_name, set())
+    }
+    return created, verified, added_columns
 
 
 def main() -> int:
@@ -857,7 +1262,7 @@ def main() -> int:
     connect_url = database_url.replace("postgresql+psycopg://", "postgresql://", 1)
     try:
         with psycopg.connect(connect_url) as conn:
-            created, verified = initialize_schema(conn)
+            created, verified, added_columns = initialize_schema(conn)
             conn.commit()
     except Exception as exc:
         detail = f" {exc}" if isinstance(exc, RuntimeError) else ""
@@ -875,7 +1280,14 @@ def main() -> int:
     print(f"Tables already present and verified: {len(verified)}")
     for table_name in verified:
         print(f"  VERIFIED {table_name}")
+    print(f"Existing tables extended with missing columns: {len(added_columns)}")
+    for table_name, column_names in sorted(added_columns.items()):
+        print(f"  ALTERED  {table_name}: {', '.join(column_names)}")
     print(f"Total required tables verified: {len(EXPECTED_TABLES)}")
+    print(
+        "Primary endpoint schema verified: "
+        + ", ".join(PRIMARY_ENDPOINT_TABLES)
+    )
     return 0
 
 
