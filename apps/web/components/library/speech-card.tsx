@@ -26,21 +26,33 @@ export function SpeechCard({ item, className }: { item: SpeechCardItem; classNam
   const favorite = favorites.includes(item.id);
 
   return (
-    <Card className={cn("group min-h-[230px] overflow-hidden transition hover:-translate-y-0.5 hover:shadow-soft", className)}>
-      <div className="flex h-full flex-col p-4">
+    <Card className={cn("group relative min-h-[230px] overflow-hidden transition hover:-translate-y-0.5 hover:shadow-soft", className)}>
+      <Link
+        href={`/documents/${item.id}`}
+        onClick={() => pushHistory(item.id)}
+        className="absolute inset-0 z-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={`Abrir ${item.title}`}
+      />
+      <div className="pointer-events-none relative z-10 flex h-full flex-col p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
             <Icon className="h-5 w-5" />
           </div>
-          <Button variant="ghost" size="icon" onClick={() => toggleFavorite(item.id)} aria-label="Favorito">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="pointer-events-auto"
+            onClick={() => toggleFavorite(item.id)}
+            aria-label="Favorito"
+          >
             <Heart className={cn("h-4 w-4", favorite && "fill-accent text-accent")} />
           </Button>
         </div>
-        <Link href={`/documents/${item.id}`} onClick={() => pushHistory(item.id)} className="mt-4 block">
+        <div className="mt-4 block">
           <h3 className="line-clamp-2 text-base font-semibold leading-snug">{item.title}</h3>
           <p className="mt-1 text-sm text-muted-foreground">{item.author}</p>
           <p className="mt-3 line-clamp-3 text-sm text-muted-foreground">{truncate(item.summary, 150)}</p>
-        </Link>
+        </div>
         <div className="mt-auto flex flex-wrap gap-1.5 pt-4">
           {item.tags.slice(0, 3).map((tag) => (
             <Badge key={tag}>{tag}</Badge>
@@ -52,7 +64,7 @@ export function SpeechCard({ item, className }: { item: SpeechCardItem; classNam
             {item.duration ? (
               <button
                 onClick={() => setAudio(true, item.title)}
-                className="inline-flex items-center gap-1 hover:text-foreground"
+                className="pointer-events-auto inline-flex items-center gap-1 hover:text-foreground"
               >
                 <Play className="h-3 w-3" />
                 {item.duration}

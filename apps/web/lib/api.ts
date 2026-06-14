@@ -146,8 +146,13 @@ export const ragApi = {
       items: response.items ?? response.documents ?? []
     }));
   },
-  document(documentId: string) {
-    return request<Record<string, unknown>>(`/documents/${encodeURIComponent(documentId)}`);
+  document(documentId: string, includeChunks = true) {
+    const searchParams = new URLSearchParams();
+    if (includeChunks) searchParams.set("include_chunks", "true");
+    const query = searchParams.toString();
+    return request<Record<string, unknown>>(
+      `/documents/${encodeURIComponent(documentId)}${query ? `?${query}` : ""}`
+    );
   },
   documentsSummary() {
     return request<{ documents: Array<{ status: string; count: number }> }>("/documents/summary");

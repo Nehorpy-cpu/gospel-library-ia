@@ -26,7 +26,9 @@ export type SearchResult = {
   document_id: UUID;
   title: string;
   author?: string | null;
+  source?: string | null;
   source_key?: string | null;
+  source_url?: string | null;
   canonical_url?: string | null;
   language?: string | null;
   section_title?: string | null;
@@ -35,6 +37,7 @@ export type SearchResult = {
   semantic_score?: number | null;
   bm25_score?: number | null;
   rerank_score?: number | null;
+  tags?: string[];
   metadata: Record<string, unknown>;
 };
 
@@ -43,7 +46,9 @@ export type SearchResponse = {
   rewritten_query?: string | null;
   mode?: string;
   warnings?: string[];
+  items?: SearchResult[];
   results: SearchResult[];
+  total?: number;
 };
 
 export type Citation = {

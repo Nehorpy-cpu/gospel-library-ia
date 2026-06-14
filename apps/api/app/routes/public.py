@@ -1,12 +1,9 @@
-import httpx
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
 from uuid import uuid4
 
 from app.core.config import get_settings
 from app.schemas.api import ChatRequest, DocumentListResponse, SearchRequest
 from app.services.db import get_conn
-from app.services.qdrant_admin import QdrantAdmin
 from app.services.rate_limit import RateLimiter
 from app.services.calling_focus import calling_application_note
 from app.services.scripture_refs import structured_scripture_refs
@@ -52,41 +49,10 @@ def confirmed_duplicate_filter(alias: str = "d") -> str:
     """.strip()
 
 
-def _is_missing_openai_response(response: httpx.Response) -> bool:
-    if response.status_code != 503:
-        return False
-    try:
-        return response.json().get("status") == "missing_api_key"
-    except ValueError:
-        return False
-
-
 @router.post("/search")
 async def search(payload: SearchRequest, request: Request):
     await limiter.check(request)
-    if _qdrant_points_count() <= 0:
-        return _textual_search_response(payload, ["Busqueda semantica no disponible todavia."])
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(f"{get_settings().rag_api_url}/search", json=payload.model_dump(mode="json"))
-            if _is_missing_openai_response(response):
-                return _textual_search_response(
-                    payload,
-                    [
-                        "Falta configurar la clave de OpenAI para busqueda IA.",
-                        "Busqueda semantica no disponible todavia.",
-                        "OPENAI_API_KEY is required for semantic search and chat",
-                    ],
-                )
-            response.raise_for_status()
-            data = response.json()
-            if not data.get("results"):
-                fallback = _textual_search_response(payload, ["Sin resultados semanticos; se uso busqueda textual basica."])
-                if fallback["results"]:
-                    return fallback
-            return data
-    except Exception:
-        return _textual_search_response(payload, ["Busqueda semantica no disponible todavia."])
+    return _textual_search_response(payload)
 
 
 @router.post("/chat")
@@ -94,24 +60,7 @@ async def chat(payload: ChatRequest, request: Request):
     settings = get_settings()
     await limiter.check(request, settings.chat_rate_limit_per_minute)
     await limiter.check_daily(request, settings.max_user_chat_messages_per_day, "chat")
-    if _qdrant_points_count() <= 0:
-        return _local_chat_response(payload, ["Busqueda semantica no disponible todavia."])
-    try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            response = await client.post(f"{get_settings().rag_api_url}/chat", json=payload.model_dump(mode="json"))
-            if _is_missing_openai_response(response):
-                return _local_chat_response(
-                    payload,
-                    [
-                        "Falta configurar la clave de OpenAI para busqueda IA.",
-                        "Busqueda semantica no disponible todavia.",
-                        "OPENAI_API_KEY is required for semantic search and chat",
-                    ],
-                )
-            response.raise_for_status()
-            return response.json()
-    except Exception:
-        return _local_chat_response(payload, ["Busqueda semantica no disponible todavia."])
+    return _local_chat_response(payload, ["Busqueda semantica no disponible todavia."])
 
 
 DOCUMENT_STATUSES = ("READY", "PENDING", "FAILED", "INDEXED")
@@ -303,41 +252,128 @@ def sources_summary():
 
 
 @router.get("/documents/{document_id}")
-def document_detail(document_id: str):
+def document_detail(document_id: str, include_chunks: bool = False):
     with get_conn() as conn:
         columns = _document_columns(conn)
         metadata_column = "raw_metadata" if "raw_metadata" in columns else "metadata"
         text_column = "text" if "text" in columns else "content_text"
         author_column = "author" if "author" in columns else "NULL"
+        category_column = "category" if "category" in columns else "NULL"
+        tags_column = "tags" if "tags" in columns else "'[]'::jsonb"
+        status_column = "status" if "status" in columns else "'READY'"
+        created_at_column = "created_at" if "created_at" in columns else "NULL"
+        updated_at_column = "updated_at" if "updated_at" in columns else "NULL"
+        source_url_expr = f"COALESCE(d.{metadata_column}->>'source_url', d.canonical_url)"
+        description_expr = _document_description_expr(columns, metadata_column)
+        chunks_available_expr = (
+            "(SELECT count(*)::int FROM document_chunks dc WHERE dc.document_id = d.id)"
+            if _table_exists(conn, "document_chunks")
+            else "0"
+        )
         doc = conn.execute(
             f"""
-            SELECT id::text, title, {author_column}, language, canonical_url, published_at, {text_column}, {metadata_column}
-            FROM documents WHERE id = %s
+            SELECT
+              d.id::text,
+              d.title,
+              {author_column},
+              s.name,
+              COALESCE(d.{metadata_column}->>'source_type', s.key),
+              {source_url_expr},
+              d.canonical_url,
+              d.language,
+              {category_column},
+              d.published_at,
+              {description_expr},
+              d.{text_column},
+              {tags_column},
+              CASE WHEN d.is_indexed THEN 'INDEXED' ELSE upper(coalesce({status_column}, 'PENDING')) END,
+              {created_at_column},
+              {updated_at_column},
+              d.{metadata_column},
+              {chunks_available_expr}
+            FROM documents d
+            JOIN sources s ON s.id = d.source_id
+            WHERE d.id = %s
             """,
             (document_id,),
         ).fetchone()
-        try:
+        related_tags = []
+        if doc and _table_exists(conn, "document_tags") and _table_exists(conn, "tags"):
+            related_tags = [
+                row[0]
+                for row in conn.execute(
+                    """
+                    SELECT t.name
+                    FROM document_tags dt
+                    JOIN tags t ON t.id = dt.tag_id
+                    WHERE dt.document_id = %s
+                    ORDER BY t.name
+                    """,
+                    (document_id,),
+                ).fetchall()
+            ]
+        chunks = []
+        if doc and include_chunks and _table_exists(conn, "document_chunks"):
+            chunk_columns = _table_columns(conn, "document_chunks")
+            chunk_text_column = "text" if "text" in chunk_columns else "content"
+            chunk_metadata_column = "metadata" if "metadata" in chunk_columns else "'{}'::jsonb"
             chunks = conn.execute(
-                """
-                SELECT id::text, chunk_index, section_title, text
-                FROM document_chunks WHERE document_id = %s ORDER BY chunk_index LIMIT 200
+                f"""
+                SELECT id::text, chunk_index, section_title, {chunk_text_column}, {chunk_metadata_column}
+                FROM document_chunks
+                WHERE document_id = %s
+                ORDER BY chunk_index
+                LIMIT 200
                 """,
                 (document_id,),
             ).fetchall()
-        except Exception:
-            chunks = []
     if not doc:
         return {"id": document_id, "not_found": True}
+    source_type = normalize_source_type(doc[4]) or doc[4]
+    published_at = doc[9].isoformat() if doc[9] else None
+    created_at = doc[14].isoformat() if doc[14] else None
+    updated_at = doc[15].isoformat() if doc[15] else None
+    tags = list(dict.fromkeys([*_string_list(doc[12]), *related_tags]))
     return {
         "id": doc[0],
         "title": doc[1],
         "author": doc[2],
-        "language": doc[3],
-        "canonical_url": doc[4],
-        "published_at": doc[5].isoformat() if doc[5] else None,
-        "text": doc[6],
-        "metadata": doc[7] or {},
-        "chunks": [{"id": c[0], "index": c[1], "section_title": c[2], "text": c[3]} for c in chunks],
+        "source": doc[3],
+        "source_type": source_type,
+        "sourceType": source_type,
+        "source_url": doc[5],
+        "sourceUrl": doc[5],
+        "canonical_url": doc[6],
+        "canonicalUrl": doc[6],
+        "language": doc[7],
+        "category": doc[8],
+        "type": doc[8] or source_type,
+        "published_at": published_at,
+        "publishedAt": published_at,
+        "year": doc[9].year if doc[9] else None,
+        "summary": doc[10],
+        "description": doc[10],
+        "text": doc[11],
+        "tags": tags,
+        "topics": tags,
+        "status": doc[13],
+        "created_at": created_at,
+        "createdAt": created_at,
+        "updated_at": updated_at,
+        "updatedAt": updated_at,
+        "chunks_available": doc[17],
+        "chunksAvailable": doc[17],
+        "metadata": _safe_metadata(doc[16]),
+        "chunks": [
+            {
+                "id": chunk[0],
+                "index": chunk[1],
+                "section_title": chunk[2],
+                "text": chunk[3],
+                "metadata": _safe_metadata(chunk[4]),
+            }
+            for chunk in chunks
+        ],
     }
 
 
@@ -431,101 +467,134 @@ def topics(limit: int = 50):
 
 
 def _document_search(query: str, limit: int, filters=None, language: str | None = None) -> list[dict]:
+    normalized_query = query.strip()
+    if len(normalized_query) < 2:
+        return []
     with get_conn() as conn:
-        columns = {
-            row[0]
-            for row in conn.execute(
-                "SELECT column_name FROM information_schema.columns WHERE table_name = 'documents'"
-            ).fetchall()
-        }
+        columns = _document_columns(conn)
         metadata_column = "raw_metadata" if "raw_metadata" in columns else "metadata"
         text_column = "text" if "text" in columns else "content_text"
         author_column = "author" if "author" in columns else "NULL"
+        tags_column = "d.tags" if "tags" in columns else "'[]'::jsonb"
         scripture_refs_expr = "d.scripture_refs" if "scripture_refs" in columns else "'[]'::jsonb"
         source_type_expr = f"COALESCE(d.{metadata_column}->>'source_type', s.key)"
+        source_url_expr = f"COALESCE(d.{metadata_column}->>'source_url', d.canonical_url)"
+        description_expr = _document_description_expr(columns, metadata_column)
+        has_chunks = _table_exists(conn, "document_chunks")
+        has_document_tags = _table_exists(conn, "document_tags") and _table_exists(conn, "tags")
+        chunk_match_expr = (
+            "EXISTS (SELECT 1 FROM document_chunks search_chunk "
+            "WHERE search_chunk.document_id = d.id AND search_chunk.text ILIKE ANY(%(patterns)s))"
+            if has_chunks
+            else "FALSE"
+        )
+        chunk_join = (
+            """
+            LEFT JOIN LATERAL (
+              SELECT dc.id::text, dc.section_title, dc.text
+              FROM document_chunks dc
+              WHERE dc.document_id = d.id
+                AND dc.text ILIKE ANY(%(patterns)s)
+              ORDER BY dc.chunk_index
+              LIMIT 1
+            ) matched_chunk ON TRUE
+            """
+            if has_chunks
+            else "LEFT JOIN LATERAL (SELECT NULL::text AS id, NULL::text AS section_title, NULL::text AS text) matched_chunk ON TRUE"
+        )
+        related_tag_match_expr = (
+            "EXISTS (SELECT 1 FROM document_tags dt JOIN tags t ON t.id = dt.tag_id "
+            "WHERE dt.document_id = d.id AND t.name ILIKE ANY(%(patterns)s))"
+            if has_document_tags
+            else "FALSE"
+        )
+        related_tags_expr = (
+            "COALESCE((SELECT jsonb_agg(t.name ORDER BY t.name) FROM document_tags dt "
+            "JOIN tags t ON t.id = dt.tag_id WHERE dt.document_id = d.id), "
+            f"{tags_column}, '[]'::jsonb)"
+            if has_document_tags
+            else f"COALESCE({tags_column}, '[]'::jsonb)"
+        )
         filter_where, filter_params = _metadata_filter_sql(filters, language, source_type_expr, columns)
         filter_where.append(confirmed_duplicate_filter("d"))
+        patterns = [f"%{normalized_query}%"]
+        terms = _search_terms(normalized_query)
+        patterns.extend(f"%{term}%" for term in terms if len(term) >= 3)
+        patterns = list(dict.fromkeys(patterns))
+        match_where = f"""
+          d.title ILIKE ANY(%(patterns)s)
+          OR coalesce({author_column}, '') ILIKE ANY(%(patterns)s)
+          OR s.name ILIKE ANY(%(patterns)s)
+          OR coalesce({description_expr}, '') ILIKE ANY(%(patterns)s)
+          OR coalesce(d.{text_column}, '') ILIKE ANY(%(patterns)s)
+          OR {tags_column}::text ILIKE ANY(%(patterns)s)
+          OR {chunk_match_expr}
+          OR {related_tag_match_expr}
+        """
         rows = conn.execute(
             f"""
             SELECT
               d.id::text,
               d.title,
               {author_column},
+              s.name,
               d.language,
               d.canonical_url,
+              {source_url_expr},
               {source_type_expr} AS source_key,
-              left(coalesce(d.{text_column}, ''), 520) AS snippet,
-              {scripture_refs_expr} AS scripture_refs
+              left(
+                coalesce(
+                  nullif(matched_chunk.text, ''),
+                  nullif({description_expr}, ''),
+                  nullif(d.{text_column}, ''),
+                  d.title
+                ),
+                520
+              ) AS snippet,
+              {scripture_refs_expr} AS scripture_refs,
+              {related_tags_expr} AS tags,
+              matched_chunk.id,
+              matched_chunk.section_title,
+              (
+                CASE WHEN d.title ILIKE %(exact)s THEN 5 ELSE 0 END +
+                CASE WHEN coalesce({author_column}, '') ILIKE %(exact)s THEN 3 ELSE 0 END +
+                CASE WHEN s.name ILIKE %(exact)s THEN 2 ELSE 0 END +
+                CASE WHEN coalesce({description_expr}, '') ILIKE ANY(%(patterns)s) THEN 2 ELSE 0 END +
+                CASE WHEN coalesce(d.{text_column}, '') ILIKE ANY(%(patterns)s) THEN 1 ELSE 0 END +
+                CASE WHEN {tags_column}::text ILIKE ANY(%(patterns)s) OR {related_tag_match_expr} THEN 2 ELSE 0 END +
+                CASE WHEN matched_chunk.id IS NOT NULL THEN 2 ELSE 0 END
+              )::float AS match_score
             FROM documents d
             JOIN sources s ON s.id = d.source_id
-            WHERE (d.title ILIKE %(q)s OR coalesce(d.{text_column}, '') ILIKE %(q)s)
+            {chunk_join}
+            WHERE ({match_where})
               {"AND " + " AND ".join(filter_where) if filter_where else ""}
-            ORDER BY d.updated_at DESC
+            ORDER BY match_score DESC, d.updated_at DESC
             LIMIT %(limit)s
             """,
-            {"q": f"%{query}%", "limit": limit, **filter_params},
+            {
+                "exact": f"%{normalized_query}%",
+                "patterns": patterns,
+                "limit": limit,
+                **filter_params,
+            },
         ).fetchall()
-        if not rows:
-            stopwords = {
-                "about",
-                "does",
-                "from",
-                "mention",
-                "mentions",
-                "sources",
-                "teach",
-                "that",
-                "the",
-                "what",
-                "where",
-                "with",
-            }
-            terms = [
-                token.lower()
-                for token in query.replace("?", " ").replace(",", " ").split()
-                if len(token) > 2 and token.lower() not in stopwords
-            ][:8]
-            if terms:
-                params = {"limit": limit, **{f"term_{i}": f"%{term}%" for i, term in enumerate(terms)}}
-                score_expr = " + ".join(
-                    f"CASE WHEN d.title ILIKE %(term_{i})s OR coalesce(d.{text_column}, '') ILIKE %(term_{i})s THEN 1 ELSE 0 END"
-                    for i in range(len(terms))
-                )
-                where_expr = " OR ".join(
-                    f"d.title ILIKE %(term_{i})s OR coalesce(d.{text_column}, '') ILIKE %(term_{i})s"
-                    for i in range(len(terms))
-                )
-                rows = conn.execute(
-                    f"""
-                    SELECT
-                      d.id::text,
-                      d.title,
-                      {author_column},
-                      d.language,
-                      d.canonical_url,
-                      {source_type_expr} AS source_key,
-                      left(coalesce(d.{text_column}, ''), 520) AS snippet,
-                      {scripture_refs_expr} AS scripture_refs,
-                      ({score_expr}) AS match_score
-                    FROM documents d
-                    JOIN sources s ON s.id = d.source_id
-                    WHERE ({where_expr})
-                      {"AND " + " AND ".join(filter_where) if filter_where else ""}
-                    ORDER BY match_score DESC, d.updated_at DESC
-                    LIMIT %(limit)s
-                    """,
-                    {**params, **filter_params},
-                ).fetchall()
     return [
         {
             "id": row[0],
             "title": row[1],
             "author": row[2],
-            "language": row[3],
-            "canonical_url": row[4],
-            "source_key": normalize_source_type(row[5]) or row[5],
-            "snippet": row[6],
-            "scripture_refs": row[7] or [],
+            "source": row[3],
+            "language": row[4],
+            "canonical_url": row[5],
+            "source_url": row[6],
+            "source_key": normalize_source_type(row[7]) or row[7],
+            "snippet": row[8],
+            "scripture_refs": row[9] or [],
+            "tags": _string_list(row[10]),
+            "chunk_id": row[11],
+            "section_title": row[12],
+            "score": min(float(row[13] or 0) / 17, 1.0),
         }
         for row in rows
     ]
@@ -533,34 +602,43 @@ def _document_search(query: str, limit: int, filters=None, language: str | None 
 
 def _textual_search_response(payload: SearchRequest, warnings: list[str] | None = None) -> dict:
     rows = _document_search(payload.query, payload.limit, payload.filters, payload.language)
+    response_warnings = list(warnings or [])
+    if payload.query and len(payload.query) < 2:
+        response_warnings.append("Escribe al menos 2 caracteres para buscar.")
+    items = [
+        {
+            "chunk_id": row["chunk_id"] or row["id"],
+            "document_id": row["id"],
+            "title": row["title"],
+            "author": row["author"],
+            "source": row["source"],
+            "source_key": row["source_key"],
+            "source_url": row["source_url"],
+            "canonical_url": row["canonical_url"],
+            "language": row["language"],
+            "section_title": row["section_title"] or "Documento",
+            "snippet": row["snippet"],
+            "score": row["score"],
+            "semantic_score": None,
+            "bm25_score": None,
+            "rerank_score": None,
+            "tags": row["tags"],
+            "metadata": {
+                "fallback": "postgres_text",
+                "scripture_refs": row["scripture_refs"],
+                "scripture_refs_structured": structured_scripture_refs(row["scripture_refs"]),
+            },
+        }
+        for row in rows
+    ]
     return {
         "query": payload.query,
         "rewritten_query": None,
-        "mode": "textual_fallback",
-        "warnings": warnings or [],
-        "results": [
-            {
-                "chunk_id": row["id"],
-                "document_id": row["id"],
-                "title": row["title"],
-                "author": row["author"],
-                "source_key": row["source_key"],
-                "canonical_url": row["canonical_url"],
-                "language": row["language"],
-                "section_title": "Documento",
-                "snippet": row["snippet"],
-                "score": 0.5,
-                "semantic_score": None,
-                "bm25_score": None,
-                "rerank_score": None,
-                "metadata": {
-                    "fallback": "postgres_text",
-                    "scripture_refs": row["scripture_refs"],
-                    "scripture_refs_structured": structured_scripture_refs(row["scripture_refs"]),
-                },
-            }
-            for row in rows
-        ],
+        "mode": "postgres_text",
+        "warnings": response_warnings,
+        "items": items,
+        "results": items,
+        "total": len(items),
     }
 
 
@@ -663,18 +741,20 @@ def _metadata_filter_sql(filters, language: str | None, source_type_expr: str, c
     return where, params
 
 
-def _qdrant_points_count() -> int:
-    try:
-        return int(QdrantAdmin().ensure_collection().get("vectors") or 0)
-    except Exception:
-        return 0
-
-
 def _document_columns(conn) -> set[str]:
+    return _table_columns(conn, "documents")
+
+
+def _table_columns(conn, table_name: str) -> set[str]:
     return {
         row[0]
         for row in conn.execute(
-            "SELECT column_name FROM information_schema.columns WHERE table_name = 'documents'"
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = %s
+            """,
+            (table_name,),
         ).fetchall()
     }
 
@@ -691,3 +771,86 @@ def _table_exists(conn, table_name: str) -> bool:
         (table_name,),
     ).fetchone()
     return bool(row and row[0])
+
+
+def _document_description_expr(columns: set[str], metadata_column: str) -> str:
+    options = []
+    if "summary" in columns:
+        options.append("d.summary")
+    if "description" in columns:
+        options.append("d.description")
+    options.extend(
+        [
+            f"d.{metadata_column}->>'summary'",
+            f"d.{metadata_column}->>'description'",
+        ]
+    )
+    return f"COALESCE({', '.join(options)})"
+
+
+def _search_terms(query: str) -> list[str]:
+    stopwords = {
+        "about",
+        "como",
+        "cual",
+        "desde",
+        "does",
+        "from",
+        "mention",
+        "mentions",
+        "para",
+        "pero",
+        "por",
+        "que",
+        "sources",
+        "sobre",
+        "teach",
+        "that",
+        "the",
+        "una",
+        "what",
+        "where",
+        "with",
+    }
+    cleaned = query.replace("?", " ").replace(",", " ").replace(".", " ")
+    return [
+        token.casefold()
+        for token in cleaned.split()
+        if len(token) > 2 and token.casefold() not in stopwords
+    ][:8]
+
+
+def _string_list(value) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value if item]
+    if isinstance(value, tuple):
+        return [str(item) for item in value if item]
+    if isinstance(value, dict):
+        return [str(item) for item in value.values() if item]
+    return [str(value)]
+
+
+SENSITIVE_METADATA_TERMS = (
+    "api_key",
+    "authorization",
+    "cookie",
+    "database_url",
+    "password",
+    "secret",
+    "service_role",
+    "token",
+)
+
+
+def _safe_metadata(value):
+    if isinstance(value, dict):
+        return {
+            str(key): _safe_metadata(item)
+            for key, item in value.items()
+            if not any(term in str(key).casefold() for term in SENSITIVE_METADATA_TERMS)
+        }
+    if isinstance(value, list):
+        return [_safe_metadata(item) for item in value]
+    return value

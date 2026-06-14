@@ -13,7 +13,7 @@ export const metadataFilterSchema = z.object({
 });
 
 export const searchRequestSchema = z.object({
-  query: z.string().min(1).max(1000),
+  query: z.string().max(1000).transform((value) => value.trim()),
   filters: metadataFilterSchema.default({}),
   language: z.string().max(16).optional(),
   limit: z.number().min(1).max(50).default(12),

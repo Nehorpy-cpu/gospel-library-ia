@@ -89,6 +89,11 @@ class SchemaInitTests(TestCase):
         self.assertTrue(all("ADD COLUMN IF NOT EXISTS" in item.upper() for item in schema_init.ALTER_TABLE_STATEMENTS))
         self.assertTrue(all("CREATE INDEX IF NOT EXISTS" in item.upper() for item in schema_init.INDEX_STATEMENTS))
         self.assertTrue(set(schema_init.PRIMARY_ENDPOINT_TABLES).issubset(schema_init.EXPECTED_TABLES))
+        self.assertTrue(any("idx_documents_title" in item for item in schema_init.INDEX_STATEMENTS))
+        self.assertTrue(any("idx_documents_author" in item for item in schema_init.INDEX_STATEMENTS))
+        self.assertTrue(any("idx_documents_created" in item for item in schema_init.INDEX_STATEMENTS))
+        self.assertTrue(any("idx_chunks_document" in item for item in schema_init.INDEX_STATEMENTS))
+        self.assertTrue(any("idx_chunks_search_vector" in item for item in schema_init.INDEX_STATEMENTS))
 
     def test_initialize_schema_can_run_twice(self):
         conn = FakeConnection()

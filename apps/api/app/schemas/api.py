@@ -38,11 +38,16 @@ class MetadataFilter(BaseModel):
 
 
 class SearchRequest(BaseModel):
-    query: str = Field(min_length=1, max_length=1000)
+    query: str = Field(default="", max_length=1000)
     filters: MetadataFilter = Field(default_factory=MetadataFilter)
     language: str | None = Field(default=None, max_length=16)
     limit: int = Field(default=12, ge=1, le=50)
     use_reranker: bool = True
+
+    @field_validator("query")
+    @classmethod
+    def normalize_query(cls, value: str) -> str:
+        return value.strip()
 
     @model_validator(mode="after")
     def include_query_scripture_refs(self):

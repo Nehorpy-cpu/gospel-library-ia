@@ -57,9 +57,9 @@ export function SearchExperience() {
     <div className="grid gap-5 lg:grid-cols-[360px_1fr]">
       <aside className="space-y-4">
         <div>
-          <h1 className="text-2xl font-semibold">Busqueda global IA</h1>
+          <h1 className="text-2xl font-semibold">Busqueda global</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Combina BM25, vectores, filtros y reranking con citas trazables.
+            Busca por titulo, autor, fuente, tema y contenido disponible.
           </p>
         </div>
         <form
@@ -141,6 +141,11 @@ export function SearchExperience() {
               <p key={warning}>{warning}</p>
             ))}
           </div>
+        ) : null}
+        {submitted && !isLoading && !error && results.length === 0 ? (
+          <p className="rounded-md border bg-muted/40 p-5 text-sm text-muted-foreground">
+            No se encontraron resultados.
+          </p>
         ) : null}
         <div ref={parentRef} className="h-[calc(100vh-130px)] overflow-auto pr-2">
           <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative" }}>

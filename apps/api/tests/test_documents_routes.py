@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
 import unittest
@@ -15,6 +16,9 @@ class FakeResult:
 
     def fetchall(self):
         return self.rows
+
+    def fetchone(self):
+        return self.rows[0] if self.rows else None
 
 
 class FakeConnection:
@@ -134,6 +138,50 @@ class DocumentRoutesTest(unittest.TestCase):
 
         self.assertEqual(request.filters.scripture_refs, ["Alma 32:21"])
 
+    def test_search_request_accepts_and_normalizes_empty_query(self):
+        request = SearchRequest(query="   ")
+
+        self.assertEqual(request.query, "")
+
+    def test_textual_search_empty_query_returns_empty_contract(self):
+        response = public._textual_search_response(SearchRequest(query=""))
+
+        self.assertEqual(response["items"], [])
+        self.assertEqual(response["results"], [])
+        self.assertEqual(response["total"], 0)
+        self.assertEqual(response["mode"], "postgres_text")
+
+    def test_textual_search_exposes_compatible_items_and_results(self):
+        original_document_search = public._document_search
+        public._document_search = lambda *_args, **_kwargs: [
+            {
+                "id": "doc-1",
+                "chunk_id": "chunk-1",
+                "title": "La fe en Jesucristo",
+                "author": None,
+                "source": "Biblioteca oficial",
+                "source_key": "church",
+                "source_url": "https://example.com/source",
+                "canonical_url": "https://example.com/doc",
+                "language": "es",
+                "section_title": "Introduccion",
+                "snippet": "La fe en Jesucristo.",
+                "score": 7.0,
+                "tags": ["fe"],
+                "scripture_refs": [],
+            }
+        ]
+        try:
+            response = public._textual_search_response(SearchRequest(query="Cristo"))
+        finally:
+            public._document_search = original_document_search
+
+        self.assertEqual(response["total"], 1)
+        self.assertEqual(response["items"], response["results"])
+        self.assertEqual(response["items"][0]["document_id"], "doc-1")
+        self.assertEqual(response["items"][0]["source"], "Biblioteca oficial")
+        self.assertEqual(response["items"][0]["tags"], ["fe"])
+
     def test_sources_summary_returns_canonical_counts(self):
         response = public.sources_summary()
 
@@ -163,6 +211,90 @@ class DocumentRoutesTest(unittest.TestCase):
 
         self.assertIn("seed_content", connection.last_query)
         self.assertIn("<> 'true'", connection.last_query)
+
+    def test_safe_metadata_removes_nested_secrets(self):
+        safe = public._safe_metadata(
+            {
+                "source_type": "manual",
+                "api_key": "do-not-return",
+                "nested": {"token": "do-not-return", "language": "es"},
+            }
+        )
+
+        self.assertEqual(safe, {"source_type": "manual", "nested": {"language": "es"}})
+
+    def test_document_detail_returns_real_metadata_and_optional_chunks(self):
+        published_at = datetime(2024, 4, 6, tzinfo=timezone.utc)
+
+        class DetailConnection:
+            def execute(self, sql, params=None):
+                query = str(sql)
+                if "FROM documents d" in query:
+                    return FakeResult(
+                        [
+                            (
+                                "doc-1",
+                                "La fe en Jesucristo",
+                                None,
+                                "Biblioteca oficial",
+                                "manual",
+                                "https://example.com/source",
+                                "https://example.com/canonical",
+                                "es",
+                                "manual",
+                                published_at,
+                                "Resumen real.",
+                                None,
+                                ["fe", "Cristo"],
+                                "READY",
+                                published_at,
+                                published_at,
+                                {
+                                    "seed_content": True,
+                                    "api_key": "do-not-return",
+                                    "source_url": "https://example.com/source",
+                                },
+                                1,
+                            )
+                        ]
+                    )
+                if "FROM document_chunks" in query:
+                    return FakeResult(
+                        [
+                            (
+                                "chunk-1",
+                                0,
+                                "Introduccion",
+                                "Contenido real del chunk.",
+                                {"token": "do-not-return", "page": 1},
+                            )
+                        ]
+                    )
+                raise AssertionError(query)
+
+        @contextmanager
+        def detail_get_conn():
+            yield DetailConnection()
+
+        original_table_exists = public._table_exists
+        original_table_columns = public._table_columns
+        public.get_conn = detail_get_conn
+        public._table_exists = lambda _conn, table: table == "document_chunks"
+        public._table_columns = lambda _conn, table: {"text", "metadata"} if table == "document_chunks" else set()
+        try:
+            response = public.document_detail("doc-1", include_chunks=True)
+        finally:
+            public._table_exists = original_table_exists
+            public._table_columns = original_table_columns
+
+        self.assertEqual(response["source"], "Biblioteca oficial")
+        self.assertEqual(response["source_url"], "https://example.com/source")
+        self.assertEqual(response["summary"], "Resumen real.")
+        self.assertEqual(response["tags"], ["fe", "Cristo"])
+        self.assertEqual(response["chunks_available"], 1)
+        self.assertEqual(response["chunks"][0]["text"], "Contenido real del chunk.")
+        self.assertNotIn("api_key", response["metadata"])
+        self.assertNotIn("token", response["chunks"][0]["metadata"])
 
 
 if __name__ == "__main__":
