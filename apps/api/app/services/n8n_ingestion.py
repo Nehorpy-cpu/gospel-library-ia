@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from app.schemas.ingestion import N8nDocumentIngestionRequest
+from app.services.curated_sources import curated_source_for_url
 
 
 INGESTION_MODE = "n8n_curated_v1"
@@ -124,15 +125,15 @@ def split_chunks(text: str) -> list[tuple[int, int, str]]:
 
 def _ensure_source(conn, payload: N8nDocumentIngestionRequest) -> Any:
     source_url = normalize_url(payload.source_url)
-    parsed = urlsplit(source_url)
-    base_url = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+    source = curated_source_for_url(source_url)
+    if not source:
+        raise ValueError("source URL is outside the curated allowlist")
     row = conn.execute(
-        "SELECT id FROM sources WHERE base_url = %s ORDER BY created_at LIMIT 1",
-        (base_url,),
+        "SELECT id FROM sources WHERE key = %s",
+        (source.key,),
     ).fetchone()
     if row:
         return row[0]
-    source_key = f"n8n-{slugify(parsed.hostname or payload.source_name)}"[:100]
     row = conn.execute(
         """
         INSERT INTO sources (
@@ -141,8 +142,9 @@ def _ensure_source(conn, payload: N8nDocumentIngestionRequest) -> Any:
           rate_limit, max_pages_per_run, robots_policy_notes, config
         )
         VALUES (
-          %(key)s, %(name)s, %(base_url)s, 'n8n_curated', 'es', 'es',
-          false, 7, false, true, 'n8n_curated_payload', 1, 1,
+          %(key)s, %(name)s, %(base_url)s, %(source_type)s, 'es', 'es',
+          %(is_official)s, %(trust_level)s, false, true,
+          'n8n_curated_payload', 1, 1,
           'Contenido limpio enviado por n8n; sin crawling desde la API.',
           %(config)s::jsonb
         )
@@ -150,15 +152,24 @@ def _ensure_source(conn, payload: N8nDocumentIngestionRequest) -> Any:
         RETURNING id
         """,
         {
-            "key": source_key,
-            "name": payload.source_name,
-            "base_url": base_url,
-            "config": json.dumps({"ingestion_mode": INGESTION_MODE, "storage_used": False}),
+            "key": source.key,
+            "name": source.name,
+            "base_url": source.base_url,
+            "source_type": source.source_type,
+            "is_official": source.is_official,
+            "trust_level": source.trust_level,
+            "config": json.dumps(
+                {
+                    "ingestion_mode": INGESTION_MODE,
+                    "storage_used": False,
+                    "authorized_curated_source": True,
+                }
+            ),
         },
     ).fetchone()
     if row:
         return row[0]
-    return conn.execute("SELECT id FROM sources WHERE key = %s", (source_key,)).fetchone()[0]
+    return conn.execute("SELECT id FROM sources WHERE key = %s", (source.key,)).fetchone()[0]
 
 
 def _ensure_author(conn, author: str) -> None:
@@ -211,6 +222,9 @@ def ingest_document(conn, payload: N8nDocumentIngestionRequest) -> dict[str, Any
     content_hash = sha256_text(content)
     source_url = normalize_url(payload.source_url)
     canonical_url = normalize_url(payload.canonical_url or payload.source_url)
+    source = curated_source_for_url(source_url)
+    if not source:
+        raise ValueError("source URL is outside the curated allowlist")
     urls = list(dict.fromkeys([canonical_url, source_url]))
     conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (content_hash,))
 
@@ -241,13 +255,16 @@ def ingest_document(conn, payload: N8nDocumentIngestionRequest) -> dict[str, Any
         "seed_content": False,
         "ingested_by": "n8n",
         "storage_used": False,
-        "source_name": payload.source_name,
-        "source_type": "n8n_curated",
+        "source_name": source.name,
+        "submitted_source_name": payload.source_name,
+        "source_type": source.source_type,
         "source_url": source_url,
         "normalized_url": source_url,
         "canonical_url": canonical_url,
         "content_hash": content_hash,
         "content_type": payload.content_type,
+        "source_format": "pdf" if payload.content_type.casefold() in {"application/pdf", "pdf"} else "web",
+        "pdf_url": source_url if payload.content_type.casefold() in {"application/pdf", "pdf"} else None,
         "summary": payload.summary,
         "ingested_at": datetime.now().astimezone().isoformat(),
     }

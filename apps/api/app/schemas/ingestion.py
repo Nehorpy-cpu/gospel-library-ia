@@ -7,6 +7,8 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.services.curated_sources import curated_source_for_url
+
 
 SPANISH_MARKERS = {
     "al",
@@ -89,8 +91,8 @@ class N8nDocumentIngestionRequest(BaseModel):
         if value is None:
             return None
         parsed = urlsplit(value.strip())
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-            raise ValueError("must be an absolute HTTP(S) URL")
+        if parsed.scheme != "https" or not parsed.hostname:
+            raise ValueError("must be an absolute HTTPS URL")
         return value.strip()
 
     @field_validator("tags")
@@ -110,6 +112,13 @@ class N8nDocumentIngestionRequest(BaseModel):
     @model_validator(mode="after")
     def validate_clean_spanish_content(self):
         normalized_content = self.content.strip()
+        source = curated_source_for_url(self.source_url)
+        if not source:
+            raise ValueError("source_url is not an authorized Spanish document URL")
+        if self.canonical_url:
+            canonical_source = curated_source_for_url(self.canonical_url)
+            if not canonical_source or canonical_source.key != source.key:
+                raise ValueError("canonical_url must belong to the same authorized source")
         if contains_raw_html(normalized_content):
             raise ValueError("content must be cleaned text, not raw HTML")
         language = (self.language or "").strip().casefold()

@@ -69,13 +69,11 @@ class FakeConnection:
         if normalized.startswith("select count(*)::int from document_chunks"):
             count = sum(document_id == params[0] for document_id, _ in self.chunks)
             return FakeResult((count,))
-        if normalized.startswith("select id from sources where base_url"):
+        if normalized.startswith("select id from sources where key"):
             return FakeResult((self.source_id,) if self.source_id else None)
         if normalized.startswith("insert into sources"):
             self.source_id = self.new_id()
             return FakeResult((self.source_id,))
-        if normalized.startswith("select id from sources where key"):
-            return FakeResult((self.source_id,) if self.source_id else None)
         if normalized.startswith("insert into authors"):
             self.authors.add(params[0])
             return FakeResult()
@@ -127,9 +125,15 @@ class N8nIngestionRoutesTest(unittest.TestCase):
         return {
             "title": "La fe en Jesucristo",
             "author": "Autor de prueba",
-            "source_name": "Fuente doctrinal de prueba",
-            "source_url": "https://example.com/documento?utm_source=n8n",
-            "canonical_url": "https://example.com/documento",
+            "source_name": "Sitio oficial de la Iglesia",
+            "source_url": (
+                "https://www.churchofjesuschrist.org/study/general-conference/"
+                "2020/10/45andersen?lang=spa&utm_source=n8n"
+            ),
+            "canonical_url": (
+                "https://www.churchofjesuschrist.org/study/general-conference/"
+                "2020/10/45andersen?lang=spa"
+            ),
             "language": "es",
             "content_type": "discurso",
             "year": 2024,
@@ -237,6 +241,9 @@ class N8nIngestionRoutesTest(unittest.TestCase):
         self.assertTrue(metadata["nested"]["reviewed"])
         self.assertEqual(metadata["ingestion_mode"], "n8n_curated_v1")
         self.assertFalse(metadata["storage_used"])
+        self.assertEqual(metadata["source_name"], "La Iglesia de Jesucristo de los Santos de los Últimos Días")
+        self.assertEqual(metadata["source_type"], "church_official_es")
+        self.assertEqual(metadata["submitted_source_name"], "Sitio oficial de la Iglesia")
 
     def test_duplicate_document_is_verified_without_new_rows(self):
         headers = {"X-Ingestion-Key": "test-ingestion-key"}
@@ -249,6 +256,118 @@ class N8nIngestionRoutesTest(unittest.TestCase):
         self.assertEqual(second.json()["status"], "verified_existing")
         self.assertEqual(second.json()["document_id"], first.json()["document_id"])
         self.assertEqual(len(self.connection.documents), 1)
+
+    def test_rejects_source_outside_allowlist(self):
+        payload = self.payload()
+        payload["source_url"] = "https://example.com/documento"
+        payload["canonical_url"] = "https://example.com/documento"
+
+        response = self.client.post(
+            "/api/ingestion/documents",
+            headers={"X-Ingestion-Key": "test-ingestion-key"},
+            json=payload,
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(len(self.connection.documents), 0)
+
+    def test_rejects_insecure_authorized_source_url(self):
+        payload = self.payload()
+        payload["source_url"] = "http://discursosud.com/discurso/ejemplo/"
+        payload["canonical_url"] = payload["source_url"]
+
+        response = self.client.post(
+            "/api/ingestion/documents",
+            headers={"X-Ingestion-Key": "test-ingestion-key"},
+            json=payload,
+        )
+
+        self.assertEqual(response.status_code, 422)
+
+    def test_accepts_discursos_sud_document_url(self):
+        payload = self.payload()
+        payload["source_name"] = "Discursos SUD"
+        payload["source_url"] = "https://discursosud.com/discurso/ejemplo-doctrinal/"
+        payload["canonical_url"] = payload["source_url"]
+
+        response = self.client.post(
+            "/api/ingestion/documents",
+            headers={"X-Ingestion-Key": "test-ingestion-key"},
+            json=payload,
+        )
+
+        self.assertEqual(response.status_code, 201)
+        document_insert = next(
+            params
+            for statement, params in self.connection.executed
+            if statement.startswith("insert into documents")
+        )
+        metadata = json.loads(document_insert["metadata"])
+        self.assertEqual(metadata["source_type"], "discursos_sud_es")
+
+    def test_accepts_byu_spanish_individual_talk(self):
+        payload = self.payload()
+        payload["source_name"] = "BYU Speeches Español"
+        payload["source_url"] = "https://speeches.byu.edu/spa/talks/autor/discurso-ejemplo/"
+        payload["canonical_url"] = payload["source_url"]
+
+        response = self.client.post(
+            "/api/ingestion/documents",
+            headers={"X-Ingestion-Key": "test-ingestion-key"},
+            json=payload,
+        )
+
+        self.assertEqual(response.status_code, 201)
+
+    def test_rejects_byu_navigation_listing(self):
+        payload = self.payload()
+        payload["source_url"] = "https://speeches.byu.edu/spa/talks/"
+        payload["canonical_url"] = payload["source_url"]
+
+        response = self.client.post(
+            "/api/ingestion/documents",
+            headers={"X-Ingestion-Key": "test-ingestion-key"},
+            json=payload,
+        )
+
+        self.assertEqual(response.status_code, 422)
+
+    def test_rejects_discursos_sud_navigation_archive(self):
+        payload = self.payload()
+        payload["source_url"] = "https://discursosud.com/category/discursos/"
+        payload["canonical_url"] = payload["source_url"]
+
+        response = self.client.post(
+            "/api/ingestion/documents",
+            headers={"X-Ingestion-Key": "test-ingestion-key"},
+            json=payload,
+        )
+
+        self.assertEqual(response.status_code, 422)
+
+    def test_pdf_keeps_url_and_text_without_storage(self):
+        payload = self.payload()
+        payload["source_name"] = "Discursos SUD"
+        payload["source_url"] = "https://discursosud.com/wp-content/uploads/discurso.pdf"
+        payload["canonical_url"] = payload["source_url"]
+        payload["content_type"] = "application/pdf"
+
+        response = self.client.post(
+            "/api/ingestion/documents",
+            headers={"X-Ingestion-Key": "test-ingestion-key"},
+            json=payload,
+        )
+
+        self.assertEqual(response.status_code, 201)
+        document_insert = next(
+            params
+            for statement, params in self.connection.executed
+            if statement.startswith("insert into documents")
+        )
+        metadata = json.loads(document_insert["metadata"])
+        self.assertEqual(metadata["source_format"], "pdf")
+        self.assertEqual(metadata["pdf_url"], payload["source_url"])
+        self.assertFalse(metadata["storage_used"])
 
     def test_health_documents_contract(self):
         response = self.client.get("/api/ingestion/documents/health")

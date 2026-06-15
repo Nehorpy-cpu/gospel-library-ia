@@ -9,6 +9,21 @@ references in Supabase Postgres.
 The API does not crawl source sites, call OpenAI, create Qdrant vectors, upload
 files, or use Supabase Storage.
 
+## Authorized Spanish sources
+
+The API accepts document URLs only from:
+
+| Source | Canonical name | Accepted document URLs |
+| --- | --- | --- |
+| `discursosud.com` | Discursos SUD | Individual articles, books, or PDF URLs; the home page is rejected |
+| `speeches.byu.edu` | BYU Speeches Español | Individual talks under `/spa/talks/{author}/{talk}` |
+| `churchofjesuschrist.org` | La Iglesia de Jesucristo de los Santos de los Últimos Días | Resources under `/study/...` with `lang=spa` |
+
+Navigation roots and BYU talk listings are rejected even when they return
+substantial HTML. The canonical URL must belong to the same authorized source
+as the source URL. The API derives the canonical source name and type from this
+allowlist; the submitted `source_name` is retained only as audit metadata.
+
 ## Why web pages do not use Storage
 
 For ordinary web pages, the useful application data is the verified source
@@ -19,6 +34,11 @@ navigation/cookie noise, and complicates updates.
 Storage remains reserved for explicitly approved heavy files owned or managed
 by the project, such as PDFs that must be retained independently of their
 original source.
+
+For PDFs, n8n may download and extract text temporarily. It then sends the
+clean text with `content_type: "application/pdf"` and the original PDF URL.
+The API stores `source_format=pdf`, `pdf_url`, clean text, and chunks. It does
+not download the PDF or upload it to Storage.
 
 ## Render configuration
 

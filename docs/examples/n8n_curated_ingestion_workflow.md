@@ -13,6 +13,13 @@ and processes one explicit Spanish URL per item.
    - Return items with `source_url`, `source_name`, `content_type`, and default
      tags.
    - Use explicit URLs ending in `?lang=spa` when the source supports it.
+   - Allowed sources:
+     - individual resources from `https://discursosud.com/`;
+     - individual Spanish talks under `https://speeches.byu.edu/spa/talks/`;
+     - `/study/...` resources with `lang=spa` from
+       `https://www.churchofjesuschrist.org/`.
+   - Do not enqueue home pages, search pages, category archives, or the BYU
+     `/spa/talks/` listing.
    - Do not discover or enqueue links from downloaded pages.
 
 3. **HTTP Request: Download Source**
@@ -29,6 +36,9 @@ and processes one explicit Spanish URL per item.
      and the known main article container.
    - Remove `script`, `style`, `nav`, `header`, `footer`, `aside`, forms,
      cookie notices, related content, and duplicated blocks.
+   - For an approved PDF URL, use a bounded PDF text extraction node or
+     service, retain the original PDF URL, and do not send the binary file to
+     Gospel Library IA.
 
 5. **Code: Validate Spanish and Clean Text**
    - Convert extracted blocks to plain text.
@@ -42,6 +52,8 @@ and processes one explicit Spanish URL per item.
      `docs/examples/n8n_ingestion_payload_es.json`.
    - Do not include credentials, downloaded files, HTML, `file_url`, or
      `storage_path`.
+   - Set `content_type` to `application/pdf` only when `content` contains clean
+     text already extracted from the PDF.
 
 7. **HTTP Request: Gospel Library IA**
    - Method: `POST`
