@@ -12,6 +12,7 @@ from app.core.logging import configure_logging, logger
 from app.routes.admin import router as admin_router
 from app.routes.beta import router as beta_router
 from app.routes.exports import router as exports_router
+from app.routes.ingestion import router as ingestion_router
 from app.routes.profile import router as profile_router
 from app.routes.public import router as public_router
 from app.routes.study import alias_router as study_alias_router
@@ -42,12 +43,14 @@ app.include_router(study_alias_router)
 app.include_router(talk_builder_router)
 app.include_router(exports_router)
 app.include_router(profile_router)
+app.include_router(ingestion_router)
 
 
 SENSITIVE_API_PREFIXES = (
     "/api/admin",
     "/api/chat",
     "/api/exports",
+    "/api/ingestion",
     "/api/profile",
     "/api/study",
     "/api/study-workspaces",

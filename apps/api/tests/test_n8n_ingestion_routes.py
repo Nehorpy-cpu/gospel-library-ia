@@ -1,0 +1,268 @@
+from __future__ import annotations
+
+from contextlib import contextmanager
+import json
+from pathlib import Path
+from types import SimpleNamespace
+import sys
+import unittest
+
+from fastapi.testclient import TestClient
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.main import app
+from app.routes import ingestion
+
+
+SPANISH_CONTENT = (
+    "Jesucristo es el centro del evangelio restaurado y nos invita a ejercer fe en Él. "
+    "Por medio de Su gracia podemos arrepentirnos, guardar los convenios y servir con amor. "
+    "El Padre Celestial desea que cada persona aprenda de Cristo, siga Su ejemplo y reciba "
+    "las bendiciones del Espíritu Santo. La oración, el estudio de las Escrituras y la "
+    "participación digna en las ordenanzas fortalecen la fe y ayudan a perseverar. "
+) * 3
+
+
+class FakeResult:
+    def __init__(self, row=None):
+        self.row = row
+
+    def fetchone(self):
+        return self.row
+
+
+class FakeConnection:
+    def __init__(self):
+        self.source_id = None
+        self.documents = {}
+        self.chunks = set()
+        self.authors = set()
+        self.tags = set()
+        self.commits = 0
+        self.next_id = 1
+        self.executed = []
+
+    def new_id(self):
+        value = f"00000000-0000-4000-8000-{self.next_id:012d}"
+        self.next_id += 1
+        return value
+
+    def execute(self, statement, params=None):
+        normalized = " ".join(str(statement).split()).lower()
+        self.executed.append((normalized, params))
+        if normalized.startswith("select pg_advisory_xact_lock"):
+            return FakeResult((None,))
+        if normalized.startswith("select id::text, source_id::text, canonical_url from documents"):
+            urls = params[0]
+            content_hash = params[3]
+            for document in self.documents.values():
+                if (
+                    document["canonical_url"] in urls
+                    or document["source_url"] in urls
+                    or document["content_hash"] == content_hash
+                ):
+                    return FakeResult(
+                        (document["id"], document["source_id"], document["canonical_url"])
+                    )
+            return FakeResult()
+        if normalized.startswith("select count(*)::int from document_chunks"):
+            count = sum(document_id == params[0] for document_id, _ in self.chunks)
+            return FakeResult((count,))
+        if normalized.startswith("select id from sources where base_url"):
+            return FakeResult((self.source_id,) if self.source_id else None)
+        if normalized.startswith("insert into sources"):
+            self.source_id = self.new_id()
+            return FakeResult((self.source_id,))
+        if normalized.startswith("select id from sources where key"):
+            return FakeResult((self.source_id,) if self.source_id else None)
+        if normalized.startswith("insert into authors"):
+            self.authors.add(params[0])
+            return FakeResult()
+        if normalized.startswith("insert into tags"):
+            self.tags.add(params[0])
+            return FakeResult()
+        if normalized.startswith("insert into documents"):
+            canonical_url = params["canonical_url"]
+            if canonical_url in self.documents:
+                return FakeResult()
+            document_id = self.new_id()
+            metadata = json.loads(params["metadata"])
+            self.documents[canonical_url] = {
+                "id": document_id,
+                "source_id": str(params["source_id"]),
+                "canonical_url": canonical_url,
+                "source_url": metadata["source_url"],
+                "content_hash": params["content_hash"],
+            }
+            return FakeResult((document_id,))
+        if normalized.startswith("insert into document_chunks"):
+            self.chunks.add((params["document_id"], params["chunk_index"]))
+            return FakeResult()
+        raise AssertionError(f"Unexpected SQL: {normalized}")
+
+    def commit(self):
+        self.commits += 1
+
+
+class N8nIngestionRoutesTest(unittest.TestCase):
+    def setUp(self):
+        self.connection = FakeConnection()
+        self.original_get_conn = ingestion.get_conn
+        self.original_get_settings = ingestion.get_settings
+
+        @contextmanager
+        def fake_get_conn():
+            yield self.connection
+
+        ingestion.get_conn = fake_get_conn
+        ingestion.get_settings = lambda: SimpleNamespace(ingestion_api_key="test-ingestion-key")
+        self.client = TestClient(app)
+
+    def tearDown(self):
+        ingestion.get_conn = self.original_get_conn
+        ingestion.get_settings = self.original_get_settings
+
+    def payload(self):
+        return {
+            "title": "La fe en Jesucristo",
+            "author": "Autor de prueba",
+            "source_name": "Fuente doctrinal de prueba",
+            "source_url": "https://example.com/documento?utm_source=n8n",
+            "canonical_url": "https://example.com/documento",
+            "language": "es",
+            "content_type": "discurso",
+            "year": 2024,
+            "content": SPANISH_CONTENT,
+            "summary": "Resumen breve del documento.",
+            "tags": ["Jesucristo", "Fe"],
+            "metadata": {
+                "workflow": "curated-es-v1",
+                "storage_path": "ignored",
+                "nested": {"token": "must-not-be-stored", "reviewed": True},
+            },
+        }
+
+    def test_rejects_request_without_api_key(self):
+        response = self.client.post("/api/ingestion/documents", json=self.payload())
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(len(self.connection.documents), 0)
+
+    def test_rejects_incorrect_api_key(self):
+        response = self.client.post(
+            "/api/ingestion/documents",
+            headers={"X-Ingestion-Key": "wrong-key"},
+            json=self.payload(),
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(len(self.connection.documents), 0)
+
+    def test_rejects_non_spanish_content(self):
+        payload = self.payload()
+        payload["language"] = "en"
+
+        response = self.client.post(
+            "/api/ingestion/documents",
+            headers={"X-Ingestion-Key": "test-ingestion-key"},
+            json=payload,
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(len(self.connection.documents), 0)
+
+    def test_rejects_payload_without_source_url(self):
+        payload = self.payload()
+        payload.pop("source_url")
+
+        response = self.client.post(
+            "/api/ingestion/documents",
+            headers={"X-Ingestion-Key": "test-ingestion-key"},
+            json=payload,
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(len(self.connection.documents), 0)
+
+    def test_rejects_raw_html_content(self):
+        payload = self.payload()
+        payload["content"] = f"<html><body><nav>Menú</nav><p>{SPANISH_CONTENT}</p></body></html>"
+
+        response = self.client.post(
+            "/api/ingestion/documents",
+            headers={"X-Ingestion-Key": "test-ingestion-key"},
+            json=payload,
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(len(self.connection.documents), 0)
+
+    def test_detects_spanish_when_language_is_omitted(self):
+        payload = self.payload()
+        payload.pop("language")
+
+        response = self.client.post(
+            "/api/ingestion/documents",
+            headers={"X-Ingestion-Key": "test-ingestion-key"},
+            json=payload,
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["status"], "created")
+
+    def test_creates_valid_document_and_chunks(self):
+        response = self.client.post(
+            "/api/ingestion/documents",
+            headers={"X-Ingestion-Key": "test-ingestion-key"},
+            json=self.payload(),
+        )
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(payload["status"], "created")
+        self.assertGreater(payload["chunks"], 0)
+        self.assertEqual(len(self.connection.documents), 1)
+        self.assertEqual(self.connection.authors, {"autor-de-prueba"})
+        self.assertEqual(self.connection.tags, {"jesucristo", "fe"})
+        self.assertEqual(self.connection.commits, 1)
+        document_insert = next(
+            params
+            for statement, params in self.connection.executed
+            if statement.startswith("insert into documents")
+        )
+        metadata = json.loads(document_insert["metadata"])
+        self.assertNotIn("storage_path", metadata)
+        self.assertNotIn("token", metadata["nested"])
+        self.assertTrue(metadata["nested"]["reviewed"])
+        self.assertEqual(metadata["ingestion_mode"], "n8n_curated_v1")
+        self.assertFalse(metadata["storage_used"])
+
+    def test_duplicate_document_is_verified_without_new_rows(self):
+        headers = {"X-Ingestion-Key": "test-ingestion-key"}
+
+        first = self.client.post("/api/ingestion/documents", headers=headers, json=self.payload())
+        second = self.client.post("/api/ingestion/documents", headers=headers, json=self.payload())
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json()["status"], "verified_existing")
+        self.assertEqual(second.json()["document_id"], first.json()["document_id"])
+        self.assertEqual(len(self.connection.documents), 1)
+
+    def test_health_documents_contract(self):
+        response = self.client.get("/api/ingestion/documents/health")
+
+        self.assertEqual(
+            response.json(),
+            {
+                "status": "ok",
+                "required_header": "X-Ingestion-Key",
+                "accepted_language": "es",
+                "storage_used": False,
+            },
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

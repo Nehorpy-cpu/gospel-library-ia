@@ -1,0 +1,22 @@
+{
+  "title": "Hablamos de Cristo",
+  "author": "Neil L. Andersen",
+  "source_name": "Conferencia General",
+  "source_url": "https://www.churchofjesuschrist.org/study/general-conference/2020/10/45andersen?lang=spa",
+  "canonical_url": "https://www.churchofjesuschrist.org/study/general-conference/2020/10/45andersen?lang=spa",
+  "language": "es",
+  "content_type": "general_conference_talk",
+  "published_at": "2020-10-04T00:00:00Z",
+  "content": "[REEMPLAZAR ANTES DE ENVIAR] Insertar aquí más de 300 caracteres del texto principal en español, ya extraído y limpiado por n8n. No incluir navegación, menús, scripts, estilos, HTML, avisos de cookies ni contenido repetido. El texto debe provenir exclusivamente de la URL indicada, conservar sus párrafos y haber sido revisado para confirmar que está en español. Esta plantilla no contiene ni pretende sustituir el contenido doctrinal de la fuente oficial.",
+  "summary": null,
+  "tags": [
+    "Jesucristo",
+    "Fe",
+    "Conferencia General"
+  ],
+  "metadata": {
+    "workflow": "n8n_curated_spanish_v1",
+    "extractor": "html-extract",
+    "example_only": true
+  }
+}

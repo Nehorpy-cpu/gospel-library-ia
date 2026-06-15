@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     clerk_secret_key: str = ""
     clerk_admin_emails: str = ""
     admin_user_ids: str = ""
+    ingestion_api_key: str = ""
 
 
 @lru_cache
