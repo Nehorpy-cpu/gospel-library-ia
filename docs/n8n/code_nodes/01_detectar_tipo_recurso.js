@@ -24,10 +24,19 @@ try {
   return [{ json: { ...entrada, status: "skipped", razon: "La URL de origen no es válida." } }];
 }
 const host = source.hostname.replace(/^www\./, "").toLowerCase();
+const idiomaDeclarado = String(entrada.language ?? "").toLowerCase();
+const idiomaUrl = String(source.searchParams.get("lang") ?? "").toLowerCase();
+const idiomasNoEspanoles = new Set(["de", "deu", "en", "eng", "fr", "fra", "it", "ita", "por", "pt"]);
+if (idiomasNoEspanoles.has(idiomaDeclarado)) {
+  return [{ json: { ...entrada, status: "skipped", razon: `El idioma declarado '${idiomaDeclarado}' no es español.` } }];
+}
+if (idiomasNoEspanoles.has(idiomaUrl)) {
+  return [{ json: { ...entrada, status: "skipped", razon: `La URL declara lang=${idiomaUrl}, no español.` } }];
+}
 if (host === "speeches.byu.edu" && !source.pathname.startsWith("/spa/talks/")) {
   return [{ json: { ...entrada, status: "skipped", razon: "BYU Speeches solo admite discursos bajo /spa/talks/." } }];
 }
-if (host === "churchofjesuschrist.org" && source.searchParams.get("lang") !== "spa") {
+if (host === "churchofjesuschrist.org" && idiomaUrl !== "spa") {
   return [{ json: { ...entrada, status: "skipped", razon: "La página oficial no declara lang=spa." } }];
 }
 const parecePdf =

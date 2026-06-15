@@ -176,6 +176,84 @@ class N8nIngestionRoutesTest(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertEqual(len(self.connection.documents), 0)
 
+    def test_rejects_predominantly_english_content_even_when_declared_spanish(self):
+        payload = self.payload()
+        payload["content"] = (
+            "Jesus Christ is the center of the gospel and this document is written in English. "
+            "The Lord invites you to come unto me, and the disciples are called to faith and service. "
+            "This is a complete English paragraph for testing language detection and quality controls. "
+        ) * 4
+
+        response = self.client.post(
+            "/api/ingestion/documents",
+            headers={"X-Ingestion-Key": "test-ingestion-key"},
+            json=payload,
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(len(self.connection.documents), 0)
+
+    def test_rejects_non_spanish_language_urls_in_payload_and_metadata(self):
+        for field, value in (
+            ("source_url", "https://discursosud.com/discurso/ejemplo?lang=eng"),
+            ("canonical_url", "https://discursosud.com/discurso/ejemplo?lang=fra"),
+        ):
+            payload = self.payload()
+            payload["source_name"] = "Discursos SUD"
+            payload["source_url"] = "https://discursosud.com/discurso/ejemplo"
+            payload["canonical_url"] = payload["source_url"]
+            payload[field] = value
+            response = self.client.post(
+                "/api/ingestion/documents",
+                headers={"X-Ingestion-Key": "test-ingestion-key"},
+                json=payload,
+            )
+            self.assertEqual(response.status_code, 422, field)
+
+        payload = self.payload()
+        payload["metadata"]["source_url"] = "https://discursosud.com/discurso/ejemplo?lang=eng"
+        response = self.client.post(
+            "/api/ingestion/documents",
+            headers={"X-Ingestion-Key": "test-ingestion-key"},
+            json=payload,
+        )
+        self.assertEqual(response.status_code, 422)
+
+        payload = self.payload()
+        payload["metadata"]["canonical_url"] = "https://discursosud.com/discurso/ejemplo?lang=por"
+        response = self.client.post(
+            "/api/ingestion/documents",
+            headers={"X-Ingestion-Key": "test-ingestion-key"},
+            json=payload,
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_rejects_placeholder_and_test_documents(self):
+        variants = [
+            ("title", "Documento de prueba para ingesta"),
+            ("content", "[REEMPLAZAR ANTES DE ENVIAR] " + SPANISH_CONTENT),
+            ("summary", "No es una cita oficial"),
+            ("source_name", "Prueba n8n"),
+        ]
+        for field, value in variants:
+            payload = self.payload()
+            payload[field] = value
+            response = self.client.post(
+                "/api/ingestion/documents",
+                headers={"X-Ingestion-Key": "test-ingestion-key"},
+                json=payload,
+            )
+            self.assertEqual(response.status_code, 422, field)
+
+        payload = self.payload()
+        payload["metadata"]["test_payload"] = True
+        response = self.client.post(
+            "/api/ingestion/documents",
+            headers={"X-Ingestion-Key": "test-ingestion-key"},
+            json=payload,
+        )
+        self.assertEqual(response.status_code, 422)
+
     def test_rejects_payload_without_source_url(self):
         payload = self.payload()
         payload.pop("source_url")
@@ -202,18 +280,22 @@ class N8nIngestionRoutesTest(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertEqual(len(self.connection.documents), 0)
 
-    def test_detects_spanish_when_language_is_omitted(self):
-        payload = self.payload()
-        payload.pop("language")
+    def test_requires_exact_spanish_language_code(self):
+        for language in (None, "spa"):
+            payload = self.payload()
+            if language is None:
+                payload.pop("language")
+            else:
+                payload["language"] = language
 
-        response = self.client.post(
-            "/api/ingestion/documents",
-            headers={"X-Ingestion-Key": "test-ingestion-key"},
-            json=payload,
-        )
+            response = self.client.post(
+                "/api/ingestion/documents",
+                headers={"X-Ingestion-Key": "test-ingestion-key"},
+                json=payload,
+            )
 
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.json()["status"], "created")
+            self.assertEqual(response.status_code, 422)
+            self.assertIn("language must be es", response.text)
 
     def test_creates_valid_document_and_chunks(self):
         response = self.client.post(

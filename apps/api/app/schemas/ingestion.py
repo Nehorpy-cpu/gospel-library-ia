@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -35,6 +35,34 @@ SPANISH_MARKERS = {
     "una",
     "y",
 }
+ENGLISH_MARKERS = {
+    "and",
+    "are",
+    "christ",
+    "come",
+    "for",
+    "from",
+    "god",
+    "is",
+    "jesus",
+    "of",
+    "that",
+    "the",
+    "this",
+    "to",
+    "was",
+    "with",
+    "you",
+}
+DISALLOWED_LANGUAGE_CODES = {"de", "deu", "en", "eng", "fr", "fra", "it", "ita", "por", "pt"}
+PLACEHOLDER_MARKERS = (
+    "[reemplazar antes de enviar]",
+    "contenido de prueba",
+    "documento de prueba",
+    "no es una cita oficial",
+    "no reemplaza ninguna fuente doctrinal",
+    "placeholder",
+)
 HTML_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
 
 
@@ -42,8 +70,25 @@ def appears_to_be_spanish(content: str) -> bool:
     words = re.findall(r"[a-záéíóúüñ]+", content.casefold())
     if not words:
         return False
-    marker_count = sum(word in SPANISH_MARKERS for word in words)
-    return marker_count >= 8 and marker_count / len(words) >= 0.025
+    spanish_count = sum(word in SPANISH_MARKERS for word in words)
+    english_count = sum(word in ENGLISH_MARKERS for word in words)
+    return (
+        spanish_count >= 8
+        and spanish_count / len(words) >= 0.025
+        and english_count <= spanish_count
+    )
+
+
+def has_disallowed_language_parameter(value: str | None) -> bool:
+    if not value:
+        return False
+    language_values = parse_qs(urlsplit(value).query).get("lang", [])
+    return any(language.casefold() in DISALLOWED_LANGUAGE_CODES for language in language_values)
+
+
+def contains_placeholder(value: str | None) -> bool:
+    normalized = normalize_text_es(value or "", preserve_newlines=True).casefold()
+    return any(marker in normalized for marker in PLACEHOLDER_MARKERS)
 
 
 def contains_raw_html(content: str) -> bool:
@@ -121,19 +166,31 @@ class N8nDocumentIngestionRequest(BaseModel):
         source = curated_source_for_url(self.source_url)
         if not source:
             raise ValueError("source_url is not an authorized Spanish document URL")
+        if has_disallowed_language_parameter(self.source_url):
+            raise ValueError("source_url contains a non-Spanish language parameter")
         if self.canonical_url:
+            if has_disallowed_language_parameter(self.canonical_url):
+                raise ValueError("canonical_url contains a non-Spanish language parameter")
             canonical_source = curated_source_for_url(self.canonical_url)
             if not canonical_source or canonical_source.key != source.key:
                 raise ValueError("canonical_url must belong to the same authorized source")
+        for metadata_key in ("source_url", "canonical_url"):
+            metadata_url = self.metadata.get(metadata_key)
+            if isinstance(metadata_url, str) and has_disallowed_language_parameter(metadata_url):
+                raise ValueError(f"metadata.{metadata_key} contains a non-Spanish language parameter")
         if contains_raw_html(normalized_content):
             raise ValueError("content must be cleaned text, not raw HTML")
+        if contains_placeholder(self.title) or contains_placeholder(normalized_content) or contains_placeholder(self.summary):
+            raise ValueError("test or placeholder content is not accepted")
+        if self.source_name.casefold() == "prueba n8n":
+            raise ValueError("test sources are not accepted")
+        if self.metadata.get("test_payload") is True or str(self.metadata.get("test_payload", "")).casefold() == "true":
+            raise ValueError("test payloads are not accepted")
         language = (self.language or "").strip().casefold()
-        if not language:
-            if not appears_to_be_spanish(normalized_content):
-                raise ValueError("language is missing and Spanish could not be confirmed")
-            language = "es"
-        if language not in {"es", "spa"}:
-            raise ValueError("only Spanish content is accepted")
+        if language != "es":
+            raise ValueError("language must be es")
+        if not appears_to_be_spanish(normalized_content):
+            raise ValueError("content is not predominantly Spanish")
         self.language = "es"
         self.content = normalized_content
         if self.published_at is None and self.year is not None:

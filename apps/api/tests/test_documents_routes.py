@@ -371,7 +371,7 @@ class DocumentRoutesTest(unittest.TestCase):
             "documents": {
                 "id", "source_id", "title", "canonical_url", "author", "language", "category",
                 "published_at", "text", "tags", "status", "is_indexed", "created_at", "updated_at",
-                "raw_metadata",
+                "raw_metadata", "deleted_at",
             },
             "document_chunks": {"id", "document_id", "chunk_index", "section_title", "text", "metadata"},
         }.get(table, set())
@@ -396,6 +396,7 @@ class DocumentRoutesTest(unittest.TestCase):
         self.assertIn("dc.id::text AS id", connection.chunk_query)
         self.assertIn("dc.chunk_index AS chunk_index", connection.chunk_query)
         self.assertIn("dc.metadata AS metadata", connection.chunk_query)
+        self.assertIn("d.deleted_at IS NULL", connection.document_query)
 
     def test_document_detail_without_chunks_returns_empty_array(self):
         published_at = datetime(2024, 4, 6, tzinfo=timezone.utc)
@@ -563,7 +564,7 @@ class DocumentRoutesTest(unittest.TestCase):
                     columns = {
                         "documents": [
                             "id", "source_id", "title", "canonical_url", "author", "language",
-                            "text", "raw_metadata", "tags", "scripture_refs", "updated_at",
+                            "text", "raw_metadata", "tags", "scripture_refs", "updated_at", "deleted_at",
                         ],
                         "document_chunks": ["id", "document_id", "chunk_index", "content"],
                         "document_tags": ["document_id", "tag_name"],
@@ -595,6 +596,7 @@ class DocumentRoutesTest(unittest.TestCase):
         self.assertIn("NULL::text AS section_title", connection.search_query)
         self.assertNotIn("{chunk_", connection.search_query)
         self.assertNotIn("JOIN tags t ON t.id = dt.tag_id", connection.search_query)
+        self.assertIn("d.deleted_at IS NULL", connection.search_query)
 
 
 if __name__ == "__main__":

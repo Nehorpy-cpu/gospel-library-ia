@@ -14,6 +14,11 @@ FastAPI recibe `POST /api/ingestion/documents`, verifica `X-Ingestion-Key`,
 aplica nuevamente las reglas de fuente, idioma, longitud y texto limpio,
 normaliza URLs, calcula el hash y controla la idempotencia.
 
+La defensa es doble. n8n descarta URLs con idiomas no españoles y contenido de
+prueba antes del POST. FastAPI exige `language="es"` y vuelve a validar parámetros `lang`,
+metadata, predominio lingüístico y placeholders; por tanto, modificar el
+workflow no permite insertar contenido inválido.
+
 La API es la autoridad final. Un workflow modificado o defectuoso no puede
 omitir sus validaciones.
 
@@ -69,6 +74,9 @@ flowchart LR
 - `source_name` enviado por n8n es auditivo. La API deriva el nombre canónico
   desde su allowlist.
 - `canonical_url`, idioma, HTML y longitud se validan en FastAPI.
+- El idioma declarado no basta: el texto debe superar la heurística española y
+  no estar dominado por marcadores ingleses.
+- Títulos, metadata y contenido de prueba se rechazan antes de persistir.
 - Los secretos se mantienen en Render y en variables o credenciales de n8n.
 
 ## Idempotencia

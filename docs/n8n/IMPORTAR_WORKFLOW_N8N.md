@@ -108,7 +108,9 @@ individuales HTTPS de las tres fuentes autorizadas por la API.
 4. **Limpiar HTML y extraer contenido** elimina estructura y devuelve texto.
    También repara entidades HTML, espacios no separables y mojibake UTF-8 común.
 5. **Validar español y calidad mínima** exige título, más de 300 caracteres y
-   marcadores suficientes de español.
+   marcadores suficientes de español. También rechaza idiomas declarados
+   `eng`, `por`, `fra`, `ita`, `deu`, `language=en`, URLs no españolas y
+   cualquier texto de prueba o placeholder.
 6. **Preparar payload para Gospel Library IA** construye el contrato de API.
    Normaliza título, autor, fuente, resumen, contenido y traduce etiquetas
    doctrinales comunes al español.
@@ -150,6 +152,10 @@ y verifica título, autor, fuente, texto y enlace original.
 - Revisa manualmente cualquier cambio de selector o extractor.
 - BYU solo acepta URLs individuales bajo `/spa/talks/`.
 - El sitio oficial requiere `lang=spa`; cualquier otra variante queda omitida.
+- Nunca uses `lang=eng`, `lang=por`, `lang=fra`, `lang=ita` o `lang=deu`.
+- No envíes títulos `Documento de prueba`, `test_payload=true` ni frases como
+  `[REEMPLAZAR ANTES DE ENVIAR]`, `No es una cita oficial`,
+  `contenido de prueba` o `placeholder`.
 
 ## PDFs
 

@@ -4,6 +4,19 @@ if (item.status === "skipped") {
 }
 
 const texto = String(item.content ?? "").trim();
+const titulo = String(item.title ?? "").trim();
+const idioma = String(item.language ?? "").trim().toLowerCase();
+const urls = [item.source_url, item.canonical_url].filter(Boolean).map((url) => String(url));
+const idiomasNoEspanoles = new Set(["de", "deu", "en", "eng", "fr", "fra", "it", "ita", "por", "pt"]);
+const frasesProhibidas = [
+  "[reemplazar antes de enviar]",
+  "documento de prueba",
+  "no es una cita oficial",
+  "no reemplaza ninguna fuente doctrinal",
+  "contenido de prueba",
+  "placeholder"
+];
+const textoAuditable = `${titulo}\n${texto}\n${String(item.summary ?? "")}`.toLowerCase();
 const palabras = (texto.toLowerCase().match(/[a-záéíóúüñ]+/g) ?? []);
 const marcadoresEs = new Set([
   "al", "como", "con", "cristo", "de", "del", "dios", "el", "en", "es",
@@ -22,7 +35,19 @@ const basuraNavegacion = (
 ).length;
 
 let razon = null;
-if (!item.title || String(item.title).trim().length < 3) {
+if (idiomasNoEspanoles.has(idioma)) {
+  razon = `El idioma declarado '${idioma}' no es español.`;
+} else if (urls.some((url) => {
+  try {
+    return idiomasNoEspanoles.has(String(new URL(url).searchParams.get("lang") ?? "").toLowerCase());
+  } catch {
+    return true;
+  }
+})) {
+  razon = "La URL declara un idioma no español o no es válida.";
+} else if (frasesProhibidas.some((frase) => textoAuditable.includes(frase))) {
+  razon = "El documento contiene texto de prueba o placeholder.";
+} else if (!titulo || titulo.length < 3) {
   razon = "No se pudo extraer un título confiable.";
 } else if (texto.length < 301) {
   razon = "El texto limpio tiene menos de 301 caracteres.";

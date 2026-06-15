@@ -281,6 +281,7 @@ def document_detail(document_id: str, include_chunks: bool = False):
             if _table_exists(conn, "document_chunks")
             else "0"
         )
+        active_document_filter = "AND d.deleted_at IS NULL" if "deleted_at" in columns else ""
         doc = conn.execute(
             f"""
             SELECT
@@ -305,6 +306,7 @@ def document_detail(document_id: str, include_chunks: bool = False):
             FROM documents d
             JOIN sources s ON s.id = d.source_id
             WHERE d.id = %s
+              {active_document_filter}
             """,
             (normalized_document_id,),
         ).fetchone()
@@ -548,6 +550,8 @@ def _document_search(query: str, limit: int, filters=None, language: str | None 
             else f"COALESCE({tags_column}, '[]'::jsonb)"
         )
         filter_where, filter_params = _metadata_filter_sql(filters, language, source_type_expr, columns)
+        if "deleted_at" in columns:
+            filter_where.append("d.deleted_at IS NULL")
         filter_where.append(confirmed_duplicate_filter("d"))
         patterns = [f"%{normalized_query}%"]
         terms = _search_terms(normalized_query)
