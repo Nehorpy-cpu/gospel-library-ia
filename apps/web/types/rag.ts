@@ -11,6 +11,7 @@ export type MetadataFilter = {
   published_after?: string;
   published_before?: string;
   document_ids?: UUID[];
+  include_seed?: boolean;
 };
 
 export type SearchRequest = {

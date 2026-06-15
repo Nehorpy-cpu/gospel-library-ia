@@ -14,8 +14,26 @@ monitoring, extraction quality, and duplicate review are production-ready.
 Initial URLs:
 
 1. `https://www.churchofjesuschrist.org/study/manual/gospel-topics/salvation?lang=eng`
-2. `https://www.churchofjesuschrist.org/study/general-conference/2021/04/28ballard?lang=eng`
-3. `https://speeches.byu.edu/talks/kevin-r-duncan/jesus-christ-is-the-answer/`
+2. `https://www.churchofjesuschrist.org/study/manual/gospel-topics/faith-in-jesus-christ?lang=eng`
+3. `https://www.churchofjesuschrist.org/study/manual/gospel-topics/book-of-mormon?lang=eng`
+4. `https://www.churchofjesuschrist.org/study/general-conference/2020/10/45andersen?lang=eng`
+5. `https://www.churchofjesuschrist.org/study/general-conference/2021/04/28ballard?lang=eng`
+6. `https://www.churchofjesuschrist.org/study/general-conference/2021/04/54christofferson?lang=eng`
+7. `https://www.churchofjesuschrist.org/study/general-conference/2021/04/17eyring?lang=eng`
+8. `https://speeches.byu.edu/talks/kevin-r-duncan/jesus-christ-is-the-answer/`
+
+The Church pages are official sources. The BYU Speech remains in the list only
+because its current page structure passes the same conservative live
+extraction checks.
+
+Each request uses:
+
+```text
+GospelLibraryIA/0.1 curated-ingestion contact=https://www.estudiopy.com
+```
+
+No page links are followed. Only allowlisted redirects are followed, up to the
+small configured redirect limit.
 
 ## Add a URL manually
 
@@ -55,18 +73,35 @@ The script acquires one PostgreSQL advisory transaction lock and checks:
 Running the script twice verifies existing rows without duplicating documents
 or chunks. Existing documents are not overwritten or deleted.
 
+Document metadata includes:
+
+- `ingestion_mode="curated_v1"`
+- `is_seed=false`
+- `seed_content=false` for compatibility
+- `source_name`
+- `source_url`
+- `normalized_url`
+- `canonical_url`
+- `content_type="text/html"`
+- `extracted_at`
+- `extractor_version="curated-html-v1"`
+
+Chunks are stored in order with the existing `document_chunks.text` column and
+target approximately 800–1200 characters. Chunk metadata retains the source
+URL, document ID, ingestion mode, content type, and extractor version.
+
 ## Supabase verification
 
 ```sql
 SELECT id, title, author, canonical_url, published_at, language, category
 FROM documents
-WHERE raw_metadata->>'ingestion_marker' = 'curated-ingestion-v1'
+WHERE raw_metadata->>'ingestion_mode' = 'curated_v1'
 ORDER BY title;
 
 SELECT document_id, chunk_index, length(text) AS characters,
        metadata->>'source_url' AS source_url
 FROM document_chunks
-WHERE metadata->>'ingestion_marker' = 'curated-ingestion-v1'
+WHERE metadata->>'ingestion_mode' = 'curated_v1'
 ORDER BY document_id, chunk_index;
 ```
 
@@ -75,7 +110,11 @@ Seed/test documents remain identifiable with:
 ```sql
 SELECT id, title, canonical_url
 FROM documents
-WHERE coalesce((raw_metadata->>'seed_content')::boolean, false) = true;
+WHERE coalesce(
+  (raw_metadata->>'is_seed')::boolean,
+  (raw_metadata->>'seed_content')::boolean,
+  false
+) = true;
 ```
 
 No seed rows are deleted. The API can hide them with:
@@ -85,6 +124,8 @@ GET /api/documents?includeSeed=false
 ```
 
 Without that parameter, real documents are ordered before seed/test content.
+The Library UI also exposes an `Ocultar contenido seed/test` checkbox. Text
+search sends `filters.include_seed=false` while that option is active.
 
 ## API and frontend verification
 
@@ -94,6 +135,9 @@ curl.exe "https://api.estudiopy.com/api/authors"
 curl.exe "https://api.estudiopy.com/api/topics"
 curl.exe "https://api.estudiopy.com/api/documents/summary"
 curl.exe "https://api.estudiopy.com/api/sources/summary"
+curl.exe -X POST "https://api.estudiopy.com/api/search" `
+  -H "Content-Type: application/json" `
+  -d '{"query":"Jesucristo","filters":{"include_seed":false}}'
 ```
 
 Open `https://www.estudiopy.com/library` and confirm:
@@ -116,3 +160,17 @@ When a URL fails:
 3. Add or tighten a host-specific main-content selector.
 4. Add an extraction test.
 5. Run the script again; successful existing URLs remain idempotent.
+
+## Required validation
+
+Run twice against the same Supabase database:
+
+```powershell
+python scripts/ingest_curated_documents.py
+python scripts/ingest_curated_documents.py
+```
+
+The second run should report the same documents and chunks as `verified`, with
+zero duplicates created. A URL that no longer meets extraction quality should
+be reported as `SKIPPED`; do not weaken selectors or minimum-content checks
+without manually reviewing the returned HTML.

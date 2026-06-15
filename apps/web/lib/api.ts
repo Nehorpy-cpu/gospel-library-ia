@@ -133,13 +133,21 @@ export const ragApi = {
     onEvent({ type: "grounding", grounded: response.grounded, warnings: response.warnings });
     onEvent({ type: "done" });
   },
-  documents(params?: { search?: string; limit?: number; offset?: number; status?: string; sourceType?: string }) {
+  documents(params?: {
+    search?: string;
+    limit?: number;
+    offset?: number;
+    status?: string;
+    sourceType?: string;
+    includeSeed?: boolean;
+  }) {
     const searchParams = new URLSearchParams();
     if (params?.search) searchParams.set("search", params.search);
     if (params?.limit) searchParams.set("limit", String(params.limit));
     if (params?.offset) searchParams.set("offset", String(params.offset));
     if (params?.status) searchParams.set("status", params.status);
     if (params?.sourceType) searchParams.set("sourceType", params.sourceType);
+    if (params?.includeSeed !== undefined) searchParams.set("includeSeed", String(params.includeSeed));
     const query = searchParams.toString();
     return request<DocumentListResponse>(`/documents${query ? `?${query}` : ""}`).then((response) => ({
       ...response,

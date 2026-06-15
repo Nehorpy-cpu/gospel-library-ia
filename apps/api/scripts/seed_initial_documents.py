@@ -352,6 +352,8 @@ def ensure_document(
             "text": document.summary,
             "raw_metadata": json.dumps(
                 {
+                    "ingestion_mode": "seed_v1",
+                    "is_seed": True,
                     "seed_marker": SEED_MARKER,
                     "seed_content": True,
                     "content_kind": "original_test_summary",
@@ -381,6 +383,8 @@ def ensure_document(
 
 def ensure_chunk(conn, document_id: Any, document: DocumentSeed, stats: SeedStats) -> None:
     metadata = {
+        "ingestion_mode": "seed_v1",
+        "is_seed": True,
         "seed_marker": SEED_MARKER,
         "seed_content": True,
         "content_kind": "original_test_summary",

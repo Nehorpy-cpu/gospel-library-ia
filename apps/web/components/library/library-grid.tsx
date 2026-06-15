@@ -28,9 +28,9 @@ function toSpeechCardItem(item: Record<string, unknown>): SpeechCardItem {
     language: String(item.language ?? "es"),
     summary: String(item.excerpt ?? ""),
     year: item.publishedAt
-      ? new Date(String(item.publishedAt)).getFullYear().toString()
+      ? new Date(String(item.publishedAt)).getUTCFullYear().toString()
       : item.createdAt
-        ? new Date(String(item.createdAt)).getFullYear().toString()
+        ? new Date(String(item.createdAt)).getUTCFullYear().toString()
         : undefined,
     tags: [String(item.status ?? "READY")],
     kind: sourceKind(sourceType)
@@ -54,6 +54,7 @@ function searchResultToSpeechCardItem(item: SearchResult): SpeechCardItem {
 export function LibraryGrid() {
   const [filter, setFilter] = useState("");
   const [sourceType, setSourceType] = useState("");
+  const [hideSeed, setHideSeed] = useState(false);
   const deferredFilter = useDeferredValue(filter.trim());
   const isSearching = deferredFilter.length >= 2;
   const sources = useQuery({
@@ -62,17 +63,26 @@ export function LibraryGrid() {
     staleTime: 1000 * 60
   });
   const documents = useQuery({
-    queryKey: ["documents", sourceType],
-    queryFn: () => ragApi.documents({ sourceType: sourceType || undefined, limit: 100, offset: 0 }),
+    queryKey: ["documents", sourceType, hideSeed],
+    queryFn: () =>
+      ragApi.documents({
+        sourceType: sourceType || undefined,
+        includeSeed: !hideSeed,
+        limit: 100,
+        offset: 0
+      }),
     enabled: !isSearching,
     staleTime: 1000 * 60
   });
   const search = useQuery({
-    queryKey: ["library-text-search", deferredFilter, sourceType],
+    queryKey: ["library-text-search", deferredFilter, sourceType, hideSeed],
     queryFn: () =>
       ragApi.search({
         query: deferredFilter,
-        filters: { source_keys: sourceType ? [sourceType] : undefined },
+        filters: {
+          source_keys: sourceType ? [sourceType] : undefined,
+          include_seed: !hideSeed
+        },
         limit: 50,
         use_reranker: false
       }),
@@ -119,6 +129,15 @@ export function LibraryGrid() {
           </select>
         </div>
       </div>
+      <label className="flex w-fit items-center gap-2 text-sm text-muted-foreground">
+        <input
+          type="checkbox"
+          checked={hideSeed}
+          onChange={(event) => setHideSeed(event.target.checked)}
+          className="h-4 w-4 rounded border-input accent-primary"
+        />
+        Ocultar contenido seed/test
+      </label>
 
       {filter.trim().length === 1 ? (
         <p className="text-sm text-muted-foreground">Escribe al menos 2 caracteres para buscar en el contenido.</p>

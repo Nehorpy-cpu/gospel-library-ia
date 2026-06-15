@@ -9,7 +9,7 @@ export function documentToSpeechCard(document: StudyDocument): SpeechCardItem {
     source: document.source || document.sourceType || "Fuente doctrinal",
     language: document.language || "es",
     summary: document.excerpt || "Documento real cargado sin extracto disponible.",
-    year: document.createdAt ? new Date(document.createdAt).getFullYear().toString() : undefined,
+    year: document.createdAt ? new Date(document.createdAt).getUTCFullYear().toString() : undefined,
     tags: [document.sourceType, document.language, document.status].filter(Boolean) as string[],
     kind: sourceTypeToKind(document.sourceType)
   };

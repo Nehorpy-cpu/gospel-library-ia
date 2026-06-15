@@ -135,7 +135,9 @@ def documents(
             where.append(f"({source_type_expr} = ANY(%(source_types)s) OR s.key = ANY(%(source_types)s))")
             params["source_types"] = source_type_values
         if not includeSeed:
-            where.append(f"coalesce(d.{metadata_column}->>'seed_content', 'false') <> 'true'")
+            where.append(
+                f"coalesce(d.{metadata_column}->>'is_seed', d.{metadata_column}->>'seed_content', 'false') <> 'true'"
+            )
         if cursor:
             where.append("d.id::text > %(cursor)s")
             params["cursor"] = cursor
@@ -160,7 +162,10 @@ def documents(
           JOIN sources s ON s.id = d.source_id
           WHERE {" AND ".join(where)}
           ORDER BY
-            CASE WHEN d.{metadata_column}->>'seed_content' = 'true' THEN 1 ELSE 0 END ASC,
+            CASE
+              WHEN coalesce(d.{metadata_column}->>'is_seed', d.{metadata_column}->>'seed_content', 'false') = 'true'
+              THEN 1 ELSE 0
+            END ASC,
             d.updated_at DESC,
             d.id
           LIMIT %(limit)s
@@ -738,6 +743,11 @@ def _metadata_filter_sql(filters, language: str | None, source_type_expr: str, c
     if filters.published_before and "published_at" in columns:
         where.append("d.published_at <= %(filter_published_before)s")
         params["filter_published_before"] = filters.published_before
+    if filters.include_seed is False:
+        metadata_column = "raw_metadata" if "raw_metadata" in columns else "metadata"
+        where.append(
+            f"coalesce(d.{metadata_column}->>'is_seed', d.{metadata_column}->>'seed_content', 'false') <> 'true'"
+        )
     return where, params
 
 

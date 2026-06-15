@@ -210,7 +210,20 @@ class DocumentRoutesTest(unittest.TestCase):
         public.documents(includeSeed=False)
 
         self.assertIn("seed_content", connection.last_query)
+        self.assertIn("is_seed", connection.last_query)
         self.assertIn("<> 'true'", connection.last_query)
+
+    def test_search_filter_can_exclude_seed_content(self):
+        request = SearchRequest(query="Cristo", filters={"include_seed": False})
+
+        where, _ = public._metadata_filter_sql(
+            request.filters,
+            None,
+            "s.key",
+            {"raw_metadata"},
+        )
+
+        self.assertTrue(any("is_seed" in clause and "seed_content" in clause for clause in where))
 
     def test_safe_metadata_removes_nested_secrets(self):
         safe = public._safe_metadata(

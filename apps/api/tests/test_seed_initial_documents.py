@@ -112,6 +112,20 @@ class InitialContentSeedTests(TestCase):
             self.assertIn("[SEED/TEST CONTENT]", document.summary)
             self.assertLess(len(document.summary), 600)
 
+    def test_seed_metadata_uses_legacy_and_current_markers(self):
+        conn = FakeConnection()
+        seed.seed_initial_documents(conn)
+        document_inserts = [
+            params
+            for statement, params in conn.executed
+            if statement.startswith("insert into documents")
+        ]
+        metadata = [seed.json.loads(params["raw_metadata"]) for params in document_inserts]
+
+        self.assertTrue(all(item["seed_content"] is True for item in metadata))
+        self.assertTrue(all(item["is_seed"] is True for item in metadata))
+        self.assertTrue(all(item["ingestion_mode"] == "seed_v1" for item in metadata))
+
     def test_main_requires_database_url(self):
         with patch.dict(os.environ, {}, clear=True), patch.object(seed.psycopg, "connect") as connect:
             self.assertEqual(seed.main(), 2)

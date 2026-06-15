@@ -24,18 +24,18 @@ import psycopg
 from bs4 import BeautifulSoup, Tag
 
 
+INGESTION_MODE = "curated_v1"
 INGESTION_MARKER = "curated-ingestion-v1"
+EXTRACTOR_VERSION = "curated-html-v1"
 CHUNKER_VERSION = "curated-v1"
-USER_AGENT = (
-    "GospelLibraryIA-CuratedIngestion/1.0 "
-    "(+https://www.estudiopy.com; controlled one-page requests)"
-)
+USER_AGENT = "GospelLibraryIA/0.1 curated-ingestion contact=https://www.estudiopy.com"
 REQUEST_TIMEOUT_SECONDS = 30
 REQUEST_DELAY_SECONDS = 1.0
 MAX_RESPONSE_BYTES = 3_000_000
 MIN_CONTENT_CHARACTERS = 800
-CHUNK_TARGET_CHARACTERS = 1_600
-CHUNK_OVERLAP_CHARACTERS = 180
+CHUNK_MIN_CHARACTERS = 800
+CHUNK_TARGET_CHARACTERS = 1_000
+CHUNK_MAX_CHARACTERS = 1_200
 ALLOWED_HOSTS = {
     "www.churchofjesuschrist.org",
     "churchofjesuschrist.org",
@@ -81,6 +81,42 @@ TARGETS = (
         default_tags=("Salvation", "Jesus Christ", "Gospel Topics"),
     ),
     CuratedTarget(
+        url="https://www.churchofjesuschrist.org/study/manual/gospel-topics/faith-in-jesus-christ?lang=eng",
+        source_key="church_manuals",
+        source_name="Manuales de la Iglesia",
+        source_base_url="https://www.churchofjesuschrist.org/study/manual",
+        source_type="church_manuals",
+        document_type="gospel_topic",
+        category="Gospel Topics",
+        language="en",
+        body_selectors=("article#main .body", "article#main"),
+        default_tags=("Faith", "Jesus Christ", "Gospel Topics"),
+    ),
+    CuratedTarget(
+        url="https://www.churchofjesuschrist.org/study/manual/gospel-topics/book-of-mormon?lang=eng",
+        source_key="church_manuals",
+        source_name="Manuales de la Iglesia",
+        source_base_url="https://www.churchofjesuschrist.org/study/manual",
+        source_type="church_manuals",
+        document_type="gospel_topic",
+        category="Gospel Topics",
+        language="en",
+        body_selectors=("article#main .body", "article#main"),
+        default_tags=("Book of Mormon", "Jesus Christ", "Scriptures"),
+    ),
+    CuratedTarget(
+        url="https://www.churchofjesuschrist.org/study/general-conference/2020/10/45andersen?lang=eng",
+        source_key="general_conference",
+        source_name="Conferencia General",
+        source_base_url="https://www.churchofjesuschrist.org/study/general-conference",
+        source_type="general_conference",
+        document_type="general_conference_talk",
+        category="General Conference",
+        language="en",
+        body_selectors=("article#main .body", "article#main"),
+        default_tags=("Jesus Christ", "Faith", "General Conference"),
+    ),
+    CuratedTarget(
         url="https://www.churchofjesuschrist.org/study/general-conference/2021/04/28ballard?lang=eng",
         source_key="general_conference",
         source_name="Conferencia General",
@@ -91,6 +127,30 @@ TARGETS = (
         language="en",
         body_selectors=("article#main .body", "article#main"),
         default_tags=("Hope", "Jesus Christ", "General Conference"),
+    ),
+    CuratedTarget(
+        url="https://www.churchofjesuschrist.org/study/general-conference/2021/04/54christofferson?lang=eng",
+        source_key="general_conference",
+        source_name="Conferencia General",
+        source_base_url="https://www.churchofjesuschrist.org/study/general-conference",
+        source_type="general_conference",
+        document_type="general_conference_talk",
+        category="General Conference",
+        language="en",
+        body_selectors=("article#main .body", "article#main"),
+        default_tags=("Covenants", "Jesus Christ", "General Conference"),
+    ),
+    CuratedTarget(
+        url="https://www.churchofjesuschrist.org/study/general-conference/2021/04/17eyring?lang=eng",
+        source_key="general_conference",
+        source_name="Conferencia General",
+        source_base_url="https://www.churchofjesuschrist.org/study/general-conference",
+        source_type="general_conference",
+        document_type="general_conference_talk",
+        category="General Conference",
+        language="en",
+        body_selectors=("article#main .body", "article#main"),
+        default_tags=("Temples", "Covenants", "General Conference"),
     ),
     CuratedTarget(
         url="https://speeches.byu.edu/talks/kevin-r-duncan/jesus-christ-is-the-answer/",
@@ -396,25 +456,40 @@ def fetch_allowed(client: httpx.Client, url: str, max_redirects: int = 3) -> htt
 
 
 def split_chunks(text: str) -> list[tuple[int, int, str]]:
-    paragraphs = [paragraph.strip() for paragraph in text.split("\n\n") if paragraph.strip()]
     chunks: list[tuple[int, int, str]] = []
-    start = 0
-    buffer = ""
-    buffer_start = 0
-    for paragraph in paragraphs:
-        candidate = f"{buffer}\n\n{paragraph}".strip() if buffer else paragraph
-        if buffer and len(candidate) > CHUNK_TARGET_CHARACTERS:
-            chunks.append((buffer_start, buffer_start + len(buffer), buffer))
-            overlap = buffer[-CHUNK_OVERLAP_CHARACTERS:].lstrip()
-            buffer_start = max(start - len(overlap), 0)
-            buffer = f"{overlap}\n\n{paragraph}".strip() if overlap else paragraph
+    cursor = 0
+    text_length = len(text)
+    separators = ("\n\n", ". ", "; ", ", ", " ")
+    while cursor < text_length:
+        while cursor < text_length and text[cursor].isspace():
+            cursor += 1
+        if cursor >= text_length:
+            break
+        remaining = text_length - cursor
+        if remaining <= CHUNK_MAX_CHARACTERS:
+            end = text_length
         else:
-            if not buffer:
-                buffer_start = start
-            buffer = candidate
-        start += len(paragraph) + 2
-    if buffer:
-        chunks.append((buffer_start, buffer_start + len(buffer), buffer))
+            minimum_end = cursor + CHUNK_MIN_CHARACTERS
+            preferred_end = cursor + CHUNK_TARGET_CHARACTERS
+            maximum_end = min(cursor + CHUNK_MAX_CHARACTERS, text_length)
+            end = 0
+            for separator in separators:
+                before = text.rfind(separator, minimum_end, preferred_end + 1)
+                after = text.find(separator, preferred_end, maximum_end + 1)
+                candidates = [
+                    position + len(separator)
+                    for position in (before, after)
+                    if position >= minimum_end
+                ]
+                if candidates:
+                    end = min(candidates, key=lambda position: abs(position - preferred_end))
+                    break
+            if not end:
+                end = maximum_end
+        content = text[cursor:end].strip()
+        if content:
+            chunks.append((cursor, cursor + len(text[cursor:end].rstrip()), content))
+        cursor = end
     return chunks
 
 
@@ -447,7 +522,13 @@ def ensure_source(conn, target: CuratedTarget, stats: IngestionStats) -> Any:
             "is_official": target.source_type != "byu_speeches_en",
             "trust_level": 10 if target.source_type != "byu_speeches_en" else 7,
             "notes": "Lista curada de URLs; una solicitud por pagina, sin crawling.",
-            "config": json.dumps({"ingestion_marker": INGESTION_MARKER, "indexing": {"mode": "disabled"}}),
+            "config": json.dumps(
+                {
+                    "ingestion_mode": INGESTION_MODE,
+                    "ingestion_marker": INGESTION_MARKER,
+                    "indexing": {"mode": "disabled"},
+                }
+            ),
         },
     ).fetchone()
     if row:
@@ -470,7 +551,7 @@ def ensure_author(conn, author: str, stats: IngestionStats) -> None:
             author,
             author,
             normalized_name(author),
-            json.dumps({"ingestion_marker": INGESTION_MARKER}),
+            json.dumps({"ingestion_mode": INGESTION_MODE, "ingestion_marker": INGESTION_MARKER}),
         ),
     ).fetchone()
     if row:
@@ -548,16 +629,21 @@ def ensure_document(conn, source_id: Any, document: ExtractedDocument, stats: In
             "text": document.text,
             "metadata": json.dumps(
                 {
+                    "ingestion_mode": INGESTION_MODE,
                     "ingestion_marker": INGESTION_MARKER,
+                    "is_seed": False,
                     "seed_content": False,
                     "content_kind": "curated_real_html",
+                    "content_type": "text/html",
+                    "source_name": document.target.source_name,
                     "source_type": document.target.source_type,
                     "document_type": document.target.document_type,
                     "source_url": document.source_url,
                     "normalized_url": document.normalized_url,
                     "canonical_url": document.canonical_url,
                     "extraction_selector": document.extraction_selector,
-                    "fetched_at": datetime.now().astimezone().isoformat(),
+                    "extracted_at": datetime.now().astimezone().isoformat(),
+                    "extractor_version": EXTRACTOR_VERSION,
                 }
             ),
             "content_hash": sha256_text(document.text),
@@ -604,11 +690,15 @@ def ensure_chunks(conn, document_id: Any, document: ExtractedDocument, stats: In
                 "text_hash": sha256_text(content),
                 "metadata": json.dumps(
                     {
+                        "ingestion_mode": INGESTION_MODE,
                         "ingestion_marker": INGESTION_MARKER,
+                        "is_seed": False,
                         "seed_content": False,
+                        "content_type": "text/plain",
                         "source_url": document.source_url,
                         "canonical_url": document.canonical_url,
                         "document_id": str(document_id),
+                        "extractor_version": EXTRACTOR_VERSION,
                     }
                 ),
             },

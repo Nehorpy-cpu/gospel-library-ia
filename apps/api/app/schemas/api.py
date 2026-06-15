@@ -17,6 +17,7 @@ class MetadataFilter(BaseModel):
     published_after: date | None = None
     published_before: date | None = None
     document_ids: list[str] | None = None
+    include_seed: bool | None = None
 
     @field_validator("source_keys")
     @classmethod

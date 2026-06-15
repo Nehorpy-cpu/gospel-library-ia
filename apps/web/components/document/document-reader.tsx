@@ -110,7 +110,11 @@ export function DocumentReader({ id }: { id: string }) {
   const chunks = chunksValue(data.chunks);
   const sourceUrl = safeExternalUrl(data.source_url ?? data.sourceUrl ?? data.canonical_url);
   const metadata = data.metadata && typeof data.metadata === "object" ? (data.metadata as Record<string, unknown>) : {};
-  const isSeed = metadata.seed_content === true || metadata.seed_content === "true";
+  const isSeed =
+    metadata.is_seed === true ||
+    metadata.is_seed === "true" ||
+    metadata.seed_content === true ||
+    metadata.seed_content === "true";
   const hasContent = Boolean(fullText || chunks.length);
 
   return (

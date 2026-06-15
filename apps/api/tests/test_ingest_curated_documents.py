@@ -114,6 +114,15 @@ def html_response(target, title: str, author: str = "Test Author") -> httpx.Resp
 
 
 class CuratedIngestionTests(TestCase):
+    def test_curated_targets_are_small_explicit_and_allowed(self):
+        self.assertEqual(len(ingest.TARGETS), 8)
+        self.assertEqual(
+            ingest.USER_AGENT,
+            "GospelLibraryIA/0.1 curated-ingestion contact=https://www.estudiopy.com",
+        )
+        self.assertTrue(all(target.url.startswith("https://") for target in ingest.TARGETS))
+        self.assertTrue(all(ingest.normalize_url(target.url) for target in ingest.TARGETS))
+
     def test_ingestion_is_idempotent(self):
         conn = FakeConnection()
         responses = {
@@ -132,6 +141,32 @@ class CuratedIngestionTests(TestCase):
         statements = "\n".join(statement for statement, _ in conn.executed)
         self.assertNotIn("delete from", statements)
         self.assertNotIn("truncate", statements)
+        document_inserts = [
+            params
+            for statement, params in conn.executed
+            if statement.startswith("insert into documents")
+        ]
+        metadata = ingest.json.loads(document_inserts[0]["metadata"])
+        self.assertEqual(metadata["ingestion_mode"], "curated_v1")
+        self.assertFalse(metadata["is_seed"])
+        self.assertEqual(metadata["extractor_version"], "curated-html-v1")
+        self.assertEqual(metadata["content_type"], "text/html")
+        self.assertTrue(metadata["source_url"].startswith("https://"))
+
+    def test_chunks_stay_near_requested_size_and_preserve_text(self):
+        text = " ".join(f"paragraph-{index} " + ("faith " * 45) for index in range(20))
+
+        chunks = ingest.split_chunks(text)
+
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(len(chunk[2]) <= ingest.CHUNK_MAX_CHARACTERS for chunk in chunks))
+        self.assertTrue(
+            all(len(chunk[2]) >= ingest.CHUNK_MIN_CHARACTERS for chunk in chunks[:-1])
+        )
+        self.assertEqual(
+            "".join(chunk[2] for chunk in chunks).replace(" ", ""),
+            text.replace(" ", ""),
+        )
 
     def test_dirty_or_short_page_is_skipped(self):
         target = ingest.TARGETS[0]

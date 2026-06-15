@@ -9,7 +9,8 @@ export const metadataFilterSchema = z.object({
   scripture_refs: z.array(z.string()).optional(),
   published_after: z.string().optional(),
   published_before: z.string().optional(),
-  document_ids: z.array(z.string()).optional()
+  document_ids: z.array(z.string()).optional(),
+  include_seed: z.boolean().optional()
 });
 
 export const searchRequestSchema = z.object({
