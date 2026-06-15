@@ -1,212 +1,97 @@
-# n8n Curated Spanish Ingestion Runbook
+# Runbook de ingesta n8n en español
 
-## Purpose
+## Propósito
 
-`POST /api/ingestion/documents` receives already-clean Spanish documents from
-n8n and stores only metadata, clean text, chunks, and original-source
-references in Supabase Postgres.
+El endpoint `POST /api/ingestion/documents` recibe documentos en español ya
+limpios. Guarda metadata, texto y chunks en PostgreSQL. No usa OpenAI, Qdrant,
+Supabase Storage ni crawling automático.
 
-The API does not crawl source sites, call OpenAI, create Qdrant vectors, upload
-files, or use Supabase Storage.
+## Fuentes admitidas
 
-## Authorized Spanish sources
+- Discursos individuales o PDF de `https://discursosud.com/`.
+- Discursos individuales bajo `https://speeches.byu.edu/spa/talks/`.
+- Recursos de `churchofjesuschrist.org/study/...` con `lang=spa`.
 
-The API accepts document URLs only from:
+Portadas, categorías, listados y páginas sin indicador español se rechazan.
 
-| Source | Canonical name | Accepted document URLs |
-| --- | --- | --- |
-| `discursosud.com` | Discursos SUD | Individual articles, books, or PDF URLs; the home page is rejected |
-| `speeches.byu.edu` | BYU Speeches Español | Individual talks under `/spa/talks/{author}/{talk}` |
-| `churchofjesuschrist.org` | La Iglesia de Jesucristo de los Santos de los Últimos Días | Resources under `/study/...` with `lang=spa` |
+## Configuración
 
-Navigation roots and BYU talk listings are rejected even when they return
-substantial HTML. The canonical URL must belong to the same authorized source
-as the source URL. The API derives the canonical source name and type from this
-allowlist; the submitted `source_name` is retained only as audit metadata.
+En Render:
 
-## Why web pages do not use Storage
-
-For ordinary web pages, the useful application data is the verified source
-URL, normalized metadata, clean article text, and searchable chunks. Saving
-complete HTML duplicates external assets, increases storage usage, preserves
-navigation/cookie noise, and complicates updates.
-
-Storage remains reserved for explicitly approved heavy files owned or managed
-by the project, such as PDFs that must be retained independently of their
-original source.
-
-For PDFs, n8n may download and extract text temporarily. It then sends the
-clean text with `content_type: "application/pdf"` and the original PDF URL.
-The API stores `source_format=pdf`, `pdf_url`, clean text, and chunks. It does
-not download the PDF or upload it to Storage.
-
-## Render configuration
-
-Create a long random secret and configure it only in:
-
-- Render environment variable: `INGESTION_API_KEY`
-- n8n credential or secret variable used by the request node
-
-Do not expose it in Vercel, browser code, workflow output, execution logs,
-screenshots, source control, or request bodies. Redeploy the Render API after
-adding the variable.
-
-The client sends:
-
-```text
-X-Ingestion-Key: <INGESTION_API_KEY>
+```env
+INGESTION_API_KEY=<CLAVE_SECRETA_REAL>
 ```
 
-Missing or incorrect credentials return `401`. If Render has no configured
-key, the endpoint returns `503` and accepts no documents.
+En n8n:
 
-## Health check
+```env
+GOSPEL_LIBRARY_API_URL=https://api.estudiopy.com
+INGESTION_API_KEY=<MISMA_CLAVE_SECRETA_DE_RENDER>
+```
 
-No credential or database access is required:
+Consulta `docs/n8n/N8N_VARIABLES_AND_CREDENTIALS.md` para usar una credencial
+Header Auth. Nunca guardes la clave en Git o en un nodo Set/Code.
+
+## Importar y ejecutar
+
+1. Importa `docs/n8n/gospel_library_curated_ingestion_v1.workflow.json`.
+2. Confirma que el workflow está inactivo.
+3. Conserva una sola URL durante la primera prueba.
+4. Ejecuta manualmente.
+5. Revisa el estado final: `created`, `verified_existing`, `skipped`,
+   `rejected` o `error`.
+6. Ejecuta una segunda vez; debe devolver `verified_existing`.
+
+## Verificar el detalle
 
 ```powershell
-Invoke-RestMethod `
-  -Uri "https://api.estudiopy.com/api/ingestion/documents/health" `
-  -Method GET
+$documents = Invoke-RestMethod "https://api.estudiopy.com/api/documents?limit=5&includeSeed=false"
+$id = $documents.items[0].id
+Invoke-RestMethod "https://api.estudiopy.com/api/documents/$id?include_chunks=true" |
+  ConvertTo-Json -Depth 10
 ```
 
-Expected response:
+Un documento existente sin chunks devuelve `chunks: []`. Un ID inexistente
+devuelve HTTP 404 con `Documento no encontrado.`.
 
-```json
-{
-  "status": "ok",
-  "required_header": "X-Ingestion-Key",
-  "accepted_language": "es",
-  "storage_used": false
-}
-```
+## Normalizar datos existentes
 
-## Payload
-
-See `docs/examples/n8n_ingestion_payload_es.json`. Replace its marked content
-before sending it; the example does not contain the source's doctrinal text.
-
-Required fields:
-
-- `title`
-- `source_name`
-- `source_url`
-- `content` with at least 301 cleaned characters
-
-Language must be `es` or `spa`. If omitted, the API performs a conservative
-Spanish marker check and rejects text it cannot confirm. Optional fields are
-`author`, `canonical_url`, `content_type`, `published_at`, `year`, `summary`,
-`tags`, and `metadata`.
-
-Raw structural HTML is rejected. Payload fields such as `file_url` and
-`storage_path` are not part of the model and are ignored. A `storage_path`
-inside metadata is also removed.
-
-## PowerShell test
+El script no borra documentos, chunks ni URLs:
 
 ```powershell
-$env:INGESTION_API_KEY="VALOR_CONFIGURADO_TAMBIEN_EN_RENDER"
-$payload = Get-Content `
-  "F:\Proyectos\gospel-library-ia-clean\docs\examples\n8n_ingestion_payload_es.json" `
-  -Raw
-
-# Replace the marked example content with clean source text before this call.
-Invoke-RestMethod `
-  -Uri "https://api.estudiopy.com/api/ingestion/documents" `
-  -Method POST `
-  -Headers @{ "X-Ingestion-Key" = $env:INGESTION_API_KEY } `
-  -ContentType "application/json" `
-  -Body $payload
-
-Remove-Item Env:INGESTION_API_KEY
+cd apps/api
+..\.venv\Scripts\activate
+$env:DATABASE_URL="TU_DATABASE_URL"
+python scripts/normalize_existing_spanish_content.py
+Remove-Item Env:DATABASE_URL
 ```
 
-Created documents return HTTP `201` and `status: "created"`. Existing
-documents return HTTP `200` and `status: "verified_existing"`.
+Normaliza títulos, autores, fuentes, texto, chunks y metadata; traduce etiquetas
+comunes y recalcula hashes de contenido. Es idempotente: una segunda ejecución
+no debe reportar cambios adicionales.
 
-## Idempotency
-
-Before insertion, the API:
-
-1. Normalizes source and canonical URLs.
-2. Removes common tracking query parameters.
-3. Normalizes clean text and calculates SHA-256 `content_hash`.
-4. Acquires a transaction advisory lock for that hash.
-5. Checks `canonical_url`, metadata source/normalized URL, and `content_hash`.
-
-The unique canonical URL constraint and chunk unique key provide additional
-database protection. The API never deletes or overwrites an existing document.
-
-Stored document metadata includes:
-
-```text
-ingestion_mode=n8n_curated_v1
-language=es
-is_seed=false
-ingested_by=n8n
-storage_used=false
-source_url
-canonical_url
-content_hash
-```
-
-## n8n workflow
-
-Use the detailed workflow in
-`docs/examples/n8n_curated_ingestion_workflow.md`:
-
-1. Manual Trigger or low-frequency Schedule.
-2. Small explicit list of Spanish URLs.
-3. HTTP Request to download one page.
-4. HTML Extract using a known main-content selector.
-5. Code node to clean text and validate Spanish.
-6. Set node to prepare JSON.
-7. HTTP Request POST to the ingestion endpoint.
-8. Switch or log node to record `created`, `verified_existing`, or reviewable
-   failures.
-
-Keep the API key in an n8n credential. Never place it in a Code or Set node.
-
-## Verify in Supabase and the application
-
-```sql
-SELECT id, title, author, language, canonical_url, content_hash
-FROM documents
-WHERE raw_metadata->>'ingestion_mode' = 'n8n_curated_v1'
-ORDER BY created_at DESC;
-
-SELECT document_id, chunk_index, length(text) AS characters
-FROM document_chunks
-WHERE metadata->>'ingestion_mode' = 'n8n_curated_v1'
-ORDER BY document_id, chunk_index;
-```
-
-Verify public endpoints:
+## Comprobaciones
 
 ```powershell
-Invoke-RestMethod "https://api.estudiopy.com/api/documents?includeSeed=false"
+Invoke-RestMethod "https://api.estudiopy.com/api/documents"
 Invoke-RestMethod "https://api.estudiopy.com/api/authors"
 Invoke-RestMethod "https://api.estudiopy.com/api/topics"
 
-$body = @{ query = "Jesucristo"; filters = @{ include_seed = $false } } |
-  ConvertTo-Json -Depth 5
+$body = @{ query = "Jesucristo" } | ConvertTo-Json
 Invoke-RestMethod `
   -Uri "https://api.estudiopy.com/api/search" `
   -Method POST `
   -ContentType "application/json" `
-  -Body $body |
-  ConvertTo-Json -Depth 10
+  -Body $body
 ```
 
-In `https://www.estudiopy.com/library`, hide seed/test content and confirm the
-new title, source, author, detail text, and chunks. Empty searches must return
-`items: []`, `results: []`, and `total: 0`.
+En la Biblioteca verifica título, autor, fuente, etiquetas, texto y enlace
+original. No deben aparecer secuencias como `Ã`, `Â` o `Ãƒ`.
 
-## Failure handling
+## Fallos
 
-- `401`: n8n did not send the same key configured in Render.
-- `422`: inspect field validation, language, text length, or raw HTML.
-- `503`: configure `INGESTION_API_KEY` in Render and redeploy.
-- `verified_existing`: expected idempotent result, not an error.
-- Database `5xx`: stop the batch and inspect Render logs; do not retry without
-  a bounded delay.
+- `401`: la clave enviada por n8n no coincide con Render.
+- `404` en detalle: el ID no existe.
+- `422`: URL, idioma, HTML crudo o longitud inválidos.
+- `503`: Render no tiene configurada `INGESTION_API_KEY`.
+- `500`: detén el lote y revisa logs de Render; no hagas reintentos masivos.

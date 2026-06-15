@@ -245,6 +245,29 @@ class N8nIngestionRoutesTest(unittest.TestCase):
         self.assertEqual(metadata["source_type"], "church_official_es")
         self.assertEqual(metadata["submitted_source_name"], "Sitio oficial de la Iglesia")
 
+    def test_normalizes_mojibake_and_translates_tags_before_insert(self):
+        payload = self.payload()
+        payload["title"] = "Libro de MormÃƒÂ³n"
+        payload["author"] = "Elder D.Ã‚ Todd Christofferson"
+        payload["tags"] = ["Book of Mormon", "Holy Ghost"]
+
+        response = self.client.post(
+            "/api/ingestion/documents",
+            headers={"X-Ingestion-Key": "test-ingestion-key"},
+            json=payload,
+        )
+
+        self.assertEqual(response.status_code, 201)
+        document_insert = next(
+            params
+            for statement, params in self.connection.executed
+            if statement.startswith("insert into documents")
+        )
+        self.assertEqual(document_insert["title"], "Libro de Mormón")
+        self.assertEqual(document_insert["author"], "Elder D. Todd Christofferson")
+        self.assertEqual(json.loads(document_insert["tags"]), ["Libro de Mormón", "Espíritu Santo"])
+        self.assertEqual(self.connection.tags, {"libro-de-mormon", "espiritu-santo"})
+
     def test_duplicate_document_is_verified_without_new_rows(self):
         headers = {"X-Ingestion-Key": "test-ingestion-key"}
 

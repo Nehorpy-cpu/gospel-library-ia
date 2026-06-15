@@ -10,6 +10,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from app.schemas.ingestion import N8nDocumentIngestionRequest
 from app.services.curated_sources import curated_source_for_url
+from app.services.spanish_text import normalize_tag_es, normalize_text_es, normalize_visible_metadata
 
 
 INGESTION_MODE = "n8n_curated_v1"
@@ -73,8 +74,7 @@ def normalize_url(value: str) -> str:
 
 
 def normalize_content(value: str) -> str:
-    lines = [" ".join(line.split()) for line in value.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
-    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+    return normalize_text_es(value.replace("\r\n", "\n").replace("\r", "\n"), preserve_newlines=True)
 
 
 def safe_metadata(value: Any) -> Any:
@@ -219,6 +219,11 @@ def _find_existing(conn, urls: list[str], content_hash: str):
 
 def ingest_document(conn, payload: N8nDocumentIngestionRequest) -> dict[str, Any]:
     content = normalize_content(payload.content)
+    title = normalize_text_es(payload.title)
+    author = normalize_text_es(payload.author) if payload.author else None
+    submitted_source_name = normalize_text_es(payload.source_name)
+    summary = normalize_text_es(payload.summary, preserve_newlines=True) if payload.summary else None
+    tags = list(dict.fromkeys(normalize_tag_es(tag) for tag in payload.tags if normalize_tag_es(tag)))
     content_hash = sha256_text(content)
     source_url = normalize_url(payload.source_url)
     canonical_url = normalize_url(payload.canonical_url or payload.source_url)
@@ -244,11 +249,11 @@ def ingest_document(conn, payload: N8nDocumentIngestionRequest) -> dict[str, Any
         }
 
     source_id = _ensure_source(conn, payload)
-    if payload.author:
-        _ensure_author(conn, payload.author)
-    _ensure_tags(conn, payload.tags)
+    if author:
+        _ensure_author(conn, author)
+    _ensure_tags(conn, tags)
     metadata = {
-        **safe_metadata(payload.metadata),
+        **safe_metadata(normalize_visible_metadata(payload.metadata)),
         "ingestion_mode": INGESTION_MODE,
         "language": "es",
         "is_seed": False,
@@ -256,7 +261,7 @@ def ingest_document(conn, payload: N8nDocumentIngestionRequest) -> dict[str, Any
         "ingested_by": "n8n",
         "storage_used": False,
         "source_name": source.name,
-        "submitted_source_name": payload.source_name,
+        "submitted_source_name": submitted_source_name,
         "source_type": source.source_type,
         "source_url": source_url,
         "normalized_url": source_url,
@@ -265,7 +270,7 @@ def ingest_document(conn, payload: N8nDocumentIngestionRequest) -> dict[str, Any
         "content_type": payload.content_type,
         "source_format": "pdf" if payload.content_type.casefold() in {"application/pdf", "pdf"} else "web",
         "pdf_url": source_url if payload.content_type.casefold() in {"application/pdf", "pdf"} else None,
-        "summary": payload.summary,
+        "summary": summary,
         "ingested_at": datetime.now().astimezone().isoformat(),
     }
     row = conn.execute(
@@ -285,12 +290,12 @@ def ingest_document(conn, payload: N8nDocumentIngestionRequest) -> dict[str, Any
         """,
         {
             "source_id": source_id,
-            "title": payload.title,
+            "title": title,
             "canonical_url": canonical_url,
-            "author": payload.author,
+            "author": author,
             "published_at": payload.published_at,
             "category": payload.content_type,
-            "tags": json.dumps(payload.tags),
+            "tags": json.dumps(tags, ensure_ascii=False),
             "text": content,
             "metadata": json.dumps(metadata),
             "content_hash": content_hash,
@@ -330,7 +335,7 @@ def ingest_document(conn, payload: N8nDocumentIngestionRequest) -> dict[str, Any
                 "document_id": document_id,
                 "chunk_index": chunk_index,
                 "chunker_version": CHUNKER_VERSION,
-                "title": payload.title,
+                "title": title,
                 "start_char": start_char,
                 "end_char": end_char,
                 "token_count": len(chunk.split()),

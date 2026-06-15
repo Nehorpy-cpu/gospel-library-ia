@@ -7,7 +7,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ragApi } from "@/lib/api";
+import { ApiHttpError, ragApi } from "@/lib/api";
 
 type DocumentChunk = {
   id: string;
@@ -73,11 +73,23 @@ export function DocumentReader({ id }: { id: string }) {
   }
 
   if (document.isError) {
+    if (document.error instanceof ApiHttpError && document.error.status === 404) {
+      return (
+        <Card className="p-6">
+          <h1 className="text-xl font-semibold">Documento no encontrado.</h1>
+          <p className="mt-2 text-sm text-muted-foreground">El documento solicitado no existe o ya no está disponible.</p>
+          <Link href="/library" className="mt-4 inline-flex items-center gap-2 text-sm text-primary">
+            <ArrowLeft className="h-4 w-4" />
+            Volver a la biblioteca
+          </Link>
+        </Card>
+      );
+    }
     return (
       <Card className="p-6">
         <h1 className="text-xl font-semibold">No se pudo cargar el documento</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          {document.error instanceof Error ? document.error.message : "La API devolvio un error inesperado."}
+          {document.error instanceof Error ? document.error.message : "La API devolvió un error inesperado."}
         </p>
       </Card>
     );
@@ -87,8 +99,8 @@ export function DocumentReader({ id }: { id: string }) {
   if (data.not_found === true) {
     return (
       <Card className="p-6">
-        <h1 className="text-xl font-semibold">Documento no encontrado</h1>
-        <p className="mt-2 text-sm text-muted-foreground">El documento solicitado no existe o ya no esta disponible.</p>
+        <h1 className="text-xl font-semibold">Documento no encontrado.</h1>
+        <p className="mt-2 text-sm text-muted-foreground">El documento solicitado no existe o ya no está disponible.</p>
         <Link href="/library" className="mt-4 inline-flex items-center gap-2 text-sm text-primary">
           <ArrowLeft className="h-4 w-4" />
           Volver a la biblioteca
@@ -97,7 +109,7 @@ export function DocumentReader({ id }: { id: string }) {
     );
   }
 
-  const title = textValue(data.title) ?? "Documento sin titulo";
+  const title = textValue(data.title) ?? "Documento sin título";
   const author = textValue(data.author) ?? "Autor desconocido";
   const source = textValue(data.source) ?? "Fuente no identificada";
   const category = textValue(data.category) ?? textValue(data.type);
@@ -185,8 +197,8 @@ export function DocumentReader({ id }: { id: string }) {
         <Card className="border-amber-500/40 bg-amber-500/10 p-5">
           <h2 className="font-semibold">Contenido completo no disponible</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            Este registro contiene datos bibliograficos, pero todavia no tiene texto ni chunks legibles cargados.
-            Puedes consultar la fuente original cuando el enlace este disponible.
+            Este documento todavía no tiene contenido completo cargado.
+            Puedes consultar la fuente original cuando el enlace esté disponible.
           </p>
         </Card>
       ) : null}
@@ -205,11 +217,11 @@ export function DocumentReader({ id }: { id: string }) {
         <section className="space-y-4">
           <div>
             <h2 className="text-lg font-semibold">Contenido por secciones</h2>
-            <p className="mt-1 text-sm text-muted-foreground">{chunks.length} chunks disponibles para lectura.</p>
+            <p className="mt-1 text-sm text-muted-foreground">{chunks.length} secciones disponibles para lectura.</p>
           </div>
           {chunks.map((chunk) => (
             <Card key={chunk.id} className="p-5 md:p-7">
-              <h3 className="font-semibold">{chunk.section_title || `Seccion ${chunk.index + 1}`}</h3>
+              <h3 className="font-semibold">{chunk.section_title || `Sección ${chunk.index + 1}`}</h3>
               <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-muted-foreground">{chunk.text}</p>
             </Card>
           ))}

@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.services.curated_sources import curated_source_for_url
+from app.services.spanish_text import normalize_tag_es, normalize_text_es, normalize_visible_metadata
 
 
 SPANISH_MARKERS = {
@@ -72,7 +73,7 @@ class N8nDocumentIngestionRequest(BaseModel):
     @field_validator("title", "source_name")
     @classmethod
     def normalize_required_text(cls, value: str) -> str:
-        normalized = " ".join(value.split())
+        normalized = normalize_text_es(value)
         if not normalized:
             raise ValueError("must not be blank")
         return normalized
@@ -82,7 +83,7 @@ class N8nDocumentIngestionRequest(BaseModel):
     def normalize_optional_text(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        normalized = " ".join(value.split())
+        normalized = normalize_text_es(value, preserve_newlines=value is not None and "\n" in value)
         return normalized or None
 
     @field_validator("source_url", "canonical_url")
@@ -101,7 +102,7 @@ class N8nDocumentIngestionRequest(BaseModel):
         tags: list[str] = []
         seen: set[str] = set()
         for item in value:
-            tag = " ".join(item.split())
+            tag = normalize_tag_es(item)
             key = tag.casefold()
             if not tag or len(tag) > 100 or key in seen:
                 continue
@@ -109,9 +110,14 @@ class N8nDocumentIngestionRequest(BaseModel):
             tags.append(tag)
         return tags
 
+    @field_validator("metadata")
+    @classmethod
+    def normalize_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return normalize_visible_metadata(value)
+
     @model_validator(mode="after")
     def validate_clean_spanish_content(self):
-        normalized_content = self.content.strip()
+        normalized_content = normalize_text_es(self.content, preserve_newlines=True)
         source = curated_source_for_url(self.source_url)
         if not source:
             raise ValueError("source_url is not an authorized Spanish document URL")

@@ -17,6 +17,19 @@ const body =
         ? respuesta
         : "";
 const sourceUrl = String(entrada.source_url ?? "");
+let source;
+try {
+  source = new URL(sourceUrl);
+} catch {
+  return [{ json: { ...entrada, status: "skipped", razon: "La URL de origen no es válida." } }];
+}
+const host = source.hostname.replace(/^www\./, "").toLowerCase();
+if (host === "speeches.byu.edu" && !source.pathname.startsWith("/spa/talks/")) {
+  return [{ json: { ...entrada, status: "skipped", razon: "BYU Speeches solo admite discursos bajo /spa/talks/." } }];
+}
+if (host === "churchofjesuschrist.org" && source.searchParams.get("lang") !== "spa") {
+  return [{ json: { ...entrada, status: "skipped", razon: "La página oficial no declara lang=spa." } }];
+}
 const parecePdf =
   contentType.includes("application/pdf") ||
   /\.pdf(?:$|[?#])/i.test(sourceUrl) ||

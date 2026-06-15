@@ -5,6 +5,7 @@ import sys
 import unittest
 
 from fastapi.testclient import TestClient
+from fastapi import HTTPException
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -367,6 +368,194 @@ class DocumentRoutesTest(unittest.TestCase):
         self.assertEqual(response["chunks"][0]["text"], "Contenido real del chunk.")
         self.assertNotIn("api_key", response["metadata"])
         self.assertNotIn("token", response["chunks"][0]["metadata"])
+
+    def test_document_detail_without_chunks_returns_empty_array(self):
+        published_at = datetime(2024, 4, 6, tzinfo=timezone.utc)
+
+        class DetailConnection:
+            def execute(self, sql, params=None):
+                query = str(sql)
+                if "information_schema" in query:
+                    return FakeResult([])
+                if "FROM documents d" in query:
+                    return FakeResult(
+                        [
+                            (
+                                "doc-empty",
+                                "Documento sin chunks",
+                                None,
+                                "Biblioteca oficial",
+                                "manual",
+                                "https://example.com/source",
+                                "https://example.com/canonical",
+                                "es",
+                                "manual",
+                                published_at,
+                                None,
+                                None,
+                                [],
+                                "READY",
+                                published_at,
+                                published_at,
+                                {},
+                                0,
+                            )
+                        ]
+                    )
+                raise AssertionError(query)
+
+        @contextmanager
+        def detail_get_conn():
+            yield DetailConnection()
+
+        original_get_conn = public.get_conn
+        original_table_exists = public._table_exists
+        original_table_columns = public._table_columns
+        public.get_conn = detail_get_conn
+        public._table_exists = lambda _conn, _table: False
+        public._table_columns = lambda _conn, _table: set()
+        try:
+            response = public.document_detail("doc-empty", include_chunks=True)
+        finally:
+            public.get_conn = original_get_conn
+            public._table_exists = original_table_exists
+            public._table_columns = original_table_columns
+
+        self.assertEqual(response["chunks"], [])
+        self.assertEqual(response["chunks_available"], 0)
+
+    def test_document_detail_missing_id_returns_404(self):
+        class MissingConnection:
+            def execute(self, sql, params=None):
+                if "FROM documents d" in str(sql):
+                    return FakeResult([])
+                return FakeResult([])
+
+        @contextmanager
+        def missing_get_conn():
+            yield MissingConnection()
+
+        original_get_conn = public.get_conn
+        original_table_exists = public._table_exists
+        original_table_columns = public._table_columns
+        public.get_conn = missing_get_conn
+        public._table_exists = lambda _conn, _table: False
+        public._table_columns = lambda _conn, table: {
+            "id", "source_id", "title", "canonical_url", "text", "raw_metadata", "is_indexed"
+        } if table == "documents" else set()
+        try:
+            with self.assertRaises(HTTPException) as raised:
+                public.document_detail("missing", include_chunks=True)
+        finally:
+            public.get_conn = original_get_conn
+            public._table_exists = original_table_exists
+            public._table_columns = original_table_columns
+
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertEqual(raised.exception.detail, "Documento no encontrado.")
+
+    def test_document_detail_ignores_incompatible_legacy_document_tags(self):
+        published_at = datetime(2024, 4, 6, tzinfo=timezone.utc)
+
+        class LegacyConnection:
+            def execute(self, sql, params=None):
+                query = str(sql)
+                if "FROM documents d" in query:
+                    return FakeResult(
+                        [
+                            (
+                                "doc-legacy",
+                                "Documento heredado",
+                                None,
+                                "Fuente",
+                                "manual",
+                                "https://example.com/source",
+                                "https://example.com/canonical",
+                                "es",
+                                "manual",
+                                published_at,
+                                None,
+                                None,
+                                [],
+                                "READY",
+                                published_at,
+                                published_at,
+                                {},
+                                0,
+                            )
+                        ]
+                    )
+                if "JOIN tags" in query:
+                    raise AssertionError("No debe consultar columnas heredadas incompatibles")
+                return FakeResult([])
+
+        @contextmanager
+        def legacy_get_conn():
+            yield LegacyConnection()
+
+        original_get_conn = public.get_conn
+        original_table_exists = public._table_exists
+        original_table_columns = public._table_columns
+        public.get_conn = legacy_get_conn
+        public._table_exists = lambda _conn, table: table in {"document_tags", "tags"}
+        public._table_columns = lambda _conn, table: {
+            "document_tags": {"document_id", "tag_name"},
+            "tags": {"id", "name"},
+            "documents": {"id", "source_id", "title", "canonical_url", "text", "raw_metadata", "is_indexed"},
+        }.get(table, set())
+        try:
+            response = public.document_detail("doc-legacy")
+        finally:
+            public.get_conn = original_get_conn
+            public._table_exists = original_table_exists
+            public._table_columns = original_table_columns
+
+        self.assertEqual(response["id"], "doc-legacy")
+
+    def test_search_builds_legacy_compatible_chunk_query(self):
+        class SearchConnection:
+            def __init__(self):
+                self.search_query = ""
+
+            def execute(self, sql, params=None):
+                query = str(sql)
+                if "information_schema.columns" in query:
+                    table = params[0]
+                    columns = {
+                        "documents": [
+                            "id", "source_id", "title", "canonical_url", "author", "language",
+                            "text", "raw_metadata", "tags", "scripture_refs", "updated_at",
+                        ],
+                        "document_chunks": ["id", "document_id", "chunk_index", "content"],
+                        "document_tags": ["document_id", "tag_name"],
+                        "tags": ["id", "name"],
+                    }.get(table, [])
+                    return FakeResult([(column,) for column in columns])
+                if "information_schema.tables" in query:
+                    return FakeResult([(params[0] in {"document_chunks", "document_tags", "tags"},)])
+                if "FROM documents d" in query:
+                    self.search_query = query
+                    return FakeResult([])
+                raise AssertionError(query)
+
+        connection = SearchConnection()
+
+        @contextmanager
+        def search_get_conn():
+            yield connection
+
+        original_get_conn = public.get_conn
+        public.get_conn = search_get_conn
+        try:
+            response = public._document_search("Jesucristo", 5)
+        finally:
+            public.get_conn = original_get_conn
+
+        self.assertEqual(response, [])
+        self.assertIn("dc.content", connection.search_query)
+        self.assertIn("NULL::text AS section_title", connection.search_query)
+        self.assertNotIn("{chunk_", connection.search_query)
+        self.assertNotIn("JOIN tags t ON t.id = dt.tag_id", connection.search_query)
 
 
 if __name__ == "__main__":

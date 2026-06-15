@@ -25,6 +25,16 @@ type DocumentListResponse = {
   offset?: number;
 };
 
+export class ApiHttpError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number
+  ) {
+    super(message);
+    this.name = "ApiHttpError";
+  }
+}
+
 function readCookie(name: string) {
   if (typeof document === "undefined") return undefined;
   const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
@@ -82,11 +92,18 @@ function normalizeSearchResponse(value: unknown): SearchResponse {
   };
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  debugContext?: Record<string, string | number | boolean>
+): Promise<T> {
   const response = await apiFetch(path, {
     ...init,
     headers: requestHeaders(init?.headers)
   });
+  if (process.env.NODE_ENV === "development" && debugContext) {
+    console.info("[api]", { ...debugContext, endpoint: path, status: response.status });
+  }
   if (!response.ok) {
     const detail = await response.text();
     try {
@@ -99,7 +116,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         throw error;
       }
     }
-    throw new Error(detail || `Request failed: ${response.status}`);
+    let message = detail || `La API respondió con estado ${response.status}.`;
+    try {
+      const parsed = JSON.parse(detail) as { detail?: string };
+      message = parsed.detail || message;
+    } catch {
+      // La respuesta no siempre es JSON.
+    }
+    throw new ApiHttpError(message, response.status);
   }
   return response.json() as Promise<T>;
 }
@@ -189,9 +213,11 @@ export const ragApi = {
     const searchParams = new URLSearchParams();
     if (includeChunks) searchParams.set("include_chunks", "true");
     const query = searchParams.toString();
-    return request<Record<string, unknown>>(
-      `/documents/${encodeURIComponent(documentId)}${query ? `?${query}` : ""}`
-    );
+    const path = `/documents/${encodeURIComponent(documentId)}${query ? `?${query}` : ""}`;
+    return request<Record<string, unknown>>(path, undefined, {
+      documentId,
+      includeChunks
+    });
   },
   documentsSummary() {
     return request<{ documents: Array<{ status: string; count: number }> }>("/documents/summary");

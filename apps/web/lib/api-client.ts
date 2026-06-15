@@ -70,8 +70,6 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
   try {
     return await fetch(url, init);
   } catch {
-    throw new Error(
-      `No se pudo conectar con la API en ${getApiOrigin()}. Verifica NEXT_PUBLIC_API_URL, DNS y el despliegue de Render.`
-    );
+    throw new Error(`No se pudo establecer conexión con la API en ${getApiOrigin()}. Inténtalo nuevamente más tarde.`);
   }
 }

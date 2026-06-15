@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request, status
 from uuid import uuid4
 
 from app.core.config import get_settings
@@ -8,6 +8,7 @@ from app.services.rate_limit import RateLimiter
 from app.services.calling_focus import calling_application_note
 from app.services.scripture_refs import structured_scripture_refs
 from app.services.source_filters import canonical_source_options, normalize_source_type, source_type_aliases
+from app.services.spanish_text import normalize_tag_es, normalize_text_es, normalize_visible_metadata
 
 LEADERSHIP_QUERY_TERMS = (
     "primera presidencia",
@@ -175,9 +176,9 @@ def documents(
     items = [
         {
             "id": row[0],
-            "title": row[1],
-            "author": row[2],
-            "source": row[3],
+            "title": normalize_text_es(row[1]),
+            "author": normalize_text_es(row[2]) if row[2] else None,
+            "source": normalize_text_es(row[3]),
             "sourceType": normalize_source_type(row[4]) or row[4],
             "language": row[5],
             "status": row[6],
@@ -185,9 +186,9 @@ def documents(
             "updatedAt": row[8].isoformat() if row[8] else None,
             "url": row[9],
             "sourceUrl": row[10],
-            "excerpt": row[11] or None,
+            "excerpt": normalize_text_es(row[11], preserve_newlines=True) if row[11] else None,
             "publishedAt": row[12].isoformat() if row[12] else None,
-            "metadata": row[13] or {},
+            "metadata": normalize_visible_metadata(row[13] or {}),
         }
         for row in rows
     ]
@@ -303,7 +304,9 @@ def document_detail(document_id: str, include_chunks: bool = False):
             (document_id,),
         ).fetchone()
         related_tags = []
-        if doc and _table_exists(conn, "document_tags") and _table_exists(conn, "tags"):
+        document_tag_columns = _table_columns(conn, "document_tags") if _table_exists(conn, "document_tags") else set()
+        tag_columns = _table_columns(conn, "tags") if _table_exists(conn, "tags") else set()
+        if doc and {"document_id", "tag_id"} <= document_tag_columns and {"id", "name"} <= tag_columns:
             related_tags = [
                 row[0]
                 for row in conn.execute(
@@ -322,9 +325,10 @@ def document_detail(document_id: str, include_chunks: bool = False):
             chunk_columns = _table_columns(conn, "document_chunks")
             chunk_text_column = "text" if "text" in chunk_columns else "content"
             chunk_metadata_column = "metadata" if "metadata" in chunk_columns else "'{}'::jsonb"
+            chunk_section_column = "section_title" if "section_title" in chunk_columns else "NULL"
             chunks = conn.execute(
                 f"""
-                SELECT id::text, chunk_index, section_title, {chunk_text_column}, {chunk_metadata_column}
+                SELECT id::text, chunk_index, {chunk_section_column}, {chunk_text_column}, {chunk_metadata_column}
                 FROM document_chunks
                 WHERE document_id = %s
                 ORDER BY chunk_index
@@ -333,17 +337,17 @@ def document_detail(document_id: str, include_chunks: bool = False):
                 (document_id,),
             ).fetchall()
     if not doc:
-        return {"id": document_id, "not_found": True}
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento no encontrado.")
     source_type = normalize_source_type(doc[4]) or doc[4]
     published_at = doc[9].isoformat() if doc[9] else None
     created_at = doc[14].isoformat() if doc[14] else None
     updated_at = doc[15].isoformat() if doc[15] else None
-    tags = list(dict.fromkeys([*_string_list(doc[12]), *related_tags]))
+    tags = list(dict.fromkeys(normalize_tag_es(tag) for tag in [*_string_list(doc[12]), *related_tags]))
     return {
         "id": doc[0],
-        "title": doc[1],
-        "author": doc[2],
-        "source": doc[3],
+        "title": normalize_text_es(doc[1]),
+        "author": normalize_text_es(doc[2]) if doc[2] else None,
+        "source": normalize_text_es(doc[3]),
         "source_type": source_type,
         "sourceType": source_type,
         "source_url": doc[5],
@@ -356,9 +360,9 @@ def document_detail(document_id: str, include_chunks: bool = False):
         "published_at": published_at,
         "publishedAt": published_at,
         "year": doc[9].year if doc[9] else None,
-        "summary": doc[10],
-        "description": doc[10],
-        "text": doc[11],
+        "summary": normalize_text_es(doc[10], preserve_newlines=True) if doc[10] else None,
+        "description": normalize_text_es(doc[10], preserve_newlines=True) if doc[10] else None,
+        "text": normalize_text_es(doc[11], preserve_newlines=True) if doc[11] else None,
         "tags": tags,
         "topics": tags,
         "status": doc[13],
@@ -368,14 +372,14 @@ def document_detail(document_id: str, include_chunks: bool = False):
         "updatedAt": updated_at,
         "chunks_available": doc[17],
         "chunksAvailable": doc[17],
-        "metadata": _safe_metadata(doc[16]),
+        "metadata": normalize_visible_metadata(_safe_metadata(doc[16])),
         "chunks": [
             {
                 "id": chunk[0],
                 "index": chunk[1],
-                "section_title": chunk[2],
-                "text": chunk[3],
-                "metadata": _safe_metadata(chunk[4]),
+                "section_title": normalize_text_es(chunk[2]) if chunk[2] else None,
+                "text": normalize_text_es(chunk[3], preserve_newlines=True),
+                "metadata": normalize_visible_metadata(_safe_metadata(chunk[4])),
             }
             for chunk in chunks
         ],
@@ -396,7 +400,7 @@ def authors(q: str | None = None, limit: int = 30):
                 author_params,
             ).fetchall()
             if rows:
-                return {"items": [{"id": r[0], "name": r[1], "slug": r[2]} for r in rows]}
+                return {"items": [{"id": r[0], "name": normalize_text_es(r[1]), "slug": r[2]} for r in rows]}
         fallback_where = f"author IS NOT NULL AND author <> '' AND {confirmed_duplicate_filter('documents')}"
         fallback_params: dict = {"limit": limit}
         if q:
@@ -415,7 +419,11 @@ def authors(q: str | None = None, limit: int = 30):
         ).fetchall()
     return {
         "items": [
-            {"name": row[0], "slug": row[0].lower().replace(" ", "-"), "documentCount": row[1]}
+            {
+                "name": normalize_text_es(row[0]),
+                "slug": normalize_text_es(row[0]).lower().replace(" ", "-"),
+                "documentCount": row[1],
+            }
             for row in rows
         ]
     }
@@ -427,7 +435,7 @@ def topics(limit: int = 50):
         if _table_exists(conn, "tags"):
             rows = conn.execute("SELECT id::text, name, slug FROM tags ORDER BY name LIMIT %s", (limit,)).fetchall()
             if rows:
-                return {"items": [{"id": r[0], "name": r[1], "slug": r[2]} for r in rows]}
+                return {"items": [{"id": r[0], "name": normalize_tag_es(r[1]), "slug": r[2]} for r in rows]}
         rows = conn.execute(
             f"""
             SELECT name, sum(count)::int AS count
@@ -465,7 +473,11 @@ def topics(limit: int = 50):
             ).fetchall()
     return {
         "items": [
-            {"name": row[0], "slug": row[0].lower().replace(" ", "-"), "documentCount": row[1]}
+            {
+                "name": normalize_tag_es(row[0]),
+                "slug": normalize_tag_es(row[0]).lower().replace(" ", "-"),
+                "documentCount": row[1],
+            }
             for row in rows
         ]
     }
@@ -485,21 +497,26 @@ def _document_search(query: str, limit: int, filters=None, language: str | None 
         source_type_expr = f"COALESCE(d.{metadata_column}->>'source_type', s.key)"
         source_url_expr = f"COALESCE(d.{metadata_column}->>'source_url', d.canonical_url)"
         description_expr = _document_description_expr(columns, metadata_column)
-        has_chunks = _table_exists(conn, "document_chunks")
-        has_document_tags = _table_exists(conn, "document_tags") and _table_exists(conn, "tags")
+        chunk_columns = _table_columns(conn, "document_chunks") if _table_exists(conn, "document_chunks") else set()
+        has_chunks = {"document_id", "chunk_index"} <= chunk_columns and bool({"text", "content"} & chunk_columns)
+        chunk_text_column = "text" if "text" in chunk_columns else "content"
+        chunk_section_column = "dc.section_title" if "section_title" in chunk_columns else "NULL::text AS section_title"
+        document_tag_columns = _table_columns(conn, "document_tags") if _table_exists(conn, "document_tags") else set()
+        tag_columns = _table_columns(conn, "tags") if _table_exists(conn, "tags") else set()
+        has_document_tags = {"document_id", "tag_id"} <= document_tag_columns and {"id", "name"} <= tag_columns
         chunk_match_expr = (
             "EXISTS (SELECT 1 FROM document_chunks search_chunk "
-            "WHERE search_chunk.document_id = d.id AND search_chunk.text ILIKE ANY(%(patterns)s))"
+            f"WHERE search_chunk.document_id = d.id AND search_chunk.{chunk_text_column} ILIKE ANY(%(patterns)s))"
             if has_chunks
             else "FALSE"
         )
         chunk_join = (
-            """
+            f"""
             LEFT JOIN LATERAL (
-              SELECT dc.id::text, dc.section_title, dc.text
+              SELECT dc.id::text, {chunk_section_column}, dc.{chunk_text_column}
               FROM document_chunks dc
               WHERE dc.document_id = d.id
-                AND dc.text ILIKE ANY(%(patterns)s)
+                AND dc.{chunk_text_column} ILIKE ANY(%(patterns)s)
               ORDER BY dc.chunk_index
               LIMIT 1
             ) matched_chunk ON TRUE
@@ -587,18 +604,18 @@ def _document_search(query: str, limit: int, filters=None, language: str | None 
     return [
         {
             "id": row[0],
-            "title": row[1],
-            "author": row[2],
-            "source": row[3],
+            "title": normalize_text_es(row[1]),
+            "author": normalize_text_es(row[2]) if row[2] else None,
+            "source": normalize_text_es(row[3]),
             "language": row[4],
             "canonical_url": row[5],
             "source_url": row[6],
             "source_key": normalize_source_type(row[7]) or row[7],
-            "snippet": row[8],
+            "snippet": normalize_text_es(row[8], preserve_newlines=True),
             "scripture_refs": row[9] or [],
-            "tags": _string_list(row[10]),
+            "tags": [normalize_tag_es(tag) for tag in _string_list(row[10])],
             "chunk_id": row[11],
-            "section_title": row[12],
+            "section_title": normalize_text_es(row[12]) if row[12] else None,
             "score": min(float(row[13] or 0) / 17, 1.0),
         }
         for row in rows

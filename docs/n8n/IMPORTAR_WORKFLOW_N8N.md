@@ -42,6 +42,8 @@ $env.INGESTION_API_KEY
 
 La variable `INGESTION_API_KEY` debe coincidir con la configurada en Render.
 No la agregues a Git, al payload, a un Set Node ni a los datos fijados de n8n.
+No uses textos literales de ejemplo como clave. Genera un valor aleatorio largo
+y guárdalo únicamente como variable secreta o credencial.
 
 ## Alternativa con credencial Header Auth
 
@@ -104,9 +106,12 @@ individuales HTTPS de las tres fuentes autorizadas por la API.
 2. **Detectar tipo de recurso** clasifica HTML, PDF o recurso desconocido.
 3. Los PDF quedan como `skipped_pdf_pending`; no se guarda el binario.
 4. **Limpiar HTML y extraer contenido** elimina estructura y devuelve texto.
+   También repara entidades HTML, espacios no separables y mojibake UTF-8 común.
 5. **Validar español y calidad mínima** exige título, más de 300 caracteres y
    marcadores suficientes de español.
 6. **Preparar payload para Gospel Library IA** construye el contrato de API.
+   Normaliza título, autor, fuente, resumen, contenido y traduce etiquetas
+   doctrinales comunes al español.
 7. **¿Documento válido?** evita enviar documentos omitidos.
 8. **Enviar documento a Gospel Library IA** llama a Render.
 9. **Registrar resultado** normaliza el resumen en español.
@@ -143,6 +148,8 @@ y verifica título, autor, fuente, texto y enlace original.
 - Mantén la pausa de tres segundos.
 - No configures reintentos ilimitados.
 - Revisa manualmente cualquier cambio de selector o extractor.
+- BYU solo acepta URLs individuales bajo `/spa/talks/`.
+- El sitio oficial requiere `lang=spa`; cualquier otra variante queda omitida.
 
 ## PDFs
 
