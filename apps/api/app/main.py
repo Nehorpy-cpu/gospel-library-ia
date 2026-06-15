@@ -80,7 +80,7 @@ def _set_default_header(response, key: str, value: str) -> None:
 @app.exception_handler(Exception)
 async def handle_error(request: Request, exc: Exception):
     log.error("api_error", path=str(request.url), error=sanitize_value(str(exc)))
-    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+    return JSONResponse(status_code=500, content={"detail": "Error interno del servidor"})
 
 
 def _check_postgres() -> str:

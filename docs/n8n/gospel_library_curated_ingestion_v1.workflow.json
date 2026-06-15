@@ -1,0 +1,421 @@
+{
+  "name": "Gospel Library IA - Ingesta curada en español v1",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "18fa1e6b-c2d9-4eb3-87dd-84fd4ae5d001",
+      "name": "Inicio manual - Ingesta curada",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1000,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "338403af-ffea-4401-b2ec-403a8ae09002",
+              "name": "urls",
+              "type": "array",
+              "value": "={{ [\n  {\n    source_url: 'https://discursosud.com/el-amor-puro-de-cristo/',\n    source_name: 'Discursos SUD',\n    content_type: 'text/html',\n    tags: ['Jesucristo', 'Caridad']\n  },\n  {\n    source_url: 'https://speeches.byu.edu/spa/talks/brad-wilcox/su-gracia-es-suficiente/',\n    source_name: 'BYU Speeches Español',\n    content_type: 'text/html',\n    tags: ['Jesucristo', 'Gracia']\n  },\n  {\n    source_url: 'https://www.churchofjesuschrist.org/study/general-conference/2022/04/55soares?lang=spa',\n    source_name: 'Sitio oficial de la Iglesia',\n    content_type: 'text/html',\n    tags: ['Jesucristo', 'Conferencia General']\n  }\n] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e38fa307-e214-40bd-a658-ef00a58d1003",
+      "name": "URLs curadas en español",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "urls",
+        "options": {}
+      },
+      "id": "7c9c5e30-6bb6-46e0-86e2-e9966a34a004",
+      "name": "Separar lista de URLs",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -560,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "fca9e89b-1ab8-43d8-a2bc-6834dadbd005",
+      "name": "Procesar una URL por vez",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -340,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.source_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "GospelLibraryIA/0.1 n8n-curated-ingestion https://www.estudiopy.com"
+            },
+            {
+              "name": "Accept-Language",
+              "value": "es,es-419;q=0.9"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "ea653fb0-6854-456d-bd58-8d74015ce006",
+      "name": "Descargar página o recurso",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const entrada = $(\"Procesar una URL por vez\").item.json;\nconst respuesta = $json;\nconst headers = respuesta.headers ?? {};\nconst contentType = String(\n  headers[\"content-type\"] ??\n  headers[\"Content-Type\"] ??\n  respuesta.contentType ??\n  \"\"\n).toLowerCase();\nconst httpStatus = Number(respuesta.statusCode ?? respuesta.status ?? 200);\nconst body =\n  typeof respuesta.body === \"string\"\n    ? respuesta.body\n    : typeof respuesta.data === \"string\"\n      ? respuesta.data\n      : typeof respuesta === \"string\"\n        ? respuesta\n        : \"\";\nconst sourceUrl = String(entrada.source_url ?? \"\");\nconst parecePdf =\n  contentType.includes(\"application/pdf\") ||\n  /\\.pdf(?:$|[?#])/i.test(sourceUrl) ||\n  body.startsWith(\"%PDF-\");\nconst pareceHtml =\n  contentType.includes(\"text/html\") ||\n  /<(?:html|body|main|article|h1|p)\\b/i.test(body);\n\nif (httpStatus >= 400) {\n  return [{\n    json: {\n      ...entrada,\n      status: \"skipped\",\n      tipo_recurso: \"desconocido\",\n      razon: `La fuente respondió HTTP ${httpStatus}.`,\n      http_status: httpStatus\n    }\n  }];\n}\n\nif (parecePdf) {\n  return [{\n    json: {\n      ...entrada,\n      status: \"skipped\",\n      tipo_recurso: \"pdf\",\n      content_type: \"application/pdf\",\n      razon: \"skipped_pdf_pending: la extracción de PDF no está habilitada en este workflow.\",\n      http_status: httpStatus\n    }\n  }];\n}\n\nif (!pareceHtml) {\n  return [{\n    json: {\n      ...entrada,\n      status: \"skipped\",\n      tipo_recurso: \"desconocido\",\n      razon: \"El recurso no parece HTML ni PDF.\",\n      http_status: httpStatus\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    ...entrada,\n    status: \"html_detectado\",\n    tipo_recurso: \"html\",\n    content_type: \"text/html\",\n    raw_html: body,\n    http_status: httpStatus\n  }\n}];"
+      },
+      "id": "fe6618c7-6d45-4d9a-af66-8b753f3c5007",
+      "name": "Detectar tipo de recurso",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        140,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function decodeEntities(value) {\n  const named = {\n    amp: \"&\",\n    apos: \"'\",\n    gt: \">\",\n    ldquo: \"\\\"\",\n    lsquo: \"'\",\n    lt: \"<\",\n    nbsp: \" \",\n    ndash: \"-\",\n    mdash: \"-\",\n    quot: \"\\\"\",\n    rdquo: \"\\\"\",\n    rsquo: \"'\"\n  };\n  return value\n    .replace(/&#(\\d+);/g, (_, code) => String.fromCodePoint(Number(code)))\n    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)))\n    .replace(/&([a-z]+);/gi, (match, name) => named[name.toLowerCase()] ?? match);\n}\n\nfunction firstMatch(html, patterns) {\n  for (const pattern of patterns) {\n    const match = html.match(pattern);\n    if (match?.[1]) return decodeEntities(match[1].replace(/<[^>]+>/g, \" \")).replace(/\\s+/g, \" \").trim();\n  }\n  return null;\n}\n\nfunction canonicalFrom(html, fallback) {\n  const links = html.match(/<link\\b[^>]*>/gi) ?? [];\n  for (const link of links) {\n    if (!/\\brel\\s*=\\s*[\"'][^\"']*canonical/i.test(link)) continue;\n    const href = link.match(/\\bhref\\s*=\\s*[\"']([^\"']+)[\"']/i)?.[1];\n    if (href) {\n      try {\n        return new URL(decodeEntities(href), fallback).toString();\n      } catch {\n        return fallback;\n      }\n    }\n  }\n  return fallback;\n}\n\nfunction authorFrom(html) {\n  const metaTags = html.match(/<meta\\b[^>]*>/gi) ?? [];\n  for (const tag of metaTags) {\n    if (!/\\b(?:name|property)\\s*=\\s*[\"'](?:author|article:author|citation_author)[\"']/i.test(tag)) continue;\n    const content = tag.match(/\\bcontent\\s*=\\s*[\"']([^\"']+)[\"']/i)?.[1];\n    if (content) {\n      const candidate = decodeEntities(content)\n        .replace(/^por\\s+/i, \"\")\n        .replace(/^(?:el|la)\\s+/i, \"\")\n        .trim();\n      if (!/(?:anónimo|desconocido|dice:|comentario)/i.test(candidate)) return candidate;\n    }\n  }\n  const candidate = firstMatch(html, [\n    /<(?:strong|b)[^>]*>\\s*(?:por el|por la|por)\\s+([^<]{3,120})<\\/(?:strong|b)>/i,\n    /<(?:p|div|span)[^>]+class=[\"'][^\"']*(?:byline|speaker)[^\"']*[\"'][^>]*>([\\s\\S]*?)<\\/(?:p|div|span)>/i\n  ]);\n  return candidate && !/(?:anónimo|desconocido|dice:|comentario)/i.test(candidate)\n    ? candidate.replace(/^(?:por\\s+)?(?:el|la)\\s+/i, \"\").trim()\n    : null;\n}\n\nconst item = $json;\nif (item.status === \"skipped\") {\n  return [{ json: item }];\n}\n\nconst htmlOriginal = String(item.raw_html ?? \"\");\nconst title = firstMatch(htmlOriginal, [\n  /<h1\\b[^>]*>([\\s\\S]*?)<\\/h1>/i,\n  /<title\\b[^>]*>([\\s\\S]*?)<\\/title>/i\n]);\nconst canonicalUrl = canonicalFrom(htmlOriginal, item.source_url);\nconst author = authorFrom(htmlOriginal);\n\nlet html = htmlOriginal\n  .replace(/<!--[\\s\\S]*?-->/g, \" \")\n  .replace(/<(script|style|nav|footer|header|aside|noscript|form|svg|button)\\b[^>]*>[\\s\\S]*?<\\/\\1>/gi, \" \");\n\nconst principal =\n  html.match(/<article\\b[^>]*>([\\s\\S]*?)<\\/article>/i)?.[1] ??\n  html.match(/<main\\b[^>]*>([\\s\\S]*?)<\\/main>/i)?.[1] ??\n  html.match(/<body\\b[^>]*>([\\s\\S]*?)<\\/body>/i)?.[1] ??\n  html;\n\nconst lineas = decodeEntities(\n  principal\n    .replace(/<(br|\\/p|\\/li|\\/h[1-6]|\\/blockquote|\\/section|\\/div)>/gi, \"\\n\")\n    .replace(/<[^>]+>/g, \" \")\n)\n  .split(/\\n+/)\n  .map((linea) => linea.replace(/\\s+/g, \" \").trim())\n  .filter((linea) => linea.length >= 20);\n\nconst vistas = new Set();\nconst basura = /^(inicio|menú|buscar|compartir|descargar|siguiente|anterior|todos los derechos|privacy|cookies?)\\b/i;\nconst contenido = lineas\n  .filter((linea) => {\n    const key = linea.toLowerCase();\n    if (basura.test(linea) || vistas.has(key)) return false;\n    vistas.add(key);\n    return true;\n  })\n  .join(\"\\n\\n\")\n  .trim();\n\nreturn [{\n  json: {\n    ...item,\n    status: \"contenido_extraido\",\n    title: title ?? item.title ?? null,\n    author: author ?? item.author ?? null,\n    canonical_url: canonicalUrl,\n    content: contenido,\n    extracted_at: new Date().toISOString(),\n    extractor_version: \"n8n-html-regex-v1\",\n    raw_html: undefined\n  }\n}];"
+      },
+      "id": "56ec6709-d324-46fc-953f-d577fb5db008",
+      "name": "Limpiar HTML y extraer contenido",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $json;\nif (item.status === \"skipped\") {\n  return [{ json: item }];\n}\n\nconst texto = String(item.content ?? \"\").trim();\nconst palabras = (texto.toLowerCase().match(/[a-záéíóúüñ]+/g) ?? []);\nconst marcadoresEs = new Set([\n  \"al\", \"como\", \"con\", \"cristo\", \"de\", \"del\", \"dios\", \"el\", \"en\", \"es\",\n  \"evangelio\", \"jesucristo\", \"la\", \"las\", \"los\", \"para\", \"por\", \"que\",\n  \"se\", \"su\", \"una\", \"y\"\n]);\nconst marcadoresEn = new Set([\n  \"and\", \"are\", \"christ\", \"for\", \"from\", \"god\", \"is\", \"jesus\", \"of\", \"that\",\n  \"the\", \"this\", \"to\", \"was\", \"with\", \"you\"\n]);\nconst cuentaEs = palabras.filter((palabra) => marcadoresEs.has(palabra)).length;\nconst cuentaEn = palabras.filter((palabra) => marcadoresEn.has(palabra)).length;\nconst proporcionEs = palabras.length ? cuentaEs / palabras.length : 0;\nconst basuraNavegacion = (\n  texto.match(/\\b(inicio|menú|buscar|compartir|suscríbete|cookies?|privacidad|siguiente|anterior)\\b/gi) ?? []\n).length;\n\nlet razon = null;\nif (!item.title || String(item.title).trim().length < 3) {\n  razon = \"No se pudo extraer un título confiable.\";\n} else if (texto.length < 301) {\n  razon = \"El texto limpio tiene menos de 301 caracteres.\";\n} else if (palabras.length < 60) {\n  razon = \"El documento contiene muy pocas palabras útiles.\";\n} else if (cuentaEs < 8 || proporcionEs < 0.025 || cuentaEn > cuentaEs) {\n  razon = \"La heurística no pudo confirmar que el contenido esté en español.\";\n} else if (basuraNavegacion > 12) {\n  razon = \"El contenido parece contener navegación o texto repetido.\";\n}\n\nif (razon) {\n  return [{\n    json: {\n      ...item,\n      status: \"skipped\",\n      razon,\n      content: undefined\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    ...item,\n    status: \"ready\",\n    language: \"es\",\n    content: texto,\n    validacion: {\n      caracteres: texto.length,\n      palabras: palabras.length,\n      marcadores_es: cuentaEs,\n      marcadores_en: cuentaEn\n    }\n  }\n}];"
+      },
+      "id": "adca682b-1a28-4d89-996a-2072f5025009",
+      "name": "Validar español y calidad mínima",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        620,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $json;\nif (item.status !== \"ready\") {\n  return [{ json: item }];\n}\n\nconst host = new URL(item.source_url).hostname.replace(/^www\\./, \"\");\nconst fuentes = {\n  \"discursosud.com\": \"Discursos SUD\",\n  \"speeches.byu.edu\": \"BYU Speeches Español\",\n  \"churchofjesuschrist.org\": \"Sitio oficial de la Iglesia\"\n};\nconst etiquetasBase = {\n  \"discursosud.com\": [\"Discursos SUD\", \"Doctrina\"],\n  \"speeches.byu.edu\": [\"BYU Speeches\", \"Devocional\"],\n  \"churchofjesuschrist.org\": [\"Iglesia de Jesucristo\", \"Fuente oficial\"]\n};\n\nconst payload = {\n  title: item.title,\n  author: item.author ?? null,\n  source_name: item.source_name ?? fuentes[host] ?? host,\n  source_url: item.source_url,\n  canonical_url: item.canonical_url ?? item.source_url,\n  language: \"es\",\n  content_type: item.content_type ?? \"text/html\",\n  published_at: item.published_at ?? null,\n  content: item.content,\n  summary: item.summary ?? null,\n  tags: [...new Set([...(item.tags ?? []), ...(etiquetasBase[host] ?? [])])],\n  metadata: {\n    ingestion_mode: \"n8n_curated_v1\",\n    is_seed: false,\n    ingested_by: \"n8n\",\n    storage_used: false,\n    source_site: host,\n    extracted_at: item.extracted_at ?? new Date().toISOString(),\n    extractor_version: item.extractor_version ?? \"n8n-html-regex-v1\"\n  }\n};\n\nreturn [{ json: { ...item, payload } }];"
+      },
+      "id": "4d6a6a9c-5ef2-4107-a349-bc036358b010",
+      "name": "Preparar payload para Gospel Library IA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        860,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "94b821e7-85e7-4388-8ed8-3f57f0823011",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "ready",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7c46ea75-9f1a-439c-ae56-c8e649c86012",
+      "name": "¿Documento válido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.GOSPEL_LIBRARY_API_URL || 'https://api.estudiopy.com').replace(/\\/$/, '') + '/api/ingestion/documents' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Ingestion-Key",
+              "value": "={{ $env.INGESTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "50627c79-e2fa-47a8-9ef7-f98c17a35013",
+      "name": "Enviar documento a Gospel Library IA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const preparado = $(\"Preparar payload para Gospel Library IA\").item.json;\nconst respuesta = $json;\nconst body =\n  respuesta && typeof respuesta.body === \"object\"\n    ? respuesta.body\n    : respuesta && typeof respuesta.body === \"string\"\n      ? (() => {\n          try { return JSON.parse(respuesta.body); } catch { return {}; }\n        })()\n      : respuesta;\nconst httpStatus = Number(respuesta.statusCode ?? respuesta.status ?? 200);\n\nif (preparado.status === \"skipped\") {\n  return [{\n    json: {\n      resultado: \"skipped\",\n      source_url: preparado.source_url,\n      title: preparado.title ?? null,\n      mensaje: preparado.razon ?? \"Documento omitido por validación.\"\n    }\n  }];\n}\n\nif (body?.status === \"created\" || body?.status === \"verified_existing\") {\n  return [{\n    json: {\n      resultado: body.status,\n      source_url: preparado.source_url,\n      title: preparado.title,\n      document_id: body.document_id,\n      chunks: body.chunks,\n      mensaje: body.status === \"created\"\n        ? \"Documento creado correctamente.\"\n        : \"El documento ya existía y fue verificado.\"\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    resultado: httpStatus >= 500 ? \"error\" : \"rejected\",\n    source_url: preparado.source_url,\n    title: preparado.title ?? null,\n    mensaje: body?.detail\n      ? JSON.stringify(body.detail)\n      : `La API respondió HTTP ${httpStatus}.`\n  }\n}];"
+      },
+      "id": "7075e1ac-f49c-4a17-a5ee-e2b8c191f014",
+      "name": "Registrar resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1580,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 3,
+        "unit": "seconds"
+      },
+      "id": "410f67bc-66b0-4942-8524-2f8070724015",
+      "name": "Pausa respetuosa",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1820,
+        0
+      ],
+      "webhookId": "ef44b441-d506-46da-9332-1a6f15718016"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Inicio manual - Ingesta curada": {
+      "main": [
+        [
+          {
+            "node": "URLs curadas en español",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "URLs curadas en español": {
+      "main": [
+        [
+          {
+            "node": "Separar lista de URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Separar lista de URLs": {
+      "main": [
+        [
+          {
+            "node": "Procesar una URL por vez",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Procesar una URL por vez": {
+      "main": [
+        [
+          {
+            "node": "Descargar página o recurso",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Descargar página o recurso": {
+      "main": [
+        [
+          {
+            "node": "Detectar tipo de recurso",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detectar tipo de recurso": {
+      "main": [
+        [
+          {
+            "node": "Limpiar HTML y extraer contenido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limpiar HTML y extraer contenido": {
+      "main": [
+        [
+          {
+            "node": "Validar español y calidad mínima",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar español y calidad mínima": {
+      "main": [
+        [
+          {
+            "node": "Preparar payload para Gospel Library IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar payload para Gospel Library IA": {
+      "main": [
+        [
+          {
+            "node": "¿Documento válido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Documento válido?": {
+      "main": [
+        [
+          {
+            "node": "Enviar documento a Gospel Library IA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Registrar resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar documento a Gospel Library IA": {
+      "main": [
+        [
+          {
+            "node": "Registrar resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar resultado": {
+      "main": [
+        [
+          {
+            "node": "Pausa respetuosa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pausa respetuosa": {
+      "main": [
+        [
+          {
+            "node": "Procesar una URL por vez",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "versionId": "28ee1ab7-eb17-427e-8fb8-5cc22be5a017",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

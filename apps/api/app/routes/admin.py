@@ -260,7 +260,7 @@ def update_admin_source(source_id: str, payload: SourceUpdateRequest):
         updates.append("max_pages_per_run = %(max_pages_per_run)s")
         params["max_pages_per_run"] = payload.maxPagesPerRun
     if not updates:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No source changes provided")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se proporcionaron cambios para la fuente")
     updates.append("updated_at = now()")
     with get_conn() as conn:
         row = conn.execute(
@@ -273,7 +273,7 @@ def update_admin_source(source_id: str, payload: SourceUpdateRequest):
             params,
         ).fetchone()
         if not row:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fuente no encontrada")
         conn.commit()
     return {"id": row[0], "sourceId": row[1], "enabled": row[2], "maxPagesPerRun": row[3]}
 
@@ -298,7 +298,7 @@ async def crawl_admin_source(source_id: str, payload: SourceCrawlRequest | None 
                 {"source_id": source_id},
             ).fetchone()
         if not row:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fuente no encontrada")
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(f"{get_settings().scraper_api_url}/admin/discover/{row[0]}")
         response.raise_for_status()
@@ -325,7 +325,7 @@ def retry_ingestion_job(job_id: str):
             {"job_id": job_id},
         ).fetchone()
         if not row:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Retryable ingestion job not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No se encontró una tarea de ingesta reintentable")
         conn.commit()
     return {"task_id": row[0], "type": row[1], "status": row[2], "payload": row[3] or {}, "source": row[4]}
 

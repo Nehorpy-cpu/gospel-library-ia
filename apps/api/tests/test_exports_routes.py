@@ -118,8 +118,8 @@ class ExportsRoutesTest(unittest.TestCase):
 
         content = response.body.decode("utf-8")
         self.assertIn("La fe en Jesucristo", content)
-        self.assertIn("Source URL: https://example.com/source", content)
-        self.assertIn("Source URL: https://example.com/doc-1", content)
+        self.assertIn("URL de fuente: https://example.com/source", content)
+        self.assertIn("URL de fuente: https://example.com/doc-1", content)
         self.assertIn("Alma 32:21", content)
 
     def test_pdf_export_returns_pdf_bytes(self):

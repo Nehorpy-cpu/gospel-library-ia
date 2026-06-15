@@ -222,10 +222,10 @@ def _render_markdown(workspace: dict, notes: list[dict], citations: list[dict], 
             title = citation["source_title"] or "Saved quote"
             lines.extend([f"### {title}", "", f"> {citation['quote']}", ""])
             if citation.get("source_author"):
-                lines.append(f"- Author: {citation['source_author']}")
+                lines.append(f"- Autor: {citation['source_author']}")
             url = citation.get("citation_url") or citation.get("source_url")
             if url:
-                lines.append(f"- Source URL: {url}")
+                lines.append(f"- URL de fuente: {url}")
             refs = citation.get("scripture_refs") or []
             if refs:
                 lines.append(f"- Scripture refs: {', '.join(refs)}")
@@ -238,11 +238,11 @@ def _render_markdown(workspace: dict, notes: list[dict], citations: list[dict], 
 def _source_lines(row: dict) -> list[str]:
     lines: list[str] = []
     if row.get("document_title"):
-        lines.append(f"- Source: {row['document_title']}")
+        lines.append(f"- Fuente: {row['document_title']}")
     if row.get("document_author"):
-        lines.append(f"- Author: {row['document_author']}")
+        lines.append(f"- Autor: {row['document_author']}")
     if row.get("source_url"):
-        lines.append(f"- Source URL: {row['source_url']}")
+        lines.append(f"- URL de fuente: {row['source_url']}")
     refs = row.get("scripture_refs") or []
     if refs:
         lines.append(f"- Scripture refs: {', '.join(refs)}")

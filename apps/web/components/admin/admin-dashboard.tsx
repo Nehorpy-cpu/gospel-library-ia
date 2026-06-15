@@ -470,11 +470,11 @@ export function AdminDashboard() {
                     <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
                       <span>Idioma: {textValue(source.language)}</span>
                       <span>Estrategia: {source.crawlStrategy}</span>
-                      <span>Docs: {formatCount(source.documentCount)}</span>
-                      <span>Indexing: {source.indexingMode}</span>
+                      <span>Documentos: {formatCount(source.documentCount)}</span>
+                      <span>Indexación: {source.indexingMode}</span>
                       <span>Tokens estimados: {formatCount(source.estimatedEmbeddingTokens)}</span>
                       <span>Errores: {formatCount(source.errorCount)}</span>
-                      <span>Ultimo crawl: {source.lastCrawledAt ? new Date(source.lastCrawledAt).toLocaleString() : "sin ejecutar"}</span>
+                      <span>Último rastreo: {source.lastCrawledAt ? new Date(source.lastCrawledAt).toLocaleString() : "sin ejecutar"}</span>
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">

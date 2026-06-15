@@ -54,20 +54,20 @@ function requestHeaders(initHeaders?: HeadersInit) {
 
 function normalizeSearchResponse(value: unknown): SearchResponse {
   if (!value || typeof value !== "object") {
-    throw new Error("Invalid search response: expected an object.");
+    throw new Error("Respuesta de búsqueda inválida: se esperaba un objeto.");
   }
   const response = value as Partial<SearchResponse>;
   if (typeof response.query !== "string") {
-    throw new Error("Invalid search response: query is missing.");
+    throw new Error("Respuesta de búsqueda inválida: falta la consulta.");
   }
   if (response.items !== undefined && !Array.isArray(response.items)) {
-    throw new Error("Invalid search response: items must be an array.");
+    throw new Error("Respuesta de búsqueda inválida: items debe ser una lista.");
   }
   if (response.results !== undefined && !Array.isArray(response.results)) {
-    throw new Error("Invalid search response: results must be an array.");
+    throw new Error("Respuesta de búsqueda inválida: results debe ser una lista.");
   }
   if (response.warnings !== undefined && !Array.isArray(response.warnings)) {
-    throw new Error("Invalid search response: warnings must be an array.");
+    throw new Error("Respuesta de búsqueda inválida: warnings debe ser una lista.");
   }
   const items = response.items ?? response.results ?? [];
   const results = response.results ?? response.items ?? [];

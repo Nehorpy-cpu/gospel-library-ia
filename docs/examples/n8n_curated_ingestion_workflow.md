@@ -1,79 +1,62 @@
-# n8n Curated Spanish Ingestion Workflow
+# Flujo de ingesta curada en español con n8n
 
-This workflow is intentionally manual or low-frequency. It does not crawl links
-and processes one explicit Spanish URL per item.
+Este flujo es manual o de baja frecuencia. No recorre enlaces y procesa una
+URL explícita por elemento.
 
-## Nodes
+## Nodos
 
-1. **Manual Trigger** or **Schedule Trigger**
-   - Start manually during validation.
-   - If scheduled later, use a low frequency and a small fixed URL list.
+1. **Inicio manual o programado**
+   - Comienza manualmente durante la validación.
+   - Si se programa después, usa baja frecuencia y una lista fija pequeña.
 
-2. **Code: Curated URLs**
-   - Return items with `source_url`, `source_name`, `content_type`, and default
-     tags.
-   - Use explicit URLs ending in `?lang=spa` when the source supports it.
-   - Allowed sources:
-     - individual resources from `https://discursosud.com/`;
-     - individual Spanish talks under `https://speeches.byu.edu/spa/talks/`;
-     - `/study/...` resources with `lang=spa` from
-       `https://www.churchofjesuschrist.org/`.
-   - Do not enqueue home pages, search pages, category archives, or the BYU
-     `/spa/talks/` listing.
-   - Do not discover or enqueue links from downloaded pages.
+2. **URLs curadas**
+   - Cada elemento contiene `source_url`, `source_name`, `content_type` y tags.
+   - Fuentes permitidas:
+     - documentos individuales de `https://discursosud.com/`;
+     - discursos bajo `https://speeches.byu.edu/spa/talks/`;
+     - recursos `/study/...` con `lang=spa` del sitio oficial.
+   - No uses portadas, buscadores, categorías ni listados.
+   - No descubras enlaces desde las páginas descargadas.
 
-3. **HTTP Request: Download Source**
-   - Method: `GET`
-   - URL: `{{$json.source_url}}`
-   - Timeout: 30 seconds
-   - Response: text
-   - Send a respectful User-Agent identifying the workflow and
-     `https://www.estudiopy.com`.
-   - Process one item at a time and wait between external requests.
+3. **Descargar recurso**
+   - Método `GET`.
+   - Timeout de 30 segundos.
+   - Respuesta como texto.
+   - User-Agent identificable y `Accept-Language` en español.
+   - Lote de una URL y pausa entre solicitudes.
 
-4. **HTML Extract**
-   - Extract the page `h1`, author/byline, publication date, canonical link,
-     and the known main article container.
-   - Remove `script`, `style`, `nav`, `header`, `footer`, `aside`, forms,
-     cookie notices, related content, and duplicated blocks.
-   - For an approved PDF URL, use a bounded PDF text extraction node or
-     service, retain the original PDF URL, and do not send the binary file to
-     Gospel Library IA.
+4. **Detectar recurso**
+   - Clasifica HTML, PDF o contenido desconocido.
+   - Los PDF quedan `skipped_pdf_pending`.
+   - No envía binarios a Gospel Library IA.
 
-5. **Code: Validate Spanish and Clean Text**
-   - Convert extracted blocks to plain text.
-   - Preserve paragraph breaks.
-   - Reject content under 301 characters.
-   - Reject output containing raw structural HTML.
-   - Confirm `es`/`spa`; send failures to a review branch.
+5. **Limpiar HTML**
+   - Extrae título, autor y canonical.
+   - Prioriza `article`, luego `main`.
+   - Elimina scripts, estilos, navegación, encabezado, pie y elementos
+     repetidos.
+   - Devuelve únicamente texto normalizado.
 
-6. **Set: Prepare API Payload**
-   - Build the fields documented in
+6. **Validar español**
+   - Exige más de 300 caracteres.
+   - Comprueba marcadores frecuentes del español.
+   - Rechaza contenido predominantemente inglés o navegación.
+
+7. **Preparar payload**
+   - Construye el contrato documentado en
      `docs/examples/n8n_ingestion_payload_es.json`.
-   - Do not include credentials, downloaded files, HTML, `file_url`, or
-     `storage_path`.
-   - Set `content_type` to `application/pdf` only when `content` contains clean
-     text already extracted from the PDF.
+   - No incluye secretos, HTML, `file_url`, `storage_path` ni archivos.
 
-7. **HTTP Request: Gospel Library IA**
-   - Method: `POST`
-   - URL: `https://api.estudiopy.com/api/ingestion/documents`
-   - Header: `X-Ingestion-Key` from an n8n credential or secret variable.
-   - Header: `Content-Type: application/json`
-   - Body: JSON from the previous node.
+8. **Enviar a la API**
+   - `POST https://api.estudiopy.com/api/ingestion/documents`
+   - Header `X-Ingestion-Key` desde variable o credencial.
+   - Registra `created`, `verified_existing`, `skipped`, `rejected` o `error`.
 
-8. **Switch: Record Result**
-   - `created`: record the returned document ID.
-   - `verified_existing`: record that the item was already present.
-   - `401`: verify the n8n credential and Render variable without logging it.
-   - `422`: send the validation detail and URL to manual review.
-   - `5xx`: retry with bounded exponential backoff; do not create a scraping
-     loop.
+## Lotes recomendados
 
-## Suggested batching
-
-- Start with 1-5 explicit URLs.
-- Use batch size 1.
-- Wait at least one second between external source requests.
-- Do not automatically retry source pages more than twice.
-- The API call may be retried safely because document ingestion is idempotent.
+- Comienza con una a tres URLs.
+- No superes cinco URLs durante pruebas.
+- Usa batch size 1.
+- Espera tres segundos entre fuentes.
+- No reintentes páginas externas más de dos veces.
+- La llamada a la API puede repetirse porque es idempotente.

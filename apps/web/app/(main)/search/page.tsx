@@ -5,7 +5,7 @@ import { SearchExperience } from "@/components/search/search-experience";
 
 export const metadata: Metadata = {
   title: "Busqueda IA",
-  description: "Busqueda doctrinal hibrida con BM25, semantic search, reranking y citas."
+  description: "Búsqueda doctrinal híbrida con BM25, búsqueda semántica, reordenamiento y citas."
 };
 
 export default function SearchPage() {

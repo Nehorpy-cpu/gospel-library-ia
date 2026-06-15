@@ -38,7 +38,7 @@ def ingestion_health():
 @router.post(
     "/documents",
     response_model=N8nDocumentIngestionResponse,
-    responses={201: {"model": N8nDocumentIngestionResponse, "description": "Document created"}},
+    responses={201: {"model": N8nDocumentIngestionResponse, "description": "Documento creado"}},
 )
 async def create_ingestion_document(
     payload: N8nDocumentIngestionRequest,
