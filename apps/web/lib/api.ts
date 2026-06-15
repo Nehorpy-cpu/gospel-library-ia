@@ -14,6 +14,7 @@ import type { SourceFilterOption } from "@/lib/source-filters";
 import type { TalkBuilderOutline, TalkBuilderRequest, TalkDraftResponse } from "@/types/talk-builder";
 import type { CallingFocus } from "@/lib/church-callings";
 import { apiFetch } from "@/lib/api-client";
+import { buildDocumentDetailPath } from "@/lib/document-detail-url";
 
 const MISSING_OPENAI_MESSAGE = "Falta configurar la clave de OpenAI para busqueda IA.";
 
@@ -210,10 +211,7 @@ export const ragApi = {
     }));
   },
   document(documentId: string, includeChunks = true) {
-    const searchParams = new URLSearchParams();
-    if (includeChunks) searchParams.set("include_chunks", "true");
-    const query = searchParams.toString();
-    const path = `/documents/${encodeURIComponent(documentId)}${query ? `?${query}` : ""}`;
+    const path = buildDocumentDetailPath(documentId, includeChunks);
     return request<Record<string, unknown>>(path, undefined, {
       documentId,
       includeChunks

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ApiHttpError, ragApi } from "@/lib/api";
+import { normalizeDocumentId } from "@/lib/document-detail-url";
 
 type DocumentChunk = {
   id: string;
@@ -62,11 +63,25 @@ function formatDate(value: unknown): string | null {
 }
 
 export function DocumentReader({ id }: { id: string }) {
+  const documentId = normalizeDocumentId(id);
   const document = useQuery({
-    queryKey: ["document", id, "with-chunks"],
-    queryFn: () => ragApi.document(id, true),
+    queryKey: ["document", documentId, "with-chunks"],
+    queryFn: () => ragApi.document(documentId as string, true),
+    enabled: Boolean(documentId),
     retry: false
   });
+
+  if (!documentId) {
+    return (
+      <Card className="p-6">
+        <h1 className="text-xl font-semibold">No se pudo identificar el documento solicitado.</h1>
+        <Link href="/library" className="mt-4 inline-flex items-center gap-2 text-sm text-primary">
+          <ArrowLeft className="h-4 w-4" />
+          Volver a la biblioteca
+        </Link>
+      </Card>
+    );
+  }
 
   if (document.isLoading) {
     return <p className="text-sm text-muted-foreground">Cargando documento...</p>;

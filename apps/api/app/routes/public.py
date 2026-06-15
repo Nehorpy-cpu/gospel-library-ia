@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Request, status
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from app.core.config import get_settings
 from app.schemas.api import ChatRequest, DocumentListResponse, SearchRequest, SearchResponse
@@ -259,16 +259,21 @@ def sources_summary():
 
 @router.get("/documents/{document_id}")
 def document_detail(document_id: str, include_chunks: bool = False):
+    try:
+        normalized_document_id = str(UUID(document_id))
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento no encontrado") from error
+
     with get_conn() as conn:
         columns = _document_columns(conn)
         metadata_column = "raw_metadata" if "raw_metadata" in columns else "metadata"
         text_column = "text" if "text" in columns else "content_text"
-        author_column = "author" if "author" in columns else "NULL"
-        category_column = "category" if "category" in columns else "NULL"
-        tags_column = "tags" if "tags" in columns else "'[]'::jsonb"
-        status_column = "status" if "status" in columns else "'READY'"
-        created_at_column = "created_at" if "created_at" in columns else "NULL"
-        updated_at_column = "updated_at" if "updated_at" in columns else "NULL"
+        author_column = "d.author" if "author" in columns else "NULL::text"
+        category_column = "d.category" if "category" in columns else "NULL::text"
+        tags_column = "d.tags" if "tags" in columns else "'[]'::jsonb"
+        status_column = "d.status" if "status" in columns else "'READY'"
+        created_at_column = "d.created_at AS created_at" if "created_at" in columns else "NULL::timestamptz AS created_at"
+        updated_at_column = "d.updated_at AS updated_at" if "updated_at" in columns else "NULL::timestamptz AS updated_at"
         source_url_expr = f"COALESCE(d.{metadata_column}->>'source_url', d.canonical_url)"
         description_expr = _document_description_expr(columns, metadata_column)
         chunks_available_expr = (
@@ -281,27 +286,27 @@ def document_detail(document_id: str, include_chunks: bool = False):
             SELECT
               d.id::text,
               d.title,
-              {author_column},
-              s.name,
-              COALESCE(d.{metadata_column}->>'source_type', s.key),
-              {source_url_expr},
+              {author_column} AS author,
+              s.name AS source_name,
+              COALESCE(d.{metadata_column}->>'source_type', s.key) AS source_type,
+              {source_url_expr} AS source_url,
               d.canonical_url,
               d.language,
-              {category_column},
+              {category_column} AS category,
               d.published_at,
-              {description_expr},
-              d.{text_column},
-              {tags_column},
-              CASE WHEN d.is_indexed THEN 'INDEXED' ELSE upper(coalesce({status_column}, 'PENDING')) END,
+              {description_expr} AS summary,
+              d.{text_column} AS document_text,
+              {tags_column} AS tags,
+              CASE WHEN d.is_indexed THEN 'INDEXED' ELSE upper(coalesce({status_column}, 'PENDING')) END AS document_status,
               {created_at_column},
               {updated_at_column},
-              d.{metadata_column},
-              {chunks_available_expr}
+              d.{metadata_column} AS metadata,
+              {chunks_available_expr} AS chunks_available
             FROM documents d
             JOIN sources s ON s.id = d.source_id
             WHERE d.id = %s
             """,
-            (document_id,),
+            (normalized_document_id,),
         ).fetchone()
         related_tags = []
         document_tag_columns = _table_columns(conn, "document_tags") if _table_exists(conn, "document_tags") else set()
@@ -311,13 +316,13 @@ def document_detail(document_id: str, include_chunks: bool = False):
                 row[0]
                 for row in conn.execute(
                     """
-                    SELECT t.name
+                    SELECT t.name AS tag_name
                     FROM document_tags dt
                     JOIN tags t ON t.id = dt.tag_id
                     WHERE dt.document_id = %s
                     ORDER BY t.name
                     """,
-                    (document_id,),
+                    (normalized_document_id,),
                 ).fetchall()
             ]
         chunks = []
@@ -328,16 +333,21 @@ def document_detail(document_id: str, include_chunks: bool = False):
             chunk_section_column = "section_title" if "section_title" in chunk_columns else "NULL"
             chunks = conn.execute(
                 f"""
-                SELECT id::text, chunk_index, {chunk_section_column}, {chunk_text_column}, {chunk_metadata_column}
-                FROM document_chunks
-                WHERE document_id = %s
-                ORDER BY chunk_index
+                SELECT
+                  dc.id::text AS id,
+                  dc.chunk_index AS chunk_index,
+                  {f"dc.{chunk_section_column}" if chunk_section_column != "NULL" else "NULL::text"} AS section_title,
+                  dc.{chunk_text_column} AS chunk_text,
+                  {f"dc.{chunk_metadata_column}" if chunk_metadata_column != "'{}'::jsonb" else chunk_metadata_column} AS metadata
+                FROM document_chunks dc
+                WHERE dc.document_id = %s
+                ORDER BY dc.chunk_index
                 LIMIT 200
                 """,
-                (document_id,),
+                (normalized_document_id,),
             ).fetchall()
     if not doc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento no encontrado.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento no encontrado")
     source_type = normalize_source_type(doc[4]) or doc[4]
     published_at = doc[9].isoformat() if doc[9] else None
     created_at = doc[14].isoformat() if doc[14] else None

@@ -14,6 +14,12 @@ from app.routes import public
 from app.schemas.api import SearchRequest
 
 
+DETAIL_DOCUMENT_ID = "10000000-0000-4000-8000-000000000001"
+EMPTY_DOCUMENT_ID = "10000000-0000-4000-8000-000000000002"
+LEGACY_DOCUMENT_ID = "10000000-0000-4000-8000-000000000003"
+MISSING_DOCUMENT_ID = "10000000-0000-4000-8000-000000000004"
+
+
 class FakeResult:
     def __init__(self, rows):
         self.rows = rows
@@ -300,13 +306,18 @@ class DocumentRoutesTest(unittest.TestCase):
         published_at = datetime(2024, 4, 6, tzinfo=timezone.utc)
 
         class DetailConnection:
+            def __init__(self):
+                self.document_query = ""
+                self.chunk_query = ""
+
             def execute(self, sql, params=None):
                 query = str(sql)
                 if "FROM documents d" in query:
+                    self.document_query = query
                     return FakeResult(
                         [
                             (
-                                "doc-1",
+                                DETAIL_DOCUMENT_ID,
                                 "La fe en Jesucristo",
                                 None,
                                 "Biblioteca oficial",
@@ -332,6 +343,7 @@ class DocumentRoutesTest(unittest.TestCase):
                         ]
                     )
                 if "FROM document_chunks" in query:
+                    self.chunk_query = query
                     return FakeResult(
                         [
                             (
@@ -345,17 +357,26 @@ class DocumentRoutesTest(unittest.TestCase):
                     )
                 raise AssertionError(query)
 
+        connection = DetailConnection()
+
         @contextmanager
         def detail_get_conn():
-            yield DetailConnection()
+            yield connection
 
         original_table_exists = public._table_exists
         original_table_columns = public._table_columns
         public.get_conn = detail_get_conn
         public._table_exists = lambda _conn, table: table == "document_chunks"
-        public._table_columns = lambda _conn, table: {"text", "metadata"} if table == "document_chunks" else set()
+        public._table_columns = lambda _conn, table: {
+            "documents": {
+                "id", "source_id", "title", "canonical_url", "author", "language", "category",
+                "published_at", "text", "tags", "status", "is_indexed", "created_at", "updated_at",
+                "raw_metadata",
+            },
+            "document_chunks": {"id", "document_id", "chunk_index", "section_title", "text", "metadata"},
+        }.get(table, set())
         try:
-            response = public.document_detail("doc-1", include_chunks=True)
+            response = public.document_detail(DETAIL_DOCUMENT_ID, include_chunks=True)
         finally:
             public._table_exists = original_table_exists
             public._table_columns = original_table_columns
@@ -368,6 +389,13 @@ class DocumentRoutesTest(unittest.TestCase):
         self.assertEqual(response["chunks"][0]["text"], "Contenido real del chunk.")
         self.assertNotIn("api_key", response["metadata"])
         self.assertNotIn("token", response["chunks"][0]["metadata"])
+        self.assertIn("d.created_at AS created_at", connection.document_query)
+        self.assertIn("d.updated_at AS updated_at", connection.document_query)
+        self.assertIn("s.name AS source_name", connection.document_query)
+        self.assertIn("d.raw_metadata AS metadata", connection.document_query)
+        self.assertIn("dc.id::text AS id", connection.chunk_query)
+        self.assertIn("dc.chunk_index AS chunk_index", connection.chunk_query)
+        self.assertIn("dc.metadata AS metadata", connection.chunk_query)
 
     def test_document_detail_without_chunks_returns_empty_array(self):
         published_at = datetime(2024, 4, 6, tzinfo=timezone.utc)
@@ -381,7 +409,7 @@ class DocumentRoutesTest(unittest.TestCase):
                     return FakeResult(
                         [
                             (
-                                "doc-empty",
+                                EMPTY_DOCUMENT_ID,
                                 "Documento sin chunks",
                                 None,
                                 "Biblioteca oficial",
@@ -415,7 +443,7 @@ class DocumentRoutesTest(unittest.TestCase):
         public._table_exists = lambda _conn, _table: False
         public._table_columns = lambda _conn, _table: set()
         try:
-            response = public.document_detail("doc-empty", include_chunks=True)
+            response = public.document_detail(EMPTY_DOCUMENT_ID, include_chunks=True)
         finally:
             public.get_conn = original_get_conn
             public._table_exists = original_table_exists
@@ -445,14 +473,25 @@ class DocumentRoutesTest(unittest.TestCase):
         } if table == "documents" else set()
         try:
             with self.assertRaises(HTTPException) as raised:
-                public.document_detail("missing", include_chunks=True)
+                public.document_detail(MISSING_DOCUMENT_ID, include_chunks=True)
         finally:
             public.get_conn = original_get_conn
             public._table_exists = original_table_exists
             public._table_columns = original_table_columns
 
         self.assertEqual(raised.exception.status_code, 404)
-        self.assertEqual(raised.exception.detail, "Documento no encontrado.")
+        self.assertEqual(raised.exception.detail, "Documento no encontrado")
+
+    def test_invalid_document_id_returns_404_without_querying_database(self):
+        original_get_conn = public.get_conn
+        public.get_conn = lambda: (_ for _ in ()).throw(AssertionError("No debe consultar PostgreSQL"))
+        try:
+            response = TestClient(app).get("/api/documents/%3Dtrue?include_chunks=true")
+        finally:
+            public.get_conn = original_get_conn
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {"detail": "Documento no encontrado"})
 
     def test_document_detail_ignores_incompatible_legacy_document_tags(self):
         published_at = datetime(2024, 4, 6, tzinfo=timezone.utc)
@@ -464,7 +503,7 @@ class DocumentRoutesTest(unittest.TestCase):
                     return FakeResult(
                         [
                             (
-                                "doc-legacy",
+                                LEGACY_DOCUMENT_ID,
                                 "Documento heredado",
                                 None,
                                 "Fuente",
@@ -504,13 +543,13 @@ class DocumentRoutesTest(unittest.TestCase):
             "documents": {"id", "source_id", "title", "canonical_url", "text", "raw_metadata", "is_indexed"},
         }.get(table, set())
         try:
-            response = public.document_detail("doc-legacy")
+            response = public.document_detail(LEGACY_DOCUMENT_ID)
         finally:
             public.get_conn = original_get_conn
             public._table_exists = original_table_exists
             public._table_columns = original_table_columns
 
-        self.assertEqual(response["id"], "doc-legacy")
+        self.assertEqual(response["id"], LEGACY_DOCUMENT_ID)
 
     def test_search_builds_legacy_compatible_chunk_query(self):
         class SearchConnection:
