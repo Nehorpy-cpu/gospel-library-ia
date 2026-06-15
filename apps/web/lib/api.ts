@@ -52,6 +52,36 @@ function requestHeaders(initHeaders?: HeadersInit) {
   return headers;
 }
 
+function normalizeSearchResponse(value: unknown): SearchResponse {
+  if (!value || typeof value !== "object") {
+    throw new Error("Invalid search response: expected an object.");
+  }
+  const response = value as Partial<SearchResponse>;
+  if (typeof response.query !== "string") {
+    throw new Error("Invalid search response: query is missing.");
+  }
+  if (response.items !== undefined && !Array.isArray(response.items)) {
+    throw new Error("Invalid search response: items must be an array.");
+  }
+  if (response.results !== undefined && !Array.isArray(response.results)) {
+    throw new Error("Invalid search response: results must be an array.");
+  }
+  if (response.warnings !== undefined && !Array.isArray(response.warnings)) {
+    throw new Error("Invalid search response: warnings must be an array.");
+  }
+  const items = response.items ?? response.results ?? [];
+  const results = response.results ?? response.items ?? [];
+  return {
+    query: response.query,
+    rewritten_query: response.rewritten_query ?? null,
+    mode: response.mode ?? "postgres_text",
+    warnings: response.warnings ?? [],
+    items,
+    results,
+    total: response.total ?? results.length
+  };
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await apiFetch(path, {
     ...init,
@@ -106,17 +136,18 @@ export function downloadBlob({ blob, filename }: { blob: Blob; filename: string 
 }
 
 export const ragApi = {
-  search(payload: SearchRequest) {
+  async search(payload: SearchRequest) {
     const body = searchRequestSchema.parse({
       filters: {},
       limit: 12,
       use_reranker: true,
       ...payload
     });
-    return request<SearchResponse>("/search", {
+    const response = await request<unknown>("/search", {
       method: "POST",
       body: JSON.stringify(body)
     });
+    return normalizeSearchResponse(response);
   },
   chat(payload: ChatRequest) {
     const body = chatRequestSchema.parse({ mode: "doctrinal_assistant", ...payload });

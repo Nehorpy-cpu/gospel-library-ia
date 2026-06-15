@@ -4,8 +4,11 @@ from pathlib import Path
 import sys
 import unittest
 
+from fastapi.testclient import TestClient
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.main import app
 from app.routes import public
 from app.schemas.api import SearchRequest
 
@@ -181,6 +184,62 @@ class DocumentRoutesTest(unittest.TestCase):
         self.assertEqual(response["items"][0]["document_id"], "doc-1")
         self.assertEqual(response["items"][0]["source"], "Biblioteca oficial")
         self.assertEqual(response["items"][0]["tags"], ["fe"])
+
+    def test_search_endpoint_serializes_empty_results_as_arrays(self):
+        original_document_search = public._document_search
+        public._document_search = lambda *_args, **_kwargs: []
+        try:
+            response = TestClient(app).post("/api/search", json={"query": "Jesucristo"})
+        finally:
+            public._document_search = original_document_search
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "query": "Jesucristo",
+                "rewritten_query": None,
+                "mode": "postgres_text",
+                "warnings": [],
+                "items": [],
+                "results": [],
+                "total": 0,
+            },
+        )
+        self.assertIn('"items":[]', response.text)
+        self.assertIn('"results":[]', response.text)
+
+    def test_search_endpoint_serializes_results_as_arrays(self):
+        row = {
+            "id": "doc-1",
+            "chunk_id": "chunk-1",
+            "title": "La fe en Jesucristo",
+            "author": None,
+            "source": "Biblioteca oficial",
+            "source_key": "church",
+            "source_url": "https://example.com/source",
+            "canonical_url": "https://example.com/doc",
+            "language": "es",
+            "section_title": "Introduccion",
+            "snippet": "La fe en Jesucristo.",
+            "score": 0.75,
+            "tags": ["fe"],
+            "scripture_refs": [],
+        }
+        original_document_search = public._document_search
+        public._document_search = lambda *_args, **_kwargs: [row]
+        try:
+            response = TestClient(app).post("/api/search", json={"query": "Jesucristo"})
+        finally:
+            public._document_search = original_document_search
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertIsInstance(payload["items"], list)
+        self.assertIsInstance(payload["results"], list)
+        self.assertEqual(payload["items"], payload["results"])
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(payload["items"][0]["document_id"], "doc-1")
 
     def test_sources_summary_returns_canonical_counts(self):
         response = public.sources_summary()

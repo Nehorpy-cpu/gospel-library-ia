@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request
 from uuid import uuid4
 
 from app.core.config import get_settings
-from app.schemas.api import ChatRequest, DocumentListResponse, SearchRequest
+from app.schemas.api import ChatRequest, DocumentListResponse, SearchRequest, SearchResponse
 from app.services.db import get_conn
 from app.services.rate_limit import RateLimiter
 from app.services.calling_focus import calling_application_note
@@ -49,7 +49,7 @@ def confirmed_duplicate_filter(alias: str = "d") -> str:
     """.strip()
 
 
-@router.post("/search")
+@router.post("/search", response_model=SearchResponse)
 async def search(payload: SearchRequest, request: Request):
     await limiter.check(request)
     return _textual_search_response(payload)

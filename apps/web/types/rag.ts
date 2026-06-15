@@ -44,12 +44,12 @@ export type SearchResult = {
 
 export type SearchResponse = {
   query: string;
-  rewritten_query?: string | null;
-  mode?: string;
-  warnings?: string[];
-  items?: SearchResult[];
+  rewritten_query: string | null;
+  mode: string;
+  warnings: string[];
+  items: SearchResult[];
   results: SearchResult[];
-  total?: number;
+  total: number;
 };
 
 export type Citation = {

@@ -58,6 +58,16 @@ class SearchRequest(BaseModel):
         return self
 
 
+class SearchResponse(BaseModel):
+    query: str
+    rewritten_query: str | None = None
+    mode: str = "postgres_text"
+    warnings: list[str] = Field(default_factory=list)
+    items: list[dict[str, Any]] = Field(default_factory=list)
+    results: list[dict[str, Any]] = Field(default_factory=list)
+    total: int = 0
+
+
 class CallingFocus(BaseModel):
     callingCategory: str | None = Field(default=None, max_length=120)
     callingName: str | None = Field(default=None, max_length=200)
