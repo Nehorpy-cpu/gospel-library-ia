@@ -2,99 +2,76 @@
 
 ## Responsabilidades
 
-### n8n: orquestador
+### n8n
 
-n8n mantiene la lista explícita de URLs, descarga un recurso por vez, detecta
-su tipo, limpia HTML, aplica una primera validación de español y prepara el
-payload. No decide la persistencia final ni accede directamente a Supabase.
+n8n mantiene una lista explícita de URLs, descarga un recurso por vez, extrae
+texto limpio, valida calidad mínima, envía documentos válidos a la API y resume
+el lote. No hace crawling ni accede directamente a Supabase.
 
-### Render API: validador y guardador
+### FastAPI en Render
 
-FastAPI recibe `POST /api/ingestion/documents`, verifica `X-Ingestion-Key`,
-aplica nuevamente las reglas de fuente, idioma, longitud y texto limpio,
-normaliza URLs, calcula el hash y controla la idempotencia.
+La API recibe `POST /api/ingestion/documents`, autentica el orquestador, valida
+fuente, idioma, URL, longitud, placeholders e idempotencia, y guarda en
+PostgreSQL/Supabase. La API es la autoridad final.
 
-La defensa es doble. n8n descarta URLs con idiomas no españoles y contenido de
-prueba antes del POST. FastAPI exige `language="es"` y vuelve a validar parámetros `lang`,
-metadata, predominio lingüístico y placeholders; por tanto, modificar el
-workflow no permite insertar contenido inválido.
+### Supabase/PostgreSQL
 
-La API es la autoridad final. Un workflow modificado o defectuoso no puede
-omitir sus validaciones.
+Postgres conserva fuentes, autores, documentos, texto limpio, metadata, tags y
+chunks. No se guarda HTML crudo.
 
-### Supabase Postgres: contenido estructurado
+### Qdrant y OpenAI
 
-Postgres conserva:
-
-- fuentes;
-- autores;
-- documentos;
-- texto limpio;
-- metadata verificable;
-- tags;
-- chunks de aproximadamente 800 a 1200 caracteres;
-- URL original, URL canónica y hash de contenido.
-
-No se guarda HTML crudo.
-
-### Supabase Storage: no usado
-
-Storage no se usa en esta etapa. Las páginas web permanecen referenciadas por
-su URL original. Los PDF se omiten hasta disponer de extracción controlada; si
-se habilita, se enviará texto limpio y se conservará la URL sin almacenar el
-binario.
-
-### Qdrant: pendiente
-
-No se crean vectores ni colecciones. El estado de Qdrant no bloquea ingesta,
-Biblioteca, detalle ni búsqueda textual.
-
-### OpenAI: pendiente
-
-No se generan resúmenes, embeddings, traducciones ni contenido doctrinal. El
-texto guardado debe proceder de la fuente indicada y llegar ya en español.
+No participan en esta fase. La ingesta funciona con búsqueda textual y chunks en
+Postgres.
 
 ## Flujo
 
 ```mermaid
 flowchart LR
-    A["Lista curada en n8n"] --> B["Descarga individual"]
-    B --> C["Detección y limpieza"]
-    C --> D["Validación inicial en español"]
-    D --> E["FastAPI en Render"]
-    E --> F["Validación final e idempotencia"]
-    F --> G["Supabase Postgres"]
-    G --> H["Biblioteca y búsqueda textual"]
+    A["Inicio manual"] --> B["URLs curadas"]
+    B --> C["Inicializar reporte"]
+    C --> D["Separar URLs"]
+    D --> E["Procesar una URL por vez"]
+    E --> F["Descargar"]
+    F --> G["Detectar recurso"]
+    G --> H["Limpiar HTML"]
+    H --> I["Validar español"]
+    I --> J["Preparar payload"]
+    J --> K{"Documento válido"}
+    K -->|true| L["Enviar a API"]
+    K -->|false| M["Registrar resultado"]
+    L --> M
+    M --> N["Pausa respetuosa"]
+    N --> E
+    E -->|done| O["Resumen de lote"]
 ```
+
+## Reglas de entrada
+
+- Solo fuentes permitidas: sitio oficial de la Iglesia, BYU Speeches Español y
+  Discursos SUD.
+- El sitio oficial debe usar `lang=spa`.
+- BYU Speeches debe usar ruta `/spa/`.
+- Se rechazan `eng`, `por`, `fra`, `ita`, `deu`, contenido de prueba y
+  placeholders.
+- El payload final siempre usa `language="es"`.
+
+## Control de lote
+
+**Inicializar reporte de lote** limpia `gospel_library_ingestion_results` al
+inicio. **Registrar resultado** agrega un resultado normalizado por URL. Al
+terminar el batch, **Resumen de lote** lee ese acumulador y devuelve conteos,
+títulos creados, URLs rechazadas y todos los resultados.
 
 ## Límites de confianza
 
 - La URL y el texto externo son datos no confiables.
-- La API key solo autentica al orquestador; no vuelve confiable al payload.
-- `source_name` enviado por n8n es auditivo. La API deriva el nombre canónico
-  desde su allowlist.
-- `canonical_url`, idioma, HTML y longitud se validan en FastAPI.
-- El idioma declarado no basta: el texto debe superar la heurística española y
-  no estar dominado por marcadores ingleses.
-- Títulos, metadata y contenido de prueba se rechazan antes de persistir.
-- Los secretos se mantienen en Render y en variables o credenciales de n8n.
+- La clave de ingesta autentica al workflow, pero no vuelve confiable el
+  payload.
+- El backend vuelve a validar todo.
+- Los secretos permanecen en Render y n8n, nunca en payloads ni logs.
 
 ## Idempotencia
 
-La API verifica:
-
-1. URL canónica normalizada.
-2. URL fuente normalizada.
-3. SHA-256 del texto limpio.
-4. Restricciones únicas de documentos y chunks.
-
-Una repetición válida devuelve `verified_existing` sin duplicar contenido.
-
-## Fuentes
-
-- Discursos SUD: fuente curada secundaria, no oficial.
-- BYU Speeches Español: fuente académica curada, no oficial de la Iglesia.
-- Sitio oficial de la Iglesia: fuente oficial con máxima confianza.
-
-La procedencia debe mostrarse siempre. El sistema no presenta fuentes
-secundarias como publicaciones oficiales.
+Una repetición válida devuelve `verified_existing`. La API evita duplicados por
+URL canónica, URL fuente y hash de contenido.

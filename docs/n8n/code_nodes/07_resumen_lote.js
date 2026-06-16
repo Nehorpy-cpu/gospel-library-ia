@@ -1,14 +1,7 @@
 const data = $getWorkflowStaticData("global");
-let resultados = Array.isArray(data.gospel_library_ingestion_results)
+const resultados = Array.isArray(data.gospel_library_ingestion_results)
   ? data.gospel_library_ingestion_results
   : [];
-
-if (!resultados.length) {
-  const inputResults = $input.all().map((item) => item.json ?? {});
-  resultados = inputResults.filter((item) =>
-    ["created", "verified_existing", "skipped", "rejected", "error"].includes(item.resultado)
-  );
-}
 
 const contador = {
   total_procesados: resultados.length,
@@ -33,34 +26,34 @@ for (const item of resultados) {
   } else if (item.resultado === "rejected") {
     contador.rechazados += 1;
     urlsRechazadas.push({
-      source_url: item.source_url ?? null,
-      title: item.title ?? null,
-      razon: item.mensaje ?? "Documento rechazado."
+      source_url: item.source_url || null,
+      title: item.title || null,
+      razon: item.mensaje || "Documento rechazado."
     });
   } else if (item.resultado === "error") {
     contador.errores += 1;
     urlsRechazadas.push({
-      source_url: item.source_url ?? null,
-      title: item.title ?? null,
-      razon: item.mensaje ?? "Error durante la ingesta."
+      source_url: item.source_url || null,
+      title: item.title || null,
+      razon: item.mensaje || "Error durante la ingesta."
     });
   }
 }
 
 const mensaje = [
-  `Procesados: ${contador.total_procesados}`,
-  `creados: ${contador.creados}`,
-  `existentes: ${contador.existentes}`,
-  `omitidos: ${contador.omitidos}`,
-  `rechazados: ${contador.rechazados}`,
-  `errores: ${contador.errores}`
+  "Procesados: " + contador.total_procesados,
+  "creados: " + contador.creados,
+  "existentes: " + contador.existentes,
+  "omitidos: " + contador.omitidos,
+  "rechazados: " + contador.rechazados,
+  "errores: " + contador.errores
 ].join("; ");
 
 return [{
   json: {
     resultado: "batch_summary",
     mensaje,
-    started_at: data.gospel_library_ingestion_started_at ?? null,
+    started_at: data.gospel_library_ingestion_started_at || null,
     finished_at: new Date().toISOString(),
     ...contador,
     titulos_creados: titulosCreados,

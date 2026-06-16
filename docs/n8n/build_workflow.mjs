@@ -24,7 +24,7 @@ const workflow = {
               id: "338403af-ffea-4401-b2ec-403a8ae09002",
               name: "urls",
               type: "array",
-              value: "={{ [\n  {\n    source_url: 'https://discursosud.com/el-amor-puro-de-cristo/',\n    source_name: 'Discursos SUD',\n    content_type: 'text/html',\n    tags: ['Jesucristo', 'Caridad']\n  },\n  {\n    source_url: 'https://speeches.byu.edu/spa/talks/brad-wilcox/su-gracia-es-suficiente/',\n    source_name: 'BYU Speeches Español',\n    content_type: 'text/html',\n    tags: ['Jesucristo', 'Gracia']\n  },\n  {\n    source_url: 'https://www.churchofjesuschrist.org/study/general-conference/2022/04/55soares?lang=spa',\n    source_name: 'Sitio oficial de la Iglesia',\n    content_type: 'text/html',\n    tags: ['Jesucristo', 'Conferencia General']\n  }\n] }}"
+              value: "={{ [\n  {\n    source_url: 'https://www.churchofjesuschrist.org/study/general-conference/2022/04/55soares?lang=spa',\n    source_name: 'Sitio oficial de la Iglesia',\n    content_type: 'text/html',\n    tags: ['Jesucristo', 'Conferencia General']\n  },\n  {\n    source_url: 'https://speeches.byu.edu/spa/talks/brad-wilcox/su-gracia-es-suficiente/',\n    source_name: 'BYU Speeches Español',\n    content_type: 'text/html',\n    tags: ['Jesucristo', 'Gracia']\n  },\n  {\n    source_url: 'https://discursosud.com/el-amor-puro-de-cristo/',\n    source_name: 'Discursos SUD',\n    content_type: 'text/html',\n    tags: ['Jesucristo', 'Caridad']\n  }\n] }}"
             }
           ]
         },
@@ -38,6 +38,16 @@ const workflow = {
     },
     {
       parameters: {
+        jsCode: code("00_inicializar_reporte_lote.js")
+      },
+      id: "ef1f6efe-4a98-4211-b44b-bbde71c3d7c6",
+      name: "Inicializar reporte de lote",
+      type: "n8n-nodes-base.code",
+      typeVersion: 2,
+      position: [-560, 180]
+    },
+    {
+      parameters: {
         fieldToSplitOut: "urls",
         options: {}
       },
@@ -46,16 +56,6 @@ const workflow = {
       type: "n8n-nodes-base.splitOut",
       typeVersion: 1,
       position: [-560, 0]
-    },
-    {
-      parameters: {
-        jsCode: code("00_inicializar_reporte_lote.js")
-      },
-      id: "ef1f6efe-4a98-4211-b44b-bbde71c3d7c6",
-      name: "Inicializar reporte de lote",
-      type: "n8n-nodes-base.code",
-      typeVersion: 2,
-      position: [-560, 180]
     },
     {
       parameters: {
@@ -103,7 +103,7 @@ const workflow = {
     },
     {
       parameters: {
-        jsCode: code("01_detectar_tipo_recurso.js")
+        jsCode: code("02_detectar_tipo_recurso.js")
       },
       id: "fe6618c7-6d45-4d9a-af66-8b753f3c5007",
       name: "Detectar tipo de recurso",
@@ -113,7 +113,7 @@ const workflow = {
     },
     {
       parameters: {
-        jsCode: code("02_limpiar_html_extraer_contenido.js")
+        jsCode: code("03_limpiar_html_extraer_contenido.js")
       },
       id: "56ec6709-d324-46fc-953f-d577fb5db008",
       name: "Limpiar HTML y extraer contenido",
@@ -123,7 +123,7 @@ const workflow = {
     },
     {
       parameters: {
-        jsCode: code("03_validar_espanol_calidad.js")
+        jsCode: code("04_validar_espanol_calidad.js")
       },
       id: "adca682b-1a28-4d89-996a-2072f5025009",
       name: "Validar español y calidad mínima",
@@ -133,7 +133,7 @@ const workflow = {
     },
     {
       parameters: {
-        jsCode: code("04_preparar_payload.js")
+        jsCode: code("05_preparar_payload.js")
       },
       id: "4d6a6a9c-5ef2-4107-a349-bc036358b010",
       name: "Preparar payload para Gospel Library IA",
@@ -174,7 +174,7 @@ const workflow = {
     {
       parameters: {
         method: "POST",
-        url: "={{ ($env.GOSPEL_LIBRARY_API_URL || 'https://api.estudiopy.com').replace(/\\/$/, '') + '/api/ingestion/documents' }}",
+        url: "https://api.estudiopy.com/api/ingestion/documents",
         sendHeaders: true,
         headerParameters: {
           parameters: [
@@ -211,7 +211,7 @@ const workflow = {
     },
     {
       parameters: {
-        jsCode: code("05_registrar_resultado.js")
+        jsCode: code("06_registrar_resultado.js")
       },
       id: "7075e1ac-f49c-4a17-a5ee-e2b8c191f014",
       name: "Registrar resultado",
@@ -233,7 +233,7 @@ const workflow = {
     },
     {
       parameters: {
-        jsCode: code("06_resumen_lote.js")
+        jsCode: code("07_resumen_lote.js")
       },
       id: "d0fb9cf7-22bd-46bd-9e41-5071b6b020e0",
       name: "Resumen de lote",

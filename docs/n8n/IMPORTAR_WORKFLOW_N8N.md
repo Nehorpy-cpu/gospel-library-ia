@@ -2,170 +2,131 @@
 
 ## Archivos
 
-- Workflow importable:
-  `docs/n8n/gospel_library_curated_ingestion_v1.workflow.json`
-- Código fuente de los Code Nodes:
-  `docs/n8n/code_nodes/`
-- Constructor reproducible:
-  `docs/n8n/build_workflow.mjs`
+- Workflow importable: `docs/n8n/gospel_library_curated_ingestion_v1.workflow.json`
+- Code Nodes fuente: `docs/n8n/code_nodes/`
+- Constructor reproducible: `docs/n8n/build_workflow.mjs`
 
 El workflow procesa una URL por vez, no descubre enlaces y espera tres segundos
 antes de continuar con el siguiente documento.
 
-## Importar el JSON
+## Importar
 
 1. Abre n8n.
 2. Ve a **Workflows**.
 3. Selecciona **Import from File**.
 4. Elige `gospel_library_curated_ingestion_v1.workflow.json`.
-5. Confirma que aparecen quince nodos y que el workflow permanece inactivo.
-6. Abre los nodos HTTP y revisa sus expresiones antes de ejecutar.
+5. Confirma que aparecen 15 nodos.
+6. Deja el workflow inactivo hasta revisar el nodo HTTP.
 
-n8n también permite pegar un workflow copiado directamente en el lienzo, pero
-para esta versión se recomienda importar el archivo completo.
+## Configurar la clave de ingesta
 
-## Variables necesarias
-
-En una instalación autohospedada de n8n configura:
-
-```env
-GOSPEL_LIBRARY_API_URL=https://api.estudiopy.com
-INGESTION_API_KEY=VALOR_SECRETO_COMPARTIDO_CON_RENDER
-```
-
-Reinicia n8n después de agregar variables. El workflow usa:
+El nodo **Enviar documento a Gospel Library IA** apunta a:
 
 ```text
-$env.GOSPEL_LIBRARY_API_URL
-$env.INGESTION_API_KEY
+https://api.estudiopy.com/api/ingestion/documents
 ```
 
-La variable `INGESTION_API_KEY` debe coincidir con la configurada en Render.
-No la agregues a Git, al payload, a un Set Node ni a los datos fijados de n8n.
-No uses textos literales de ejemplo como clave. Genera un valor aleatorio largo
-y guárdalo únicamente como variable secreta o credencial.
-
-## Alternativa con credencial Header Auth
-
-Si la instancia no permite acceso a `$env`:
-
-1. Crea una credencial **Header Auth** en n8n.
-2. Usa el nombre `X-Ingestion-Key`.
-3. Guarda la clave como valor secreto.
-4. Abre **Enviar documento a Gospel Library IA**.
-5. Cambia Authentication a la credencial Header Auth creada.
-6. Elimina el header manual `X-Ingestion-Key` del nodo para no duplicarlo.
-
-La credencial no se exporta dentro del workflow. Cada instancia debe asociarla
-después de importar.
+Configura el header de ingesta en n8n usando una variable segura o una
+credencial de tipo Header Auth. No pegues el valor real en notas, logs, Set
+Nodes, datos fijados ni ejemplos. Si usas una credencial Header Auth, elimina el
+header manual duplicado del nodo HTTP.
 
 ## URLs iniciales
 
-El nodo **URLs curadas en español** contiene únicamente:
+El nodo **URLs curadas en español** contiene tres URLs de prueba:
 
-1. `https://discursosud.com/el-amor-puro-de-cristo/`
+1. `https://www.churchofjesuschrist.org/study/general-conference/2022/04/55soares?lang=spa`
 2. `https://speeches.byu.edu/spa/talks/brad-wilcox/su-gracia-es-suficiente/`
-3. `https://www.churchofjesuschrist.org/study/general-conference/2022/04/55soares?lang=spa`
+3. `https://discursosud.com/el-amor-puro-de-cristo/`
 
-Son páginas individuales, no portadas ni listados. Antes de una ejecución real,
-abre cada URL y confirma que continúa disponible y en español.
+Cada item debe incluir `source_url`, `source_name`, `content_type` y `tags`.
+Usa lotes chicos para pruebas; no agregues portadas, listados ni crawlers.
 
-## Cambiar la lista
+## Flujo confirmado
 
-Edita únicamente el array del nodo **URLs curadas en español**. Cada elemento
-debe incluir:
+1. **Inicio manual - Ingesta curada**
+2. **URLs curadas en español**
+3. **Inicializar reporte de lote**
+4. **Separar lista de URLs**
+5. **Procesar una URL por vez**
+6. **Descargar página o recurso**
+7. **Detectar tipo de recurso**
+8. **Limpiar HTML y extraer contenido**
+9. **Validar español y calidad mínima**
+10. **Preparar payload para Gospel Library IA**
+11. **¿Documento válido?**
+12. Rama true: **Enviar documento a Gospel Library IA**
+13. Ambas ramas: **Registrar resultado**
+14. **Pausa respetuosa**
+15. Final del loop: **Resumen de lote**
 
-```json
-{
-  "source_url": "https://URL-INDIVIDUAL",
-  "source_name": "Nombre de fuente",
-  "content_type": "text/html",
-  "tags": ["Tema"]
-}
-```
+Conexiones críticas:
 
-Usa como máximo cinco URLs durante pruebas. Solo se aceptan documentos
-individuales HTTPS de las tres fuentes autorizadas por la API.
+- Loop de **Procesar una URL por vez** -> **Descargar página o recurso**.
+- Done de **Procesar una URL por vez** -> **Resumen de lote**.
+- True de **¿Documento válido?** -> **Enviar documento a Gospel Library IA**.
+- False de **¿Documento válido?** -> **Registrar resultado**.
+- **Enviar documento a Gospel Library IA** -> **Registrar resultado**.
+- **Registrar resultado** -> **Pausa respetuosa**.
+- **Pausa respetuosa** -> **Procesar una URL por vez**.
 
-## Probar una sola URL
+## Leer Registrar resultado
 
-1. Conserva un solo objeto en el array.
-2. Pulsa **Execute workflow**.
-3. Inspecciona cada nodo sin fijar datos que contengan contenido completo.
-4. Confirma que **Registrar resultado** produce uno de estos estados:
-   - `created`
-   - `verified_existing`
-   - `skipped`
-   - `rejected`
-   - `error`
-5. Abre **Resumen de lote** y revisa:
-   - `total_procesados`;
-   - `creados`;
-   - `existentes`;
-   - `omitidos`;
-   - `rechazados`;
-   - `errores`;
-   - `titulos_creados`;
-   - `urls_rechazadas`.
-6. Ejecuta una segunda vez. El resultado esperado es `verified_existing` y
-   `existentes` mayor que cero en el resumen.
+Cada URL produce un item con:
 
-## Flujo de datos
+- `resultado`: `created`, `verified_existing`, `skipped`, `rejected` o `error`.
+- `title`
+- `source_url`
+- `source_name`
+- `language`
+- `chunks_count`
+- `document_id`
+- `mensaje`
+- `http_status`
 
-1. **Inicializar reporte de lote** limpia el acumulador interno de resultados
-   para que cada ejecución manual empiece en cero.
-2. **Descargar página o recurso** obtiene texto con timeout de 30 segundos.
-3. **Detectar tipo de recurso** clasifica HTML, PDF o recurso desconocido.
-4. Los PDF quedan como `skipped_pdf_pending`; no se guarda el binario.
-5. **Limpiar HTML y extraer contenido** elimina estructura y devuelve texto.
-   También repara entidades HTML, espacios no separables y mojibake UTF-8 común.
-6. **Validar español y calidad mínima** exige título, más de 300 caracteres y
-   marcadores suficientes de español. También rechaza idiomas declarados
-   `eng`, `por`, `fra`, `ita`, `deu`, `language=en`, URLs no españolas y
-   cualquier texto de prueba o placeholder.
-7. **Preparar payload para Gospel Library IA** construye el contrato de API.
-   Normaliza título, autor, fuente, resumen, contenido y traduce etiquetas
-   doctrinales comunes al español.
-8. **¿Documento válido?** evita enviar documentos omitidos.
-9. **Enviar documento a Gospel Library IA** llama a Render.
-10. **Registrar resultado** normaliza el resultado por URL en español. Devuelve
-   `resultado`, `title`, `source_url`, `source_name`, `language`,
-    `chunks_count`, `document_id` y `mensaje`, sin exponer `X-Ingestion-Key`.
-    También guarda ese resultado normalizado en el acumulador interno del lote.
-11. **Pausa respetuosa** espera tres segundos.
-12. **Resumen de lote** se ejecuta al finalizar todas las URLs, lee el
-    acumulador de `Registrar resultado` y agrupa los conteos del lote, los
-    títulos creados y las URLs rechazadas con su razón.
+Si `resultado=skipped`, revisa `mensaje`. Normalmente indica URL no permitida,
+texto corto, idioma no español, PDF pendiente o placeholder.
 
-## Leer el resumen final
+## Leer Resumen de lote
 
-Al terminar una ejecución manual, selecciona el nodo **Resumen de lote**. Ese
-nodo emite un solo item con este contrato:
+Al finalizar la ejecución manual, abre **Resumen de lote**. Debe devolver:
 
 ```json
 {
   "resultado": "batch_summary",
   "total_procesados": 3,
-  "creados": 1,
-  "existentes": 1,
-  "omitidos": 1,
+  "creados": 0,
+  "existentes": 3,
+  "omitidos": 0,
   "rechazados": 0,
   "errores": 0,
-  "titulos_creados": ["Titulo creado"],
-  "urls_rechazadas": []
+  "titulos_creados": [],
+  "urls_rechazadas": [],
+  "resultados": []
 }
 ```
 
-Usa `errores` para detectar fallas operativas y `rechazados` para revisar
-payloads que la API no aceptó. Las entradas omitidas normalmente vienen de una
-validación preventiva de n8n, por ejemplo una URL que no declara español o un
-documento demasiado corto.
+Si `total_procesados=0`, revisa:
 
-## Verificar en la aplicación
+- **Inicializar reporte de lote** se ejecutó antes de separar URLs.
+- **Registrar resultado** se ejecutó para cada URL.
+- **Pausa respetuosa** vuelve a **Procesar una URL por vez**.
+- La salida Done del batch llega solo a **Resumen de lote**.
+
+## Respuestas comunes de API
+
+- `401`: la clave de ingesta no coincide o falta.
+- `400`: el JSON enviado no cumple el contrato esperado.
+- `422`: la API rechazó validaciones de idioma, URL, placeholder o contenido.
+- `500`: error operativo; conserva el resultado y revisa logs de Render.
+
+El nodo HTTP tiene Never Error activado para que **Registrar resultado** pueda
+registrar estos casos sin cortar el lote.
+
+## Verificar con PowerShell
 
 ```powershell
-Invoke-RestMethod `
-  -Uri "https://api.estudiopy.com/api/documents?includeSeed=false"
+Invoke-RestMethod "https://api.estudiopy.com/api/documents?includeSeed=false"
 
 $body = @{
   query = "Jesucristo"
@@ -180,42 +141,27 @@ Invoke-RestMethod `
   ConvertTo-Json -Depth 10
 ```
 
-Después abre `https://www.estudiopy.com/library`, oculta el contenido seed/test
-y verifica título, autor, fuente, texto y enlace original.
+## Probar lote de 3 URLs
 
-## Evitar scraping masivo
+1. Importa el workflow.
+2. Ejecuta manualmente las tres URLs iniciales.
+3. Abre **Registrar resultado** y confirma tres items.
+4. Abre **Resumen de lote**.
+5. Si las URLs ya existían, espera `total_procesados=3` y `existentes=3`.
 
-- Mantén lotes de una URL.
-- No agregues nodos que recorran enlaces.
-- No importes portadas, categorías, buscadores o archivos de paginación.
-- Usa listas explícitas de hasta cinco URLs durante pruebas.
-- Mantén la pausa de tres segundos.
-- No configures reintentos ilimitados.
-- Revisa manualmente cualquier cambio de selector o extractor.
-- BYU solo acepta URLs individuales bajo `/spa/talks/`.
-- El sitio oficial requiere `lang=spa`; cualquier otra variante queda omitida.
-- Nunca uses `lang=eng`, `lang=por`, `lang=fra`, `lang=ita` o `lang=deu`.
-- No envíes títulos `Documento de prueba`, `test_payload=true` ni frases como
-  `[REEMPLAZAR ANTES DE ENVIAR]`, `No es una cita oficial`,
-  `contenido de prueba` o `placeholder`.
+## Probar lote de 10 URLs
 
-## PDFs
+1. Agrega URLs individuales y revisadas a **URLs curadas en español**.
+2. Mantén solo fuentes permitidas.
+3. Ejecuta manualmente.
+4. Confirma que `total_procesados` sea igual a 10.
+5. Revisa `urls_rechazadas` antes de escalar.
 
-Esta versión detecta PDF y devuelve `skipped_pdf_pending`. Conserva la URL pero
-no descarga, extrae ni guarda el archivo. Para habilitar PDFs más adelante:
-
-1. Usa un nodo de extracción acotada.
-2. Descarta el binario después de obtener texto.
-3. Valida idioma y calidad.
-4. Envía `content_type: application/pdf`, texto limpio y URL original.
-5. No uses Supabase Storage salvo decisión arquitectónica explícita.
-
-## Regenerar el workflow
-
-Cuando cambie un archivo de `code_nodes`, ejecuta:
+## Regenerar y validar
 
 ```powershell
 node docs/n8n/build_workflow.mjs
+node --check docs/n8n/code_nodes/05_preparar_payload.js
 ```
 
-Después valida e importa nuevamente el JSON generado.
+Después valida JSON e importa nuevamente el archivo generado.
