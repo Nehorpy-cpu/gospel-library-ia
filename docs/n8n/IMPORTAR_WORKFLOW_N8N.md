@@ -18,7 +18,7 @@ antes de continuar con el siguiente documento.
 2. Ve a **Workflows**.
 3. Selecciona **Import from File**.
 4. Elige `gospel_library_curated_ingestion_v1.workflow.json`.
-5. Confirma que aparecen catorce nodos y que el workflow permanece inactivo.
+5. Confirma que aparecen quince nodos y que el workflow permanece inactivo.
 6. Abre los nodos HTTP y revisa sus expresiones antes de ejecutar.
 
 n8n también permite pegar un workflow copiado directamente en el lienzo, pero
@@ -112,26 +112,30 @@ individuales HTTPS de las tres fuentes autorizadas por la API.
 
 ## Flujo de datos
 
-1. **Descargar página o recurso** obtiene texto con timeout de 30 segundos.
-2. **Detectar tipo de recurso** clasifica HTML, PDF o recurso desconocido.
-3. Los PDF quedan como `skipped_pdf_pending`; no se guarda el binario.
-4. **Limpiar HTML y extraer contenido** elimina estructura y devuelve texto.
+1. **Inicializar reporte de lote** limpia el acumulador interno de resultados
+   para que cada ejecución manual empiece en cero.
+2. **Descargar página o recurso** obtiene texto con timeout de 30 segundos.
+3. **Detectar tipo de recurso** clasifica HTML, PDF o recurso desconocido.
+4. Los PDF quedan como `skipped_pdf_pending`; no se guarda el binario.
+5. **Limpiar HTML y extraer contenido** elimina estructura y devuelve texto.
    También repara entidades HTML, espacios no separables y mojibake UTF-8 común.
-5. **Validar español y calidad mínima** exige título, más de 300 caracteres y
+6. **Validar español y calidad mínima** exige título, más de 300 caracteres y
    marcadores suficientes de español. También rechaza idiomas declarados
    `eng`, `por`, `fra`, `ita`, `deu`, `language=en`, URLs no españolas y
    cualquier texto de prueba o placeholder.
-6. **Preparar payload para Gospel Library IA** construye el contrato de API.
+7. **Preparar payload para Gospel Library IA** construye el contrato de API.
    Normaliza título, autor, fuente, resumen, contenido y traduce etiquetas
    doctrinales comunes al español.
-7. **¿Documento válido?** evita enviar documentos omitidos.
-8. **Enviar documento a Gospel Library IA** llama a Render.
-9. **Registrar resultado** normaliza el resultado por URL en español. Devuelve
+8. **¿Documento válido?** evita enviar documentos omitidos.
+9. **Enviar documento a Gospel Library IA** llama a Render.
+10. **Registrar resultado** normaliza el resultado por URL en español. Devuelve
    `resultado`, `title`, `source_url`, `source_name`, `language`,
-   `chunks_count`, `document_id` y `mensaje`, sin exponer `X-Ingestion-Key`.
-10. **Pausa respetuosa** espera tres segundos.
-11. **Resumen de lote** se ejecuta al finalizar todas las URLs y agrupa los
-    conteos del lote, los títulos creados y las URLs rechazadas con su razón.
+    `chunks_count`, `document_id` y `mensaje`, sin exponer `X-Ingestion-Key`.
+    También guarda ese resultado normalizado en el acumulador interno del lote.
+11. **Pausa respetuosa** espera tres segundos.
+12. **Resumen de lote** se ejecuta al finalizar todas las URLs, lee el
+    acumulador de `Registrar resultado` y agrupa los conteos del lote, los
+    títulos creados y las URLs rechazadas con su razón.
 
 ## Leer el resumen final
 

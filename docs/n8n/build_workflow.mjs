@@ -49,6 +49,16 @@ const workflow = {
     },
     {
       parameters: {
+        jsCode: code("00_inicializar_reporte_lote.js")
+      },
+      id: "ef1f6efe-4a98-4211-b44b-bbde71c3d7c6",
+      name: "Inicializar reporte de lote",
+      type: "n8n-nodes-base.code",
+      typeVersion: 2,
+      position: [-560, 180]
+    },
+    {
+      parameters: {
         batchSize: 1,
         options: {}
       },
@@ -238,6 +248,9 @@ const workflow = {
       main: [[{ node: "URLs curadas en español", type: "main", index: 0 }]]
     },
     "URLs curadas en español": {
+      main: [[{ node: "Inicializar reporte de lote", type: "main", index: 0 }]]
+    },
+    "Inicializar reporte de lote": {
       main: [[{ node: "Separar lista de URLs", type: "main", index: 0 }]]
     },
     "Separar lista de URLs": {

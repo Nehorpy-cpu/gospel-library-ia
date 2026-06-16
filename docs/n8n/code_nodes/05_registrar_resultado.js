@@ -33,50 +33,53 @@ const sourceUrl = preparado.source_url ?? payload.source_url ?? null;
 const sourceName = preparado.source_name ?? payload.source_name ?? null;
 const language = preparado.language ?? payload.language ?? null;
 
+function registrarResultado(resultado) {
+  const data = $getWorkflowStaticData("global");
+  if (!Array.isArray(data.gospel_library_ingestion_results)) {
+    data.gospel_library_ingestion_results = [];
+  }
+  data.gospel_library_ingestion_results.push(resultado);
+  return [{ json: resultado }];
+}
+
 if (preparado.status === "skipped") {
-  return [{
-    json: {
-      resultado: "skipped",
-      title,
-      source_url: sourceUrl,
-      source_name: sourceName,
-      language,
-      chunks_count: null,
-      document_id: null,
-      mensaje: preparado.razon ?? "Documento omitido por validacion previa."
-    }
-  }];
-}
-
-if (body?.status === "created" || body?.status === "verified_existing") {
-  const chunksCount = Number(body.chunks_count ?? body.chunks ?? 0);
-  return [{
-    json: {
-      resultado: body.status,
-      title,
-      source_url: sourceUrl,
-      source_name: sourceName,
-      language,
-      chunks_count: Number.isFinite(chunksCount) ? chunksCount : null,
-      document_id: body.document_id ?? body.document?.id ?? null,
-      mensaje: body.status === "created"
-        ? "Documento creado correctamente."
-        : "El documento ya existia y fue verificado."
-    }
-  }];
-}
-
-const mensajeApi = detalleEnEspanol(body?.detail ?? body?.error ?? body?.message);
-
-return [{
-  json: {
-    resultado: httpStatus >= 500 ? "error" : "rejected",
+  return registrarResultado({
+    resultado: "skipped",
     title,
     source_url: sourceUrl,
     source_name: sourceName,
     language,
     chunks_count: null,
     document_id: null,
-    mensaje: mensajeApi ?? `La API respondio HTTP ${httpStatus}.`
-  }
-}];
+    mensaje: preparado.razon ?? "Documento omitido por validacion previa."
+  });
+}
+
+if (body?.status === "created" || body?.status === "verified_existing") {
+  const chunksCount = Number(body.chunks_count ?? body.chunks ?? 0);
+  return registrarResultado({
+    resultado: body.status,
+    title,
+    source_url: sourceUrl,
+    source_name: sourceName,
+    language,
+    chunks_count: Number.isFinite(chunksCount) ? chunksCount : null,
+    document_id: body.document_id ?? body.document?.id ?? null,
+    mensaje: body.status === "created"
+      ? "Documento creado correctamente."
+      : "El documento ya existia y fue verificado."
+  });
+}
+
+const mensajeApi = detalleEnEspanol(body?.detail ?? body?.error ?? body?.message);
+
+return registrarResultado({
+  resultado: httpStatus >= 500 ? "error" : "rejected",
+  title,
+  source_url: sourceUrl,
+  source_name: sourceName,
+  language,
+  chunks_count: null,
+  document_id: null,
+  mensaje: mensajeApi ?? `La API respondio HTTP ${httpStatus}.`
+});

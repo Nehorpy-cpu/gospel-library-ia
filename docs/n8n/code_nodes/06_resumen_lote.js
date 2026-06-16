@@ -1,9 +1,13 @@
-let resultados = [];
+const data = $getWorkflowStaticData("global");
+let resultados = Array.isArray(data.gospel_library_ingestion_results)
+  ? data.gospel_library_ingestion_results
+  : [];
 
-try {
-  resultados = $("Registrar resultado").all().map((item) => item.json ?? {});
-} catch {
-  resultados = [];
+if (!resultados.length) {
+  const inputResults = $input.all().map((item) => item.json ?? {});
+  resultados = inputResults.filter((item) =>
+    ["created", "verified_existing", "skipped", "rejected", "error"].includes(item.resultado)
+  );
 }
 
 const contador = {
@@ -56,6 +60,8 @@ return [{
   json: {
     resultado: "batch_summary",
     mensaje,
+    started_at: data.gospel_library_ingestion_started_at ?? null,
+    finished_at: new Date().toISOString(),
     ...contador,
     titulos_creados: titulosCreados,
     urls_rechazadas: urlsRechazadas,
