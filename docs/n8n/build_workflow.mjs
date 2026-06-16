@@ -133,7 +133,7 @@ const workflow = {
     },
     {
       parameters: {
-        jsCode: code("04_preparar_payload_api.js")
+        jsCode: code("04_preparar_payload.js")
       },
       id: "4d6a6a9c-5ef2-4107-a349-bc036358b010",
       name: "Preparar payload para Gospel Library IA",
@@ -191,7 +191,7 @@ const workflow = {
         sendBody: true,
         contentType: "raw",
         rawContentType: "application/json",
-        body: "={{ JSON.stringify($json.payload) }}",
+        body: "={{ JSON.stringify($json) }}",
         options: {
           timeout: 30000,
           response: {
