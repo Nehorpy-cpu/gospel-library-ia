@@ -18,7 +18,7 @@ antes de continuar con el siguiente documento.
 2. Ve a **Workflows**.
 3. Selecciona **Import from File**.
 4. Elige `gospel_library_curated_ingestion_v1.workflow.json`.
-5. Confirma que aparecen trece nodos y que el workflow permanece inactivo.
+5. Confirma que aparecen catorce nodos y que el workflow permanece inactivo.
 6. Abre los nodos HTTP y revisa sus expresiones antes de ejecutar.
 
 n8n también permite pegar un workflow copiado directamente en el lienzo, pero
@@ -98,7 +98,17 @@ individuales HTTPS de las tres fuentes autorizadas por la API.
    - `skipped`
    - `rejected`
    - `error`
-5. Ejecuta una segunda vez. El resultado esperado es `verified_existing`.
+5. Abre **Resumen de lote** y revisa:
+   - `total_procesados`;
+   - `creados`;
+   - `existentes`;
+   - `omitidos`;
+   - `rechazados`;
+   - `errores`;
+   - `titulos_creados`;
+   - `urls_rechazadas`.
+6. Ejecuta una segunda vez. El resultado esperado es `verified_existing` y
+   `existentes` mayor que cero en el resumen.
 
 ## Flujo de datos
 
@@ -116,8 +126,36 @@ individuales HTTPS de las tres fuentes autorizadas por la API.
    doctrinales comunes al español.
 7. **¿Documento válido?** evita enviar documentos omitidos.
 8. **Enviar documento a Gospel Library IA** llama a Render.
-9. **Registrar resultado** normaliza el resumen en español.
+9. **Registrar resultado** normaliza el resultado por URL en español. Devuelve
+   `resultado`, `title`, `source_url`, `source_name`, `language`,
+   `chunks_count`, `document_id` y `mensaje`, sin exponer `X-Ingestion-Key`.
 10. **Pausa respetuosa** espera tres segundos.
+11. **Resumen de lote** se ejecuta al finalizar todas las URLs y agrupa los
+    conteos del lote, los títulos creados y las URLs rechazadas con su razón.
+
+## Leer el resumen final
+
+Al terminar una ejecución manual, selecciona el nodo **Resumen de lote**. Ese
+nodo emite un solo item con este contrato:
+
+```json
+{
+  "resultado": "batch_summary",
+  "total_procesados": 3,
+  "creados": 1,
+  "existentes": 1,
+  "omitidos": 1,
+  "rechazados": 0,
+  "errores": 0,
+  "titulos_creados": ["Titulo creado"],
+  "urls_rechazadas": []
+}
+```
+
+Usa `errores` para detectar fallas operativas y `rechazados` para revisar
+payloads que la API no aceptó. Las entradas omitidas normalmente vienen de una
+validación preventiva de n8n, por ejemplo una URL que no declara español o un
+documento demasiado corto.
 
 ## Verificar en la aplicación
 

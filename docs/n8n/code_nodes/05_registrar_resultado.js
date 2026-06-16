@@ -1,48 +1,82 @@
 const preparado = $("Preparar payload para Gospel Library IA").item.json;
 const respuesta = $json;
-const body =
-  respuesta && typeof respuesta.body === "object"
-    ? respuesta.body
-    : respuesta && typeof respuesta.body === "string"
-      ? (() => {
-          try { return JSON.parse(respuesta.body); } catch { return {}; }
-        })()
-      : respuesta;
+
+function parseBody(value) {
+  if (value && typeof value.body === "object") return value.body;
+  if (value && typeof value.body === "string") {
+    try {
+      return JSON.parse(value.body);
+    } catch {
+      return {};
+    }
+  }
+  return value && typeof value === "object" ? value : {};
+}
+
+function detalleEnEspanol(value) {
+  if (!value) return null;
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => item?.msg ?? item?.message ?? JSON.stringify(item))
+      .filter(Boolean)
+      .join("; ");
+  }
+  return value.msg ?? value.message ?? JSON.stringify(value);
+}
+
+const body = parseBody(respuesta);
 const httpStatus = Number(respuesta.statusCode ?? respuesta.status ?? 200);
+const payload = preparado.payload ?? {};
+const title = preparado.title ?? payload.title ?? null;
+const sourceUrl = preparado.source_url ?? payload.source_url ?? null;
+const sourceName = preparado.source_name ?? payload.source_name ?? null;
+const language = preparado.language ?? payload.language ?? null;
 
 if (preparado.status === "skipped") {
   return [{
     json: {
       resultado: "skipped",
-      source_url: preparado.source_url,
-      title: preparado.title ?? null,
-      mensaje: preparado.razon ?? "Documento omitido por validación."
+      title,
+      source_url: sourceUrl,
+      source_name: sourceName,
+      language,
+      chunks_count: null,
+      document_id: null,
+      mensaje: preparado.razon ?? "Documento omitido por validacion previa."
     }
   }];
 }
 
 if (body?.status === "created" || body?.status === "verified_existing") {
+  const chunksCount = Number(body.chunks_count ?? body.chunks ?? 0);
   return [{
     json: {
       resultado: body.status,
-      source_url: preparado.source_url,
-      title: preparado.title,
-      document_id: body.document_id,
-      chunks: body.chunks,
+      title,
+      source_url: sourceUrl,
+      source_name: sourceName,
+      language,
+      chunks_count: Number.isFinite(chunksCount) ? chunksCount : null,
+      document_id: body.document_id ?? body.document?.id ?? null,
       mensaje: body.status === "created"
         ? "Documento creado correctamente."
-        : "El documento ya existía y fue verificado."
+        : "El documento ya existia y fue verificado."
     }
   }];
 }
 
+const mensajeApi = detalleEnEspanol(body?.detail ?? body?.error ?? body?.message);
+
 return [{
   json: {
     resultado: httpStatus >= 500 ? "error" : "rejected",
-    source_url: preparado.source_url,
-    title: preparado.title ?? null,
-    mensaje: body?.detail
-      ? JSON.stringify(body.detail)
-      : `La API respondió HTTP ${httpStatus}.`
+    title,
+    source_url: sourceUrl,
+    source_name: sourceName,
+    language,
+    chunks_count: null,
+    document_id: null,
+    mensaje: mensajeApi ?? `La API respondio HTTP ${httpStatus}.`
   }
 }];

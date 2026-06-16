@@ -220,6 +220,16 @@ const workflow = {
       typeVersion: 1.1,
       position: [1820, 0],
       webhookId: "ef44b441-d506-46da-9332-1a6f15718016"
+    },
+    {
+      parameters: {
+        jsCode: code("06_resumen_lote.js")
+      },
+      id: "d0fb9cf7-22bd-46bd-9e41-5071b6b020e0",
+      name: "Resumen de lote",
+      type: "n8n-nodes-base.code",
+      typeVersion: 2,
+      position: [-100, 260]
     }
   ],
   pinData: {},
@@ -234,7 +244,10 @@ const workflow = {
       main: [[{ node: "Procesar una URL por vez", type: "main", index: 0 }]]
     },
     "Procesar una URL por vez": {
-      main: [[{ node: "Descargar página o recurso", type: "main", index: 0 }], []]
+      main: [
+        [{ node: "Descargar página o recurso", type: "main", index: 0 }],
+        [{ node: "Resumen de lote", type: "main", index: 0 }]
+      ]
     },
     "Descargar página o recurso": {
       main: [[{ node: "Detectar tipo de recurso", type: "main", index: 0 }]]

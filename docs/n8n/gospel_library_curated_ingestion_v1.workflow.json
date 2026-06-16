@@ -227,7 +227,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const preparado = $(\"Preparar payload para Gospel Library IA\").item.json;\nconst respuesta = $json;\nconst body =\n  respuesta && typeof respuesta.body === \"object\"\n    ? respuesta.body\n    : respuesta && typeof respuesta.body === \"string\"\n      ? (() => {\n          try { return JSON.parse(respuesta.body); } catch { return {}; }\n        })()\n      : respuesta;\nconst httpStatus = Number(respuesta.statusCode ?? respuesta.status ?? 200);\n\nif (preparado.status === \"skipped\") {\n  return [{\n    json: {\n      resultado: \"skipped\",\n      source_url: preparado.source_url,\n      title: preparado.title ?? null,\n      mensaje: preparado.razon ?? \"Documento omitido por validación.\"\n    }\n  }];\n}\n\nif (body?.status === \"created\" || body?.status === \"verified_existing\") {\n  return [{\n    json: {\n      resultado: body.status,\n      source_url: preparado.source_url,\n      title: preparado.title,\n      document_id: body.document_id,\n      chunks: body.chunks,\n      mensaje: body.status === \"created\"\n        ? \"Documento creado correctamente.\"\n        : \"El documento ya existía y fue verificado.\"\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    resultado: httpStatus >= 500 ? \"error\" : \"rejected\",\n    source_url: preparado.source_url,\n    title: preparado.title ?? null,\n    mensaje: body?.detail\n      ? JSON.stringify(body.detail)\n      : `La API respondió HTTP ${httpStatus}.`\n  }\n}];"
+        "jsCode": "const preparado = $(\"Preparar payload para Gospel Library IA\").item.json;\nconst respuesta = $json;\n\nfunction parseBody(value) {\n  if (value && typeof value.body === \"object\") return value.body;\n  if (value && typeof value.body === \"string\") {\n    try {\n      return JSON.parse(value.body);\n    } catch {\n      return {};\n    }\n  }\n  return value && typeof value === \"object\" ? value : {};\n}\n\nfunction detalleEnEspanol(value) {\n  if (!value) return null;\n  if (typeof value === \"string\") return value;\n  if (Array.isArray(value)) {\n    return value\n      .map((item) => item?.msg ?? item?.message ?? JSON.stringify(item))\n      .filter(Boolean)\n      .join(\"; \");\n  }\n  return value.msg ?? value.message ?? JSON.stringify(value);\n}\n\nconst body = parseBody(respuesta);\nconst httpStatus = Number(respuesta.statusCode ?? respuesta.status ?? 200);\nconst payload = preparado.payload ?? {};\nconst title = preparado.title ?? payload.title ?? null;\nconst sourceUrl = preparado.source_url ?? payload.source_url ?? null;\nconst sourceName = preparado.source_name ?? payload.source_name ?? null;\nconst language = preparado.language ?? payload.language ?? null;\n\nif (preparado.status === \"skipped\") {\n  return [{\n    json: {\n      resultado: \"skipped\",\n      title,\n      source_url: sourceUrl,\n      source_name: sourceName,\n      language,\n      chunks_count: null,\n      document_id: null,\n      mensaje: preparado.razon ?? \"Documento omitido por validacion previa.\"\n    }\n  }];\n}\n\nif (body?.status === \"created\" || body?.status === \"verified_existing\") {\n  const chunksCount = Number(body.chunks_count ?? body.chunks ?? 0);\n  return [{\n    json: {\n      resultado: body.status,\n      title,\n      source_url: sourceUrl,\n      source_name: sourceName,\n      language,\n      chunks_count: Number.isFinite(chunksCount) ? chunksCount : null,\n      document_id: body.document_id ?? body.document?.id ?? null,\n      mensaje: body.status === \"created\"\n        ? \"Documento creado correctamente.\"\n        : \"El documento ya existia y fue verificado.\"\n    }\n  }];\n}\n\nconst mensajeApi = detalleEnEspanol(body?.detail ?? body?.error ?? body?.message);\n\nreturn [{\n  json: {\n    resultado: httpStatus >= 500 ? \"error\" : \"rejected\",\n    title,\n    source_url: sourceUrl,\n    source_name: sourceName,\n    language,\n    chunks_count: null,\n    document_id: null,\n    mensaje: mensajeApi ?? `La API respondio HTTP ${httpStatus}.`\n  }\n}];"
       },
       "id": "7075e1ac-f49c-4a17-a5ee-e2b8c191f014",
       "name": "Registrar resultado",
@@ -252,6 +252,19 @@
         0
       ],
       "webhookId": "ef44b441-d506-46da-9332-1a6f15718016"
+    },
+    {
+      "parameters": {
+        "jsCode": "let resultados = [];\n\ntry {\n  resultados = $(\"Registrar resultado\").all().map((item) => item.json ?? {});\n} catch {\n  resultados = [];\n}\n\nconst contador = {\n  total_procesados: resultados.length,\n  creados: 0,\n  existentes: 0,\n  omitidos: 0,\n  rechazados: 0,\n  errores: 0\n};\n\nconst titulosCreados = [];\nconst urlsRechazadas = [];\n\nfor (const item of resultados) {\n  if (item.resultado === \"created\") {\n    contador.creados += 1;\n    if (item.title) titulosCreados.push(item.title);\n  } else if (item.resultado === \"verified_existing\") {\n    contador.existentes += 1;\n  } else if (item.resultado === \"skipped\") {\n    contador.omitidos += 1;\n  } else if (item.resultado === \"rejected\") {\n    contador.rechazados += 1;\n    urlsRechazadas.push({\n      source_url: item.source_url ?? null,\n      title: item.title ?? null,\n      razon: item.mensaje ?? \"Documento rechazado.\"\n    });\n  } else if (item.resultado === \"error\") {\n    contador.errores += 1;\n    urlsRechazadas.push({\n      source_url: item.source_url ?? null,\n      title: item.title ?? null,\n      razon: item.mensaje ?? \"Error durante la ingesta.\"\n    });\n  }\n}\n\nconst mensaje = [\n  `Procesados: ${contador.total_procesados}`,\n  `creados: ${contador.creados}`,\n  `existentes: ${contador.existentes}`,\n  `omitidos: ${contador.omitidos}`,\n  `rechazados: ${contador.rechazados}`,\n  `errores: ${contador.errores}`\n].join(\"; \");\n\nreturn [{\n  json: {\n    resultado: \"batch_summary\",\n    mensaje,\n    ...contador,\n    titulos_creados: titulosCreados,\n    urls_rechazadas: urlsRechazadas,\n    resultados\n  }\n}];"
+      },
+      "id": "d0fb9cf7-22bd-46bd-9e41-5071b6b020e0",
+      "name": "Resumen de lote",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        260
+      ]
     }
   ],
   "pinData": {},
@@ -298,7 +311,13 @@
             "index": 0
           }
         ],
-        []
+        [
+          {
+            "node": "Resumen de lote",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Descargar página o recurso": {
