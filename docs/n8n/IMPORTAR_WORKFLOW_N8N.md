@@ -15,7 +15,7 @@ antes de continuar con el siguiente documento.
 2. Ve a **Workflows**.
 3. Selecciona **Import from File**.
 4. Elige `gospel_library_curated_ingestion_v1.workflow.json`.
-5. Confirma que aparecen 15 nodos.
+5. Confirma que aparecen 16 nodos.
 6. Deja el workflow inactivo hasta revisar el nodo HTTP.
 
 ## Configurar la clave de ingesta
@@ -26,10 +26,10 @@ El nodo **Enviar documento a Gospel Library IA** apunta a:
 https://api.estudiopy.com/api/ingestion/documents
 ```
 
-Configura el header de ingesta en n8n usando una variable segura o una
-credencial de tipo Header Auth. No pegues el valor real en notas, logs, Set
-Nodes, datos fijados ni ejemplos. Si usas una credencial Header Auth, elimina el
-header manual duplicado del nodo HTTP.
+Configura el header de ingesta en n8n usando un valor manual seguro en el nodo
+HTTP o una credencial de tipo Header Auth. No pegues el valor real en notas,
+logs, Set Nodes, datos fijados ni ejemplos. Si usas una credencial Header Auth,
+elimina el header manual duplicado del nodo HTTP.
 
 ## URLs iniciales
 
@@ -56,23 +56,34 @@ Usa lotes chicos para pruebas; no agregues portadas, listados ni crawlers.
 10. **Preparar payload para Gospel Library IA**
 11. **¿Documento válido?**
 12. Rama true: **Enviar documento a Gospel Library IA**
-13. Ambas ramas: **Registrar resultado**
-14. **Pausa respetuosa**
-15. Final del loop: **Resumen de lote**
+13. Rama true: **Registrar resultado enviado**
+14. Rama false: **Registrar resultado omitido**
+15. **Pausa respetuosa**
+16. Final del loop: **Resumen de lote**
 
 Conexiones críticas:
 
 - Loop de **Procesar una URL por vez** -> **Descargar página o recurso**.
 - Done de **Procesar una URL por vez** -> **Resumen de lote**.
 - True de **¿Documento válido?** -> **Enviar documento a Gospel Library IA**.
-- False de **¿Documento válido?** -> **Registrar resultado**.
-- **Enviar documento a Gospel Library IA** -> **Registrar resultado**.
-- **Registrar resultado** -> **Pausa respetuosa**.
+- **Enviar documento a Gospel Library IA** -> **Registrar resultado enviado**.
+- False de **¿Documento válido?** -> **Registrar resultado omitido**.
+- **Registrar resultado enviado** -> **Pausa respetuosa**.
+- **Registrar resultado omitido** -> **Pausa respetuosa**.
 - **Pausa respetuosa** -> **Procesar una URL por vez**.
 
-## Leer Registrar resultado
+## Leer los registros de resultado
 
-Cada URL produce un item con:
+**Registrar resultado enviado** recibe exclusivamente la respuesta del nodo HTTP
+y usa el payload original desde **Preparar payload para Gospel Library IA**. Si
+la API responde HTTP 200 sin `body.status` reconocible, registra `resultado:
+error` y un `api_body_preview` seguro para depurar.
+
+**Registrar resultado omitido** recibe exclusivamente la rama false de
+**¿Documento válido?** y registra `resultado: skipped` con la razón del nodo que
+lo omitió.
+
+Cada URL produce un item normalizado con:
 
 - `resultado`: `created`, `verified_existing`, `skipped`, `rejected` o `error`.
 - `title`
@@ -109,7 +120,8 @@ Al finalizar la ejecución manual, abre **Resumen de lote**. Debe devolver:
 Si `total_procesados=0`, revisa:
 
 - **Inicializar reporte de lote** se ejecutó antes de separar URLs.
-- **Registrar resultado** se ejecutó para cada URL.
+- **Registrar resultado enviado** o **Registrar resultado omitido** se ejecutó
+  para cada URL.
 - **Pausa respetuosa** vuelve a **Procesar una URL por vez**.
 - La salida Done del batch llega solo a **Resumen de lote**.
 
@@ -120,8 +132,8 @@ Si `total_procesados=0`, revisa:
 - `422`: la API rechazó validaciones de idioma, URL, placeholder o contenido.
 - `500`: error operativo; conserva el resultado y revisa logs de Render.
 
-El nodo HTTP tiene Never Error activado para que **Registrar resultado** pueda
-registrar estos casos sin cortar el lote.
+El nodo HTTP tiene Never Error activado para que **Registrar resultado enviado**
+pueda registrar estos casos sin cortar el lote.
 
 ## Verificar con PowerShell
 
@@ -145,7 +157,8 @@ Invoke-RestMethod `
 
 1. Importa el workflow.
 2. Ejecuta manualmente las tres URLs iniciales.
-3. Abre **Registrar resultado** y confirma tres items.
+3. Abre **Registrar resultado enviado** y **Registrar resultado omitido** para
+   confirmar que entre ambos hay tres items.
 4. Abre **Resumen de lote**.
 5. Si las URLs ya existían, espera `total_procesados=3` y `existentes=3`.
 

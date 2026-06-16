@@ -210,7 +210,7 @@
             },
             {
               "name": "X-Ingestion-Key",
-              "value": "={{ $env.INGESTION_API_KEY }}"
+              "value": ""
             }
           ]
         },
@@ -240,15 +240,28 @@
     },
     {
       "parameters": {
-        "jsCode": "const actual = $json;\nconst preparado = actual.status === \"skipped\"\n  ? actual\n  : $(\"Preparar payload para Gospel Library IA\").item.json;\nconst respuesta = actual;\n\nfunction parseBody(value) {\n  if (value && typeof value.body === \"object\") return value.body;\n  if (value && typeof value.body === \"string\") {\n    try {\n      return JSON.parse(value.body);\n    } catch {\n      return {};\n    }\n  }\n  return value && typeof value === \"object\" ? value : {};\n}\n\nfunction detalleEnEspanol(value) {\n  if (!value) return null;\n  if (typeof value === \"string\") return value;\n  if (Array.isArray(value)) {\n    return value\n      .map((item) => item && (item.msg || item.message) ? item.msg || item.message : JSON.stringify(item))\n      .filter(Boolean)\n      .join(\"; \");\n  }\n  return value.msg || value.message || JSON.stringify(value);\n}\n\nfunction registrarResultado(resultado) {\n  const data = $getWorkflowStaticData(\"global\");\n  if (!Array.isArray(data.gospel_library_ingestion_results)) {\n    data.gospel_library_ingestion_results = [];\n  }\n  data.gospel_library_ingestion_results.push(resultado);\n  return [{ json: resultado }];\n}\n\nconst body = parseBody(respuesta);\nconst httpStatus = Number(respuesta.statusCode || respuesta.status || 200);\nconst title = preparado.title || null;\nconst sourceUrl = preparado.source_url || null;\nconst sourceName = preparado.source_name || null;\nconst language = preparado.language || null;\n\nif (preparado.status === \"skipped\") {\n  return registrarResultado({\n    resultado: \"skipped\",\n    title,\n    source_url: sourceUrl,\n    source_name: sourceName,\n    language,\n    chunks_count: null,\n    document_id: null,\n    mensaje: preparado.razon || \"Documento omitido por validacion.\",\n    http_status: null\n  });\n}\n\nif (body && [\"created\", \"verified_existing\", \"skipped\", \"rejected\"].includes(body.status)) {\n  const chunksCount = Number(body.chunks_count || body.chunks || 0);\n  const mensajes = {\n    created: \"Documento creado correctamente.\",\n    verified_existing: \"El documento ya existia y fue verificado.\",\n    skipped: \"La API omitio el documento.\",\n    rejected: \"La API rechazo el documento.\"\n  };\n  return registrarResultado({\n    resultado: body.status,\n    title,\n    source_url: sourceUrl,\n    source_name: sourceName,\n    language,\n    chunks_count: Number.isFinite(chunksCount) ? chunksCount : null,\n    document_id: body.document_id || (body.document && body.document.id) || null,\n    mensaje: mensajes[body.status] || \"Resultado registrado.\",\n    http_status: httpStatus\n  });\n}\n\nconst mensajeApi = detalleEnEspanol(body.detail || body.error || body.message);\n\nreturn registrarResultado({\n  resultado: httpStatus >= 400 ? \"error\" : \"rejected\",\n  title,\n  source_url: sourceUrl,\n  source_name: sourceName,\n  language,\n  chunks_count: null,\n  document_id: null,\n  mensaje: mensajeApi || (\"La API respondio HTTP \" + httpStatus + \".\"),\n  http_status: httpStatus\n});"
+        "jsCode": "const preparado = $(\"Preparar payload para Gospel Library IA\").item.json;\nconst respuesta = $json;\n\nfunction parseBody(value) {\n  if (value && typeof value.body === \"object\" && value.body !== null) return value.body;\n  if (value && typeof value.body === \"string\") {\n    try {\n      return JSON.parse(value.body);\n    } catch {\n      return {};\n    }\n  }\n  if (value && typeof value.data === \"object\" && value.data !== null) return value.data;\n  if (value && typeof value.data === \"string\") {\n    try {\n      return JSON.parse(value.data);\n    } catch {\n      return {};\n    }\n  }\n  return value && typeof value === \"object\" ? value : {};\n}\n\nfunction previewSeguro(value) {\n  const texto = JSON.stringify(value || {});\n  return texto.length > 500 ? texto.slice(0, 500) + \"...\" : texto;\n}\n\nfunction registrarResultado(resultado) {\n  const data = $getWorkflowStaticData(\"global\");\n  if (!Array.isArray(data.gospel_library_ingestion_results)) {\n    data.gospel_library_ingestion_results = [];\n  }\n  data.gospel_library_ingestion_results.push(resultado);\n  return [{ json: resultado }];\n}\n\nconst body = parseBody(respuesta);\nconst httpStatus = Number(respuesta.statusCode || respuesta.status || 200);\nconst apiStatus = String(body.status || \"\").trim();\nconst chunksCount = Number(body.chunks_count || body.chunks || 0);\nconst base = {\n  title: preparado.title || null,\n  source_url: preparado.source_url || null,\n  source_name: preparado.source_name || null,\n  language: preparado.language || null,\n  chunks_count: Number.isFinite(chunksCount) ? chunksCount : null,\n  document_id: body.document_id || body.id || (body.document && body.document.id) || null,\n  http_status: httpStatus\n};\n\nif (httpStatus >= 400) {\n  return registrarResultado({\n    resultado: \"error\",\n    ...base,\n    chunks_count: null,\n    document_id: null,\n    mensaje: \"La API respondio HTTP \" + httpStatus + \".\",\n    api_body_preview: previewSeguro(body)\n  });\n}\n\nif (apiStatus === \"created\") {\n  return registrarResultado({\n    resultado: \"created\",\n    ...base,\n    mensaje: \"Documento creado correctamente.\"\n  });\n}\n\nif (apiStatus === \"verified_existing\") {\n  return registrarResultado({\n    resultado: \"verified_existing\",\n    ...base,\n    mensaje: \"El documento ya existia y fue verificado.\"\n  });\n}\n\nif (apiStatus === \"skipped\") {\n  return registrarResultado({\n    resultado: \"skipped\",\n    ...base,\n    mensaje: body.message || body.detail || \"La API omitio el documento.\"\n  });\n}\n\nif (apiStatus === \"rejected\") {\n  return registrarResultado({\n    resultado: \"rejected\",\n    ...base,\n    mensaje: body.message || body.detail || \"La API rechazo el documento.\"\n  });\n}\n\nreturn registrarResultado({\n  resultado: \"error\",\n  ...base,\n  chunks_count: null,\n  document_id: null,\n  mensaje: \"La API respondio HTTP \" + httpStatus + \" pero no devolvio un status reconocible.\",\n  api_body_preview: previewSeguro(body)\n});"
       },
       "id": "7075e1ac-f49c-4a17-a5ee-e2b8c191f014",
-      "name": "Registrar resultado",
+      "name": "Registrar resultado enviado",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         1580,
-        0
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $json;\n\nfunction registrarResultado(resultado) {\n  const data = $getWorkflowStaticData(\"global\");\n  if (!Array.isArray(data.gospel_library_ingestion_results)) {\n    data.gospel_library_ingestion_results = [];\n  }\n  data.gospel_library_ingestion_results.push(resultado);\n  return [{ json: resultado }];\n}\n\nreturn registrarResultado({\n  resultado: \"skipped\",\n  title: item.title || null,\n  source_url: item.source_url || null,\n  source_name: item.source_name || null,\n  language: item.language || null,\n  chunks_count: null,\n  document_id: null,\n  mensaje: item.razon || \"Documento omitido por validacion.\",\n  http_status: null\n});"
+      },
+      "id": "65fd35ff-cf21-4d03-939a-c64384585803",
+      "name": "Registrar resultado omitido",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        120
       ]
     },
     {
@@ -410,7 +423,7 @@
         ],
         [
           {
-            "node": "Registrar resultado",
+            "node": "Registrar resultado omitido",
             "type": "main",
             "index": 0
           }
@@ -421,14 +434,25 @@
       "main": [
         [
           {
-            "node": "Registrar resultado",
+            "node": "Registrar resultado enviado",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Registrar resultado": {
+    "Registrar resultado enviado": {
+      "main": [
+        [
+          {
+            "node": "Pausa respetuosa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar resultado omitido": {
       "main": [
         [
           {

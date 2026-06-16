@@ -184,7 +184,7 @@ const workflow = {
             },
             {
               name: "X-Ingestion-Key",
-              value: "={{ $env.INGESTION_API_KEY }}"
+              value: ""
             }
           ]
         },
@@ -211,13 +211,23 @@ const workflow = {
     },
     {
       parameters: {
-        jsCode: code("06_registrar_resultado.js")
+        jsCode: code("06_registrar_resultado_enviado.js")
       },
       id: "7075e1ac-f49c-4a17-a5ee-e2b8c191f014",
-      name: "Registrar resultado",
+      name: "Registrar resultado enviado",
       type: "n8n-nodes-base.code",
       typeVersion: 2,
-      position: [1580, 0]
+      position: [1580, -120]
+    },
+    {
+      parameters: {
+        jsCode: code("07_registrar_resultado_omitido.js")
+      },
+      id: "65fd35ff-cf21-4d03-939a-c64384585803",
+      name: "Registrar resultado omitido",
+      type: "n8n-nodes-base.code",
+      typeVersion: 2,
+      position: [1340, 120]
     },
     {
       parameters: {
@@ -233,7 +243,7 @@ const workflow = {
     },
     {
       parameters: {
-        jsCode: code("07_resumen_lote.js")
+        jsCode: code("08_resumen_lote.js")
       },
       id: "d0fb9cf7-22bd-46bd-9e41-5071b6b020e0",
       name: "Resumen de lote",
@@ -280,13 +290,16 @@ const workflow = {
     "¿Documento válido?": {
       main: [
         [{ node: "Enviar documento a Gospel Library IA", type: "main", index: 0 }],
-        [{ node: "Registrar resultado", type: "main", index: 0 }]
+        [{ node: "Registrar resultado omitido", type: "main", index: 0 }]
       ]
     },
     "Enviar documento a Gospel Library IA": {
-      main: [[{ node: "Registrar resultado", type: "main", index: 0 }]]
+      main: [[{ node: "Registrar resultado enviado", type: "main", index: 0 }]]
     },
-    "Registrar resultado": {
+    "Registrar resultado enviado": {
+      main: [[{ node: "Pausa respetuosa", type: "main", index: 0 }]]
+    },
+    "Registrar resultado omitido": {
       main: [[{ node: "Pausa respetuosa", type: "main", index: 0 }]]
     },
     "Pausa respetuosa": {

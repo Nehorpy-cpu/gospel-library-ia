@@ -39,9 +39,10 @@ flowchart LR
     I --> J["Preparar payload"]
     J --> K{"Documento válido"}
     K -->|true| L["Enviar a API"]
-    K -->|false| M["Registrar resultado"]
-    L --> M
+    L --> M["Registrar resultado enviado"]
+    K -->|false| S["Registrar resultado omitido"]
     M --> N["Pausa respetuosa"]
+    S --> N
     N --> E
     E -->|done| O["Resumen de lote"]
 ```
@@ -59,7 +60,8 @@ flowchart LR
 ## Control de lote
 
 **Inicializar reporte de lote** limpia `gospel_library_ingestion_results` al
-inicio. **Registrar resultado** agrega un resultado normalizado por URL. Al
+inicio. **Registrar resultado enviado** agrega resultados producidos por la API.
+**Registrar resultado omitido** agrega documentos descartados antes del POST. Al
 terminar el batch, **Resumen de lote** lee ese acumulador y devuelve conteos,
 títulos creados, URLs rechazadas y todos los resultados.
 
