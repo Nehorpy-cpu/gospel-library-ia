@@ -33,14 +33,16 @@ elimina el header manual duplicado del nodo HTTP.
 
 ## URLs iniciales
 
-El nodo **URLs curadas en español** contiene tres URLs de prueba:
+El nodo **URLs curadas en español** contiene un lote controlado de 25 URLs
+reales en español:
 
-1. `https://www.churchofjesuschrist.org/study/general-conference/2022/04/55soares?lang=spa`
-2. `https://speeches.byu.edu/spa/talks/brad-wilcox/su-gracia-es-suficiente/`
-3. `https://discursosud.com/el-amor-puro-de-cristo/`
+- 10 del sitio oficial de la Iglesia, todas con `lang=spa`.
+- 7 de BYU Speeches Español bajo `/spa/talks/`.
+- 8 de Discursos SUD.
 
-Cada item debe incluir `source_url`, `source_name`, `content_type` y `tags`.
-Usa lotes chicos para pruebas; no agregues portadas, listados ni crawlers.
+Cada item incluye `source_url`, `source_name`, `content_type: "text/html"` y
+`tags`. No agregues portadas, listados, crawlers, documentos de prueba ni URLs
+en inglés. Si agregas URLs oficiales de la Iglesia, deben declarar `lang=spa`.
 
 ## Flujo confirmado
 
@@ -100,14 +102,16 @@ texto corto, idioma no español, PDF pendiente o placeholder.
 
 ## Leer Resumen de lote
 
-Al finalizar la ejecución manual, abre **Resumen de lote**. Debe devolver:
+Al finalizar la ejecución manual, abre **Resumen de lote**. Para el lote actual
+de 25 URLs, `total_procesados` debe ser 25. Si algunas URLs ya existían, se
+contarán como `existentes`.
 
 ```json
 {
   "resultado": "batch_summary",
-  "total_procesados": 3,
+  "total_procesados": 25,
   "creados": 0,
-  "existentes": 3,
+  "existentes": 25,
   "omitidos": 0,
   "rechazados": 0,
   "errores": 0,
@@ -140,6 +144,15 @@ pueda registrar estos casos sin cortar el lote.
 ```powershell
 Invoke-RestMethod "https://api.estudiopy.com/api/documents?includeSeed=false"
 
+$documents = Invoke-RestMethod "https://api.estudiopy.com/api/documents?limit=25&includeSeed=false"
+$documents.items |
+  Select-Object id,title,source_name,language,source_url |
+  Format-Table -AutoSize
+
+$id = $documents.items[0].id
+Invoke-RestMethod "https://api.estudiopy.com/api/documents/$id`?include_chunks=true" |
+  ConvertTo-Json -Depth 10
+
 $body = @{
   query = "Jesucristo"
   filters = @{ include_seed = $false }
@@ -153,22 +166,21 @@ Invoke-RestMethod `
   ConvertTo-Json -Depth 10
 ```
 
-## Probar lote de 3 URLs
+## Probar lote de 25 URLs
 
 1. Importa el workflow.
-2. Ejecuta manualmente las tres URLs iniciales.
-3. Abre **Registrar resultado enviado** y **Registrar resultado omitido** para
-   confirmar que entre ambos hay tres items.
-4. Abre **Resumen de lote**.
-5. Si las URLs ya existían, espera `total_procesados=3` y `existentes=3`.
-
-## Probar lote de 10 URLs
-
-1. Agrega URLs individuales y revisadas a **URLs curadas en español**.
-2. Mantén solo fuentes permitidas.
+2. Revisa el nodo **URLs curadas en español** y confirma que contiene 25 items.
 3. Ejecuta manualmente.
-4. Confirma que `total_procesados` sea igual a 10.
-5. Revisa `urls_rechazadas` antes de escalar.
+4. Abre **Registrar resultado enviado** y **Registrar resultado omitido** para
+   confirmar que entre ambos hay 25 items.
+5. Abre **Resumen de lote**.
+6. Si las URLs ya existían, espera `total_procesados=25` y `existentes=25`.
+7. Si alguna URL sale `skipped`, revisa `mensaje`; suele ser texto insuficiente,
+   PDF pendiente o contenido que no pudo limpiarse con seguridad.
+8. Si alguna URL sale `rejected`, revisa las reglas de la API y corrige la URL o
+   el contenido antes de reintentar.
+9. Si alguna URL sale `error`, revisa `http_status`, `api_body_preview` y logs de
+   Render sin exponer credenciales.
 
 ## Regenerar y validar
 

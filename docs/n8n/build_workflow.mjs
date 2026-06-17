@@ -5,6 +5,159 @@ import { fileURLToPath } from "node:url";
 const root = dirname(fileURLToPath(import.meta.url));
 const code = (name) => readFileSync(join(root, "code_nodes", name), "utf8").trim();
 
+const curatedUrls = [
+  {
+    source_url: "https://www.churchofjesuschrist.org/study/manual/gospel-topics/faith-in-jesus-christ?lang=spa",
+    source_name: "Sitio oficial de la Iglesia",
+    content_type: "text/html",
+    tags: ["Jesucristo", "Fe", "Temas del Evangelio"]
+  },
+  {
+    source_url: "https://www.churchofjesuschrist.org/study/manual/gospel-topics/atonement-of-jesus-christ?lang=spa",
+    source_name: "Sitio oficial de la Iglesia",
+    content_type: "text/html",
+    tags: ["Jesucristo", "Expiación", "Temas del Evangelio"]
+  },
+  {
+    source_url: "https://www.churchofjesuschrist.org/study/manual/gospel-topics/repentance?lang=spa",
+    source_name: "Sitio oficial de la Iglesia",
+    content_type: "text/html",
+    tags: ["Arrepentimiento", "Expiación", "Temas del Evangelio"]
+  },
+  {
+    source_url: "https://www.churchofjesuschrist.org/study/manual/gospel-topics/restoration-of-the-church-study-guide?lang=spa",
+    source_name: "Sitio oficial de la Iglesia",
+    content_type: "text/html",
+    tags: ["Restauración", "José Smith", "Temas del Evangelio"]
+  },
+  {
+    source_url: "https://www.churchofjesuschrist.org/study/manual/gospel-topics/jesus-christ-study-guide?lang=spa",
+    source_name: "Sitio oficial de la Iglesia",
+    content_type: "text/html",
+    tags: ["Jesucristo", "Fe", "Discipulado"]
+  },
+  {
+    source_url: "https://www.churchofjesuschrist.org/study/general-conference/2024/04/16soares?lang=spa",
+    source_name: "Sitio oficial de la Iglesia",
+    content_type: "text/html",
+    tags: ["Jesucristo", "Convenios", "Conferencia General"]
+  },
+  {
+    source_url: "https://www.churchofjesuschrist.org/study/general-conference/2024/10/57nelson?lang=spa",
+    source_name: "Sitio oficial de la Iglesia",
+    content_type: "text/html",
+    tags: ["Jesucristo", "Templo", "Conferencia General"]
+  },
+  {
+    source_url: "https://www.churchofjesuschrist.org/study/general-conference/2024/10/52wada?lang=spa",
+    source_name: "Sitio oficial de la Iglesia",
+    content_type: "text/html",
+    tags: ["Espíritu Santo", "Escrituras", "Conferencia General"]
+  },
+  {
+    source_url: "https://www.churchofjesuschrist.org/study/general-conference/2024/04/56pace?lang=spa",
+    source_name: "Sitio oficial de la Iglesia",
+    content_type: "text/html",
+    tags: ["Libro de Mormón", "Jesucristo", "Conferencia General"]
+  },
+  {
+    source_url: "https://www.churchofjesuschrist.org/study/general-conference/2024/10/34alvarado?lang=spa",
+    source_name: "Sitio oficial de la Iglesia",
+    content_type: "text/html",
+    tags: ["Arrepentimiento", "Senda de los convenios", "Conferencia General"]
+  },
+  {
+    source_url: "https://speeches.byu.edu/spa/talks/brad-wilcox/su-gracia-es-suficiente/",
+    source_name: "BYU Speeches Español",
+    content_type: "text/html",
+    tags: ["Jesucristo", "Gracia", "Expiación"]
+  },
+  {
+    source_url: "https://speeches.byu.edu/spa/talks/david-a-bednar/en-la-fuerza-del-senor/",
+    source_name: "BYU Speeches Español",
+    content_type: "text/html",
+    tags: ["Jesucristo", "Gracia", "Fortaleza espiritual"]
+  },
+  {
+    source_url: "https://speeches.byu.edu/spa/talks/neill-f-marriott/orientar-nuestra-alma-hacia-cristo/",
+    source_name: "BYU Speeches Español",
+    content_type: "text/html",
+    tags: ["Jesucristo", "Discipulado", "Convenios"]
+  },
+  {
+    source_url: "https://speeches.byu.edu/spa/talks/lloyd-d-newell/no-temas/",
+    source_name: "BYU Speeches Español",
+    content_type: "text/html",
+    tags: ["Fe", "Jesucristo", "Confianza en Dios"]
+  },
+  {
+    source_url: "https://speeches.byu.edu/spa/talks/jeffrey-r-holland/santo-por-la-expiacion-de-cristo-el-senor/",
+    source_name: "BYU Speeches Español",
+    content_type: "text/html",
+    tags: ["Expiación", "Perdón", "Jesucristo"]
+  },
+  {
+    source_url: "https://speeches.byu.edu/spa/talks/dallin-h-oaks/acercarnos-mas-a-jesucristo/",
+    source_name: "BYU Speeches Español",
+    content_type: "text/html",
+    tags: ["Jesucristo", "Fe", "Humildad"]
+  },
+  {
+    source_url: "https://speeches.byu.edu/spa/talks/kevin-w-pearson/la-vida-abundante/",
+    source_name: "BYU Speeches Español",
+    content_type: "text/html",
+    tags: ["Espíritu Santo", "Convenios", "Vida abundante"]
+  },
+  {
+    source_url: "https://discursosud.com/el-amor-puro-de-cristo/",
+    source_name: "Discursos SUD",
+    content_type: "text/html",
+    tags: ["Jesucristo", "Caridad", "Discipulado"]
+  },
+  {
+    source_url: "https://discursosud.com/lecciones-de-la-expiacion/",
+    source_name: "Discursos SUD",
+    content_type: "text/html",
+    tags: ["Expiación", "Jesucristo", "Plan de Salvación"]
+  },
+  {
+    source_url: "https://discursosud.com/el-templo-y-la-expiacion/",
+    source_name: "Discursos SUD",
+    content_type: "text/html",
+    tags: ["Templo", "Expiación", "Convenios"]
+  },
+  {
+    source_url: "https://discursosud.com/la-expiacion-de-jesucristo/",
+    source_name: "Discursos SUD",
+    content_type: "text/html",
+    tags: ["Jesucristo", "Expiación", "Sanación"]
+  },
+  {
+    source_url: "https://discursosud.com/2024/07/22/la-expiacion-ayer-y-hoy/",
+    source_name: "Discursos SUD",
+    content_type: "text/html",
+    tags: ["Expiación", "Jesucristo", "Arrepentimiento"]
+  },
+  {
+    source_url: "https://discursosud.com/2024/06/29/tres-bendiciones-de-la-expiacion-de-jesucristo/",
+    source_name: "Discursos SUD",
+    content_type: "text/html",
+    tags: ["Jesucristo", "Expiación", "Bendiciones"]
+  },
+  {
+    source_url: "https://discursosud.com/doctrina-de-salvacion-tomo-1/9/",
+    source_name: "Discursos SUD",
+    content_type: "text/html",
+    tags: ["Doctrina", "Expiación", "Salvación"]
+  },
+  {
+    source_url: "https://discursosud.com/2024/12/17/celebrando-la-pascua/6/",
+    source_name: "Discursos SUD",
+    content_type: "text/html",
+    tags: ["Jesucristo", "Expiación", "Pascua"]
+  }
+];
+
 const workflow = {
   name: "Gospel Library IA - Ingesta curada en español v1",
   nodes: [
@@ -24,7 +177,7 @@ const workflow = {
               id: "338403af-ffea-4401-b2ec-403a8ae09002",
               name: "urls",
               type: "array",
-              value: "={{ [\n  {\n    source_url: 'https://www.churchofjesuschrist.org/study/general-conference/2022/04/55soares?lang=spa',\n    source_name: 'Sitio oficial de la Iglesia',\n    content_type: 'text/html',\n    tags: ['Jesucristo', 'Conferencia General']\n  },\n  {\n    source_url: 'https://speeches.byu.edu/spa/talks/brad-wilcox/su-gracia-es-suficiente/',\n    source_name: 'BYU Speeches Español',\n    content_type: 'text/html',\n    tags: ['Jesucristo', 'Gracia']\n  },\n  {\n    source_url: 'https://discursosud.com/el-amor-puro-de-cristo/',\n    source_name: 'Discursos SUD',\n    content_type: 'text/html',\n    tags: ['Jesucristo', 'Caridad']\n  }\n] }}"
+              value: `={{ ${JSON.stringify(curatedUrls, null, 2)} }}`
             }
           ]
         },
