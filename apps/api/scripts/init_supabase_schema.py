@@ -270,6 +270,90 @@ TABLE_SPECS = (
         ),
     ),
     TableSpec(
+        "study_projects",
+        (
+            "id",
+            "user_id",
+            "title",
+            "scripture_reference",
+            "scripture_text",
+            "personal_thought",
+            "topic",
+            "calling_context",
+            "created_at",
+            "updated_at",
+            "archived_at",
+        ),
+    ),
+    TableSpec(
+        "study_blocks",
+        (
+            "id",
+            "study_project_id",
+            "type",
+            "title",
+            "content",
+            "source_title",
+            "source_author",
+            "source_url",
+            "source_reference",
+            "quote_text",
+            "is_ai_generated",
+            "is_saved",
+            "is_deleted",
+            "sort_order",
+            "metadata",
+            "created_at",
+            "updated_at",
+        ),
+    ),
+    TableSpec(
+        "study_sources",
+        (
+            "id",
+            "study_project_id",
+            "source_type",
+            "title",
+            "author",
+            "url",
+            "reference",
+            "notes",
+            "created_at",
+        ),
+    ),
+    TableSpec(
+        "user_private_sources",
+        (
+            "id",
+            "user_id",
+            "title",
+            "author",
+            "source_type",
+            "citation_text",
+            "personal_note",
+            "tags",
+            "created_at",
+            "updated_at",
+        ),
+    ),
+    TableSpec(
+        "study_ai_suggestion_cache",
+        (
+            "id",
+            "study_project_id",
+            "user_id",
+            "prompt_hash",
+            "prompt",
+            "mode",
+            "requested_block_types",
+            "preferred_sources",
+            "suggestions",
+            "warnings",
+            "local_context",
+            "created_at",
+        ),
+    ),
+    TableSpec(
         "user_preferences",
         (
             "user_id",
@@ -643,6 +727,86 @@ SCHEMA_STATEMENTS = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS study_projects (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id uuid NOT NULL,
+      title text NOT NULL,
+      scripture_reference text,
+      scripture_text text,
+      personal_thought text,
+      topic text,
+      calling_context text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      archived_at timestamptz
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS study_blocks (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      study_project_id uuid NOT NULL REFERENCES study_projects(id) ON DELETE CASCADE,
+      type varchar(80) NOT NULL,
+      title text NOT NULL,
+      content text NOT NULL DEFAULT '',
+      source_title text,
+      source_author text,
+      source_url text,
+      source_reference text,
+      quote_text text,
+      is_ai_generated boolean NOT NULL DEFAULT false,
+      is_saved boolean NOT NULL DEFAULT true,
+      is_deleted boolean NOT NULL DEFAULT false,
+      sort_order integer NOT NULL DEFAULT 0,
+      metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS study_sources (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      study_project_id uuid NOT NULL REFERENCES study_projects(id) ON DELETE CASCADE,
+      source_type varchar(80) NOT NULL,
+      title text NOT NULL,
+      author text,
+      url text,
+      reference text,
+      notes text,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS user_private_sources (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id uuid NOT NULL,
+      title text NOT NULL,
+      author text,
+      source_type varchar(80) NOT NULL DEFAULT 'user_private_note',
+      citation_text text,
+      personal_note text,
+      tags jsonb NOT NULL DEFAULT '[]'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS study_ai_suggestion_cache (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      study_project_id uuid NOT NULL REFERENCES study_projects(id) ON DELETE CASCADE,
+      user_id uuid NOT NULL,
+      prompt_hash varchar(64) NOT NULL,
+      prompt text,
+      mode varchar(32) NOT NULL DEFAULT 'rapido',
+      requested_block_types jsonb NOT NULL DEFAULT '[]'::jsonb,
+      preferred_sources jsonb NOT NULL DEFAULT '[]'::jsonb,
+      suggestions jsonb NOT NULL DEFAULT '[]'::jsonb,
+      warnings jsonb NOT NULL DEFAULT '[]'::jsonb,
+      local_context jsonb NOT NULL DEFAULT '[]'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      CONSTRAINT uq_study_ai_suggestion_cache UNIQUE (study_project_id, user_id, prompt_hash)
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS user_preferences (
       user_id uuid PRIMARY KEY,
       calling_category varchar(120),
@@ -755,6 +919,20 @@ INDEX_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_post_its_user_updated ON post_its(user_id, updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_post_its_document ON post_its(document_id)",
     "CREATE INDEX IF NOT EXISTS idx_post_its_deleted ON post_its(deleted_at)",
+    "CREATE INDEX IF NOT EXISTS idx_study_projects_user_updated ON study_projects(user_id, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_study_projects_archived ON study_projects(archived_at)",
+    "CREATE INDEX IF NOT EXISTS idx_study_projects_topic ON study_projects(topic)",
+    "CREATE INDEX IF NOT EXISTS idx_study_blocks_project_order ON study_blocks(study_project_id, sort_order)",
+    "CREATE INDEX IF NOT EXISTS idx_study_blocks_project_saved ON study_blocks(study_project_id, is_saved, is_deleted)",
+    "CREATE INDEX IF NOT EXISTS idx_study_blocks_type ON study_blocks(type)",
+    "CREATE INDEX IF NOT EXISTS idx_study_blocks_metadata_gin ON study_blocks USING gin(metadata)",
+    "CREATE INDEX IF NOT EXISTS idx_study_sources_project ON study_sources(study_project_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_study_sources_type ON study_sources(source_type)",
+    "CREATE INDEX IF NOT EXISTS idx_user_private_sources_user_updated ON user_private_sources(user_id, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_user_private_sources_type ON user_private_sources(source_type)",
+    "CREATE INDEX IF NOT EXISTS idx_user_private_sources_tags_gin ON user_private_sources USING gin(tags)",
+    "CREATE INDEX IF NOT EXISTS idx_study_ai_cache_project_user ON study_ai_suggestion_cache(study_project_id, user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_study_ai_cache_created ON study_ai_suggestion_cache(created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_user_preferences_calling ON user_preferences(calling_category, calling_name)",
     "CREATE INDEX IF NOT EXISTS idx_beta_access_status ON beta_access(status)",
     "CREATE INDEX IF NOT EXISTS idx_beta_access_user ON beta_access(user_id)",
@@ -989,6 +1167,75 @@ ALTER_TABLE_STATEMENTS = (
       ADD COLUMN IF NOT EXISTS deleted_at timestamptz
     """,
     """
+    ALTER TABLE IF EXISTS study_projects
+      ADD COLUMN IF NOT EXISTS user_id uuid,
+      ADD COLUMN IF NOT EXISTS title text,
+      ADD COLUMN IF NOT EXISTS scripture_reference text,
+      ADD COLUMN IF NOT EXISTS scripture_text text,
+      ADD COLUMN IF NOT EXISTS personal_thought text,
+      ADD COLUMN IF NOT EXISTS topic text,
+      ADD COLUMN IF NOT EXISTS calling_context text,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS archived_at timestamptz
+    """,
+    """
+    ALTER TABLE IF EXISTS study_blocks
+      ADD COLUMN IF NOT EXISTS study_project_id uuid,
+      ADD COLUMN IF NOT EXISTS type varchar(80),
+      ADD COLUMN IF NOT EXISTS title text,
+      ADD COLUMN IF NOT EXISTS content text NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS source_title text,
+      ADD COLUMN IF NOT EXISTS source_author text,
+      ADD COLUMN IF NOT EXISTS source_url text,
+      ADD COLUMN IF NOT EXISTS source_reference text,
+      ADD COLUMN IF NOT EXISTS quote_text text,
+      ADD COLUMN IF NOT EXISTS is_ai_generated boolean NOT NULL DEFAULT false,
+      ADD COLUMN IF NOT EXISTS is_saved boolean NOT NULL DEFAULT true,
+      ADD COLUMN IF NOT EXISTS is_deleted boolean NOT NULL DEFAULT false,
+      ADD COLUMN IF NOT EXISTS sort_order integer NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now()
+    """,
+    """
+    ALTER TABLE IF EXISTS study_sources
+      ADD COLUMN IF NOT EXISTS study_project_id uuid,
+      ADD COLUMN IF NOT EXISTS source_type varchar(80),
+      ADD COLUMN IF NOT EXISTS title text,
+      ADD COLUMN IF NOT EXISTS author text,
+      ADD COLUMN IF NOT EXISTS url text,
+      ADD COLUMN IF NOT EXISTS reference text,
+      ADD COLUMN IF NOT EXISTS notes text,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now()
+    """,
+    """
+    ALTER TABLE IF EXISTS user_private_sources
+      ADD COLUMN IF NOT EXISTS user_id uuid,
+      ADD COLUMN IF NOT EXISTS title text,
+      ADD COLUMN IF NOT EXISTS author text,
+      ADD COLUMN IF NOT EXISTS source_type varchar(80) NOT NULL DEFAULT 'user_private_note',
+      ADD COLUMN IF NOT EXISTS citation_text text,
+      ADD COLUMN IF NOT EXISTS personal_note text,
+      ADD COLUMN IF NOT EXISTS tags jsonb NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+      ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now()
+    """,
+    """
+    ALTER TABLE IF EXISTS study_ai_suggestion_cache
+      ADD COLUMN IF NOT EXISTS study_project_id uuid,
+      ADD COLUMN IF NOT EXISTS user_id uuid,
+      ADD COLUMN IF NOT EXISTS prompt_hash varchar(64),
+      ADD COLUMN IF NOT EXISTS prompt text,
+      ADD COLUMN IF NOT EXISTS mode varchar(32) NOT NULL DEFAULT 'rapido',
+      ADD COLUMN IF NOT EXISTS requested_block_types jsonb NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS preferred_sources jsonb NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS suggestions jsonb NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS warnings jsonb NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS local_context jsonb NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now()
+    """,
+    """
     ALTER TABLE IF EXISTS user_preferences
       ADD COLUMN IF NOT EXISTS calling_category varchar(120),
       ADD COLUMN IF NOT EXISTS calling_name varchar(200),
@@ -1131,6 +1378,25 @@ REQUIRED_COLUMN_TYPES = {
     ("ingestion_jobs", "errors"): {"jsonb"},
     ("document_duplicate_relations", "duplicate_document_id"): {"uuid"},
     ("chat_messages", "role"): {"text", "varchar"},
+    ("study_projects", "id"): {"uuid"},
+    ("study_projects", "user_id"): {"uuid"},
+    ("study_blocks", "id"): {"uuid"},
+    ("study_blocks", "study_project_id"): {"uuid"},
+    ("study_blocks", "metadata"): {"jsonb"},
+    ("study_blocks", "is_ai_generated"): {"bool"},
+    ("study_blocks", "is_saved"): {"bool"},
+    ("study_blocks", "is_deleted"): {"bool"},
+    ("study_sources", "id"): {"uuid"},
+    ("study_sources", "study_project_id"): {"uuid"},
+    ("user_private_sources", "id"): {"uuid"},
+    ("user_private_sources", "user_id"): {"uuid"},
+    ("user_private_sources", "tags"): {"jsonb"},
+    ("study_ai_suggestion_cache", "id"): {"uuid"},
+    ("study_ai_suggestion_cache", "study_project_id"): {"uuid"},
+    ("study_ai_suggestion_cache", "user_id"): {"uuid"},
+    ("study_ai_suggestion_cache", "suggestions"): {"jsonb"},
+    ("study_ai_suggestion_cache", "warnings"): {"jsonb"},
+    ("study_ai_suggestion_cache", "local_context"): {"jsonb"},
 }
 
 

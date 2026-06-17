@@ -1,731 +1,351 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  ArrowDown,
-  ArrowLeft,
-  ArrowRight,
-  ArrowUp,
-  BookOpen,
-  BookmarkPlus,
-  Download,
-  FileText,
-  Highlighter,
-  NotebookPen,
-  Plus,
-  RefreshCw,
-  Save,
-  Search,
-  SlidersHorizontal,
-  StickyNote,
-  Trash2
-} from "lucide-react";
+import { ArrowDown, ArrowUp, BookOpen, Download, Plus, Save, Sparkles, StickyNote, Trash2 } from "lucide-react";
 
-import { CitationCard } from "@/components/search/citation-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { downloadBlob, exportsApi, ragApi, studyApi } from "@/lib/api";
-import { mergeSourceOptions } from "@/lib/source-filters";
-import { cn, truncate } from "@/lib/utils";
+import { studyApi } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { useStudyWorkspaceStore } from "@/stores/study-workspace-store";
-import type { Citation } from "@/types/rag";
-import type { SavedStudyCitation, StudyDocument, StudyNote, StudyPostIt } from "@/types/study";
+import type { AiSuggestedBlock, AiSuggestionMode, StudyBlock, StudyBlockType, StudyProject } from "@/types/study";
 
 type Props = {
   workspaceId?: string;
 };
 
-type DraftState = {
-  workspaceName: string;
-  noteTitle: string;
-  noteContent: string;
-  citationText: string;
-  postItContent: string;
-  postItColor: string;
-  sourceKey: string;
-  language: string;
-  topic: string;
-  scriptureRef: string;
-  documentSearch: string;
+const blockLabels: Record<StudyBlockType, string> = {
+  personal_note: "Nota personal",
+  ai_doctrinal_analysis: "Analisis doctrinal",
+  ai_quote: "Cita sugerida",
+  ai_reference: "Referencia",
+  scripture_connection: "Conexion con pasajes",
+  reflection_question: "Pregunta de reflexion",
+  powerful_phrase: "Frase poderosa",
+  name_meaning: "Significado de nombres",
+  calling_application: "Aplicacion al llamamiento",
+  manual_reference: "Manual",
+  book_reference: "Libro"
 };
 
-const initialDraft: DraftState = {
-  workspaceName: "",
-  noteTitle: "",
-  noteContent: "",
-  citationText: "",
-  postItContent: "",
-  postItColor: "yellow",
-  sourceKey: "",
-  language: "",
-  topic: "",
-  scriptureRef: "",
-  documentSearch: ""
-};
-
-function toCitationCardItem(item: SavedStudyCitation): Citation {
-  return {
-    citation_id: 0,
-    chunk_id: item.chunkId ?? item.id,
-    document_id: item.documentId,
-    title: item.sourceTitle ?? "Fuente doctrinal",
-    author: item.sourceAuthor,
-    source_key: item.sourceType ?? item.sourceName ?? "study",
-    canonical_url: item.citationUrl ?? item.sourceUrl,
-    language: null,
-    section_title: null,
-    quote: item.quote,
-    score: 1
-  };
-}
-
-export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Props) {
+export function StudyWorkspaceExperience({ workspaceId: routeProjectId }: Props) {
   const queryClient = useQueryClient();
-  const {
-    userId,
-    activeWorkspaceId,
-    activeDocumentId,
-    selectedText,
-    sourceType,
-    topic,
-    scriptureRef,
-    setActiveWorkspaceId,
-    setActiveDocumentId,
-    setSelectedText,
-    setSourceType,
-    setTopic,
-    setScriptureRef
-  } = useStudyWorkspaceStore();
-  const [draft, setDraft] = useState<DraftState>(initialDraft);
-  const [editingNote, setEditingNote] = useState<{ id: string; title: string; content: string } | null>(null);
-  const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const userId = useStudyWorkspaceStore((state) => state.userId);
+  const [manualBlock, setManualBlock] = useState({ title: "", content: "", quoteText: "" });
+  const [postIt, setPostIt] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [mode, setMode] = useState<AiSuggestionMode>("rapido");
+  const [editingBlock, setEditingBlock] = useState<StudyBlock | null>(null);
+  const [suggestions, setSuggestions] = useState<AiSuggestedBlock[]>([]);
+  const [warnings, setWarnings] = useState<string[]>([]);
 
-  const filters = useMemo(
-    () => ({
-      documentId: activeDocumentId,
-      sourceType,
-      topic,
-      scriptureRef
-    }),
-    [activeDocumentId, sourceType, topic, scriptureRef]
-  );
-
-  const workspaces = useQuery({
-    queryKey: ["study-workspaces", userId, sourceType, topic],
-    queryFn: () => studyApi.workspaces(userId, { sourceType, topic })
-  });
-  const sources = useQuery({ queryKey: ["source-options"], queryFn: () => ragApi.sourcesSummary(), staleTime: 1000 * 60 });
-
-  const documents = useQuery({
-    queryKey: ["study-documents", draft.documentSearch, sourceType],
-    queryFn: () => ragApi.documents({ search: draft.documentSearch || undefined, sourceType, limit: 20, offset: 0 }),
-    staleTime: 1000 * 60
+  const projects = useQuery({
+    queryKey: ["study-projects", userId],
+    queryFn: () => studyApi.projects(userId)
   });
 
-  const workspaceId = routeWorkspaceId ?? activeWorkspaceId ?? workspaces.data?.items[0]?.id;
-  const activeWorkspace = workspaces.data?.items.find((item) => item.id === workspaceId);
-  const activeDocument = documents.data?.items.find((item) => item.id === activeDocumentId) ?? documents.data?.items[0];
-
-  useEffect(() => {
-    if (routeWorkspaceId) {
-      setActiveWorkspaceId(routeWorkspaceId);
-    } else if (!activeWorkspaceId && workspaces.data?.items[0]) {
-      setActiveWorkspaceId(workspaces.data.items[0].id);
-    }
-  }, [activeWorkspaceId, routeWorkspaceId, setActiveWorkspaceId, workspaces.data?.items]);
-
-  useEffect(() => {
-    if (!activeDocumentId && activeDocument?.id) {
-      setActiveDocumentId(activeDocument.id);
-    }
-  }, [activeDocument?.id, activeDocumentId, setActiveDocumentId]);
-
-  const notes = useQuery({
-    queryKey: ["study-notes", userId, workspaceId, filters],
-    queryFn: () => studyApi.notes(userId, workspaceId as string, filters),
-    enabled: Boolean(workspaceId)
-  });
-  const citations = useQuery({
-    queryKey: ["study-citations", userId, workspaceId, filters],
-    queryFn: () => studyApi.citations(userId, workspaceId as string, filters),
-    enabled: Boolean(workspaceId)
-  });
-  const postIts = useQuery({
-    queryKey: ["study-post-its", userId, workspaceId, filters],
-    queryFn: () => studyApi.postIts(userId, workspaceId as string, filters),
-    enabled: Boolean(workspaceId)
-  });
-  const highlights = useQuery({
-    queryKey: ["study-highlights", userId, workspaceId, filters],
-    queryFn: () => studyApi.highlights(userId, workspaceId as string, filters),
-    enabled: Boolean(workspaceId)
-  });
-  const sourceFilters = useQuery({
-    queryKey: ["study-source-filters", userId, workspaceId],
-    queryFn: () => studyApi.sourceFilters(userId, workspaceId as string),
-    enabled: Boolean(workspaceId)
-  });
-  const relatedDocuments = useQuery({
-    queryKey: ["study-related", userId, workspaceId],
-    queryFn: () => studyApi.related(userId, workspaceId as string),
-    enabled: Boolean(workspaceId),
-    staleTime: 1000 * 60
+  const projectId = routeProjectId ?? projects.data?.items[0]?.id;
+  const project = useQuery({
+    queryKey: ["study-project", userId, projectId],
+    queryFn: () => studyApi.project(userId, projectId as string),
+    enabled: Boolean(projectId)
   });
 
-  const invalidateWorkspace = () => {
-    queryClient.invalidateQueries({ queryKey: ["study-workspaces"] });
-    queryClient.invalidateQueries({ queryKey: ["study-notes"] });
-    queryClient.invalidateQueries({ queryKey: ["study-citations"] });
-    queryClient.invalidateQueries({ queryKey: ["study-post-its"] });
-    queryClient.invalidateQueries({ queryKey: ["study-highlights"] });
-    queryClient.invalidateQueries({ queryKey: ["study-source-filters"] });
+  const activeProject = project.data;
+  const blocks = useMemo(() => activeProject?.blocks ?? [], [activeProject?.blocks]);
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["study-projects"] });
+    queryClient.invalidateQueries({ queryKey: ["study-project", userId, projectId] });
   };
 
-  const createWorkspace = useMutation({
-    mutationFn: () => studyApi.createWorkspace(userId, { name: draft.workspaceName.trim() }),
-    onSuccess: (workspace) => {
-      setDraft((value) => ({ ...value, workspaceName: "" }));
-      setActiveWorkspaceId(workspace.id);
-      invalidateWorkspace();
-    }
-  });
-
-  const createNote = useMutation({
+  const suggest = useMutation({
     mutationFn: () =>
-      studyApi.createNote(userId, workspaceId as string, {
-        documentId: activeDocumentId,
-        title: draft.noteTitle.trim() || activeDocument?.title,
-        content: draft.noteContent.trim(),
-        selectedText: selectedText || undefined,
-        scriptureRefs: scriptureRef ? [scriptureRef] : []
+      studyApi.suggestBlocks(userId, projectId as string, {
+        prompt: prompt.trim() || undefined,
+        mode,
+        maxSuggestions: 10
       }),
-    onSuccess: () => {
-      setDraft((value) => ({ ...value, noteTitle: "", noteContent: "" }));
-      setSelectedText("");
-      invalidateWorkspace();
+    onSuccess: (response) => {
+      setSuggestions(response.suggestions);
+      setWarnings(response.warnings);
     }
   });
 
-  const updateNote = useMutation({
-    mutationFn: (note: { id: string; title: string; content: string }) =>
-      studyApi.updateNote(userId, workspaceId as string, note.id, {
-        title: note.title.trim(),
-        content: note.content.trim()
-      }),
-    onSuccess: () => {
-      setEditingNote(null);
-      invalidateWorkspace();
+  const saveSuggestion = useMutation({
+    mutationFn: ({ suggestion, index }: { suggestion: AiSuggestedBlock; index: number }) =>
+      studyApi.saveSuggestion(userId, projectId as string, suggestion, blocks.length * 10 + index * 10 + 10),
+    onSuccess: (_block, variables) => {
+      setSuggestions((items) => items.filter((item) => item !== variables.suggestion));
+      invalidate();
     }
   });
 
-  const deleteNote = useMutation({
-    mutationFn: (noteId: string) => studyApi.deleteNote(userId, workspaceId as string, noteId),
-    onSuccess: invalidateWorkspace
+  const saveAllSuggestions = useMutation({
+    mutationFn: async () => {
+      for (const [index, suggestion] of suggestions.entries()) {
+        await studyApi.saveSuggestion(userId, projectId as string, suggestion, blocks.length * 10 + index * 10 + 10);
+      }
+    },
+    onSuccess: () => {
+      setSuggestions([]);
+      invalidate();
+    }
   });
 
-  const saveCitation = useMutation({
+  const createManualCitation = useMutation({
     mutationFn: () =>
-      studyApi.saveCitation(userId, workspaceId as string, {
-        documentId: activeDocumentId as string,
-        quote: (draft.citationText || selectedText).trim(),
-        selectedText: selectedText || undefined,
-        citationUrl: activeDocument?.url ?? undefined,
-        scriptureRefs: scriptureRef ? [scriptureRef] : []
+      studyApi.createBlock(userId, projectId as string, {
+        type: "ai_quote",
+        title: manualBlock.title.trim() || "Cita manual",
+        quoteText: manualBlock.quoteText.trim(),
+        content: manualBlock.content.trim(),
+        isAiGenerated: false,
+        metadata: { sourceStatus: "usuario" }
       }),
     onSuccess: () => {
-      setDraft((value) => ({ ...value, citationText: "" }));
-      setSelectedText("");
-      invalidateWorkspace();
-    }
-  });
-
-  const createHighlight = useMutation({
-    mutationFn: () =>
-      studyApi.createHighlight(userId, workspaceId as string, {
-        documentId: activeDocumentId as string,
-        startChar: 0,
-        endChar: selectedText.length,
-        selectedText,
-        scriptureRefs: scriptureRef ? [scriptureRef] : []
-      }),
-    onSuccess: () => {
-      setSelectedText("");
-      invalidateWorkspace();
+      setManualBlock({ title: "", content: "", quoteText: "" });
+      invalidate();
     }
   });
 
   const createPostIt = useMutation({
     mutationFn: () =>
-      studyApi.createPostIt(userId, workspaceId as string, {
-        documentId: activeDocumentId,
-        content: draft.postItContent.trim(),
-        color: draft.postItColor,
-        position: { x: 24, y: 24 },
-        pinned: true,
-        sourceFilters: { sourceType, topic, scriptureRef }
+      studyApi.createBlock(userId, projectId as string, {
+        type: "personal_note",
+        title: "Post-it",
+        content: postIt.trim(),
+        isAiGenerated: false,
+        metadata: { display: "post_it", color: "yellow" }
       }),
     onSuccess: () => {
-      setDraft((value) => ({ ...value, postItContent: "" }));
-      invalidateWorkspace();
+      setPostIt("");
+      invalidate();
     }
   });
 
-  const updatePostIt = useMutation({
-    mutationFn: ({
-      postItId,
-      patch
-    }: {
-      postItId: string;
-      patch: { content?: string; color?: string; position?: Record<string, unknown>; pinned?: boolean };
-    }) => studyApi.updatePostIt(userId, workspaceId as string, postItId, patch),
-    onMutate: async ({ postItId, patch }) => {
-      const queryKey = ["study-post-its", userId, workspaceId, filters];
-      await queryClient.cancelQueries({ queryKey });
-      const previous = queryClient.getQueryData<{ items: StudyPostIt[] }>(queryKey);
-      if (previous) {
-        queryClient.setQueryData<{ items: StudyPostIt[] }>(queryKey, {
-          items: previous.items.map((item) => (item.id === postItId ? { ...item, ...patch } : item))
-        });
-      }
-      return { previous, queryKey };
-    },
-    onError: (_error, _variables, context) => {
-      if (context?.previous) queryClient.setQueryData(context.queryKey, context.previous);
-    },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["study-post-its"] })
-  });
-
-  const createSourceFilter = useMutation({
-    mutationFn: () =>
-      studyApi.createSourceFilter(userId, workspaceId as string, {
-        sourceKey: draft.sourceKey.trim() || undefined,
-        language: draft.language.trim() || undefined,
-        category: topic || undefined,
-        tags: scriptureRef ? [scriptureRef] : []
-      }),
+  const updateBlock = useMutation({
+    mutationFn: (block: Partial<StudyBlock> & { id: string }) =>
+      studyApi.updateBlock(userId, projectId as string, block.id, block),
     onSuccess: () => {
-      setDraft((value) => ({ ...value, sourceKey: "", language: "" }));
-      invalidateWorkspace();
+      setEditingBlock(null);
+      invalidate();
     }
   });
 
-  const deleteSourceFilter = useMutation({
-    mutationFn: (sourceFilterId: string) => studyApi.deleteSourceFilter(userId, workspaceId as string, sourceFilterId),
-    onSuccess: invalidateWorkspace
+  const deleteBlock = useMutation({
+    mutationFn: (blockId: string) => studyApi.deleteBlock(userId, projectId as string, blockId),
+    onSuccess: invalidate
   });
 
-  const deleteCitation = useMutation({
-    mutationFn: (citationId: string) => studyApi.deleteCitation(userId, workspaceId as string, citationId),
-    onSuccess: invalidateWorkspace
+  const archiveProject = useMutation({
+    mutationFn: () => studyApi.archiveProject(userId, projectId as string),
+    onSuccess: invalidate
   });
 
-  const deletePostIt = useMutation({
-    mutationFn: (postItId: string) => studyApi.deletePostIt(userId, workspaceId as string, postItId),
-    onSuccess: invalidateWorkspace
-  });
-
-  const exportStudy = useMutation({
-    mutationFn: (format: "markdown" | "pdf") =>
-      exportsApi.study(userId, {
-        workspaceId: workspaceId as string,
-        kind: "all",
-        format
-      }),
-    onSuccess: (file) => {
-      downloadBlob(file);
-      setExportMessage("Exportacion generada con fuentes y citas del workspace.");
-    },
-    onError: (error) => {
-      setExportMessage(error instanceof Error ? error.message : "No se pudo exportar el workspace.");
-    }
-  });
-
-  const deleteHighlight = useMutation({
-    mutationFn: (highlightId: string) => studyApi.deleteHighlight(userId, workspaceId as string, highlightId),
-    onSuccess: invalidateWorkspace
-  });
-
-  const applySelection = () => {
-    const selection = window.getSelection()?.toString().trim();
-    if (selection) {
-      setSelectedText(selection);
-      if (!draft.noteContent) {
-        setDraft((value) => ({ ...value, noteContent: selection }));
-      }
-    }
+  const exportMarkdown = () => {
+    if (!activeProject) return;
+    const markdown = renderStudyMarkdown(activeProject, blocks);
+    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${activeProject.title.toLowerCase().replace(/[^a-z0-9]+/gi, "-") || "estudio"}.md`;
+    anchor.click();
+    URL.revokeObjectURL(url);
   };
 
-  const canCreateWorkspace = draft.workspaceName.trim().length > 0;
-  const canCreateNote = Boolean(workspaceId && draft.noteContent.trim());
-  const canSaveCitation = Boolean(workspaceId && activeDocumentId && (draft.citationText.trim() || selectedText));
-  const canHighlight = Boolean(workspaceId && activeDocumentId && selectedText);
-  const canPostIt = Boolean(workspaceId && draft.postItContent.trim());
-  const canSourceFilter = Boolean(workspaceId && (draft.sourceKey.trim() || draft.language.trim() || topic || scriptureRef));
+  if (!projectId && !projects.isLoading) {
+    return (
+      <EmptyStudyState />
+    );
+  }
 
   return (
     <div className="space-y-5">
       <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-sm font-medium text-primary">StudyWorkspace</p>
-          <h1 className="text-2xl font-semibold">Espacio de estudio doctrinal</h1>
+          <p className="text-sm font-medium text-primary">Mesa de Estudio Doctrinal</p>
+          <h1 className="text-2xl font-semibold">Mis Estudios</h1>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            Organiza notas, citas, subrayados y filtros sobre documentos reales cargados en Gospel Library IA.
+            Crea bloques editables de estudio personal. La IA sugiere; tu decides que guardar, editar o descartar.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => invalidateWorkspace()}>
-            <RefreshCw className="h-4 w-4" />
-            Actualizar
-          </Button>
           <Link href="/study/new">
-            <Button variant="outline">
+            <Button>
               <Plus className="h-4 w-4" />
-              Nuevo
+              Nuevo estudio
             </Button>
           </Link>
-          <Button variant="outline" disabled={!workspaceId || exportStudy.isPending} onClick={() => exportStudy.mutate("markdown")}>
+          <Button variant="outline" disabled={!activeProject} onClick={exportMarkdown}>
             <Download className="h-4 w-4" />
-            Markdown
+            Exportar estudio
           </Button>
-          <Button variant="outline" disabled={!workspaceId || exportStudy.isPending} onClick={() => exportStudy.mutate("pdf")}>
-            <Download className="h-4 w-4" />
-            PDF
+          <Button variant="ghost" disabled={!activeProject || archiveProject.isPending} onClick={() => archiveProject.mutate()}>
+            <Trash2 className="h-4 w-4" />
+            Archivar
           </Button>
-          {activeDocumentId ? (
-            <Link href={`/documents/${activeDocumentId}`}>
-              <Button variant="secondary">
-                <BookOpen className="h-4 w-4" />
-                Abrir lector
-              </Button>
-            </Link>
-          ) : null}
         </div>
       </header>
-      {exportMessage ? <p className="rounded-md border bg-card px-4 py-3 text-sm text-muted-foreground">{exportMessage}</p> : null}
 
       <section className="grid gap-4 xl:grid-cols-[280px_1fr_360px]">
         <aside className="space-y-4">
           <Card className="p-4">
-            <div className="flex items-center gap-2">
-              <NotebookPen className="h-4 w-4 text-primary" />
-              <h2 className="font-semibold">Workspaces</h2>
-            </div>
-            <div className="mt-4 flex gap-2">
-              <Input
-                value={draft.workspaceName}
-                onChange={(event) => setDraft((value) => ({ ...value, workspaceName: event.target.value }))}
-                placeholder="Nuevo workspace"
-              />
-              <Button size="icon" disabled={!canCreateWorkspace || createWorkspace.isPending} onClick={() => createWorkspace.mutate()}>
-                <Plus className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="mt-4 space-y-2">
-              {workspaces.isLoading ? <p className="text-sm text-muted-foreground">Cargando espacios...</p> : null}
-              {workspaces.data?.items.map((workspace) => (
+            <h2 className="font-semibold">Estudios</h2>
+            <div className="mt-3 space-y-2">
+              {projects.data?.items.map((item) => (
                 <Link
-                  key={workspace.id}
-                  href={`/study/${workspace.id}`}
-                  onClick={() => setActiveWorkspaceId(workspace.id)}
+                  key={item.id}
+                  href={`/study/${item.id}`}
                   className={cn(
-                    "block rounded-md border px-3 py-2 text-sm transition hover:bg-muted",
-                    workspace.id === workspaceId && "border-primary bg-primary/10 text-primary"
+                    "block rounded-md border p-3 text-sm transition hover:bg-muted",
+                    item.id === projectId && "border-primary bg-primary/10"
                   )}
                 >
-                  <span className="block font-medium">{workspace.name}</span>
+                  <span className="line-clamp-2 font-medium">{item.title}</span>
                   <span className="mt-1 block text-xs text-muted-foreground">
-                    {workspace.updatedAt ? new Date(workspace.updatedAt).toLocaleDateString() : "Sin actividad"}
+                    {item.scriptureReference || item.topic || "Sin referencia"}
                   </span>
                 </Link>
               ))}
-              {!workspaces.isLoading && workspaces.data?.items.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Crea un workspace para empezar.</p>
-              ) : null}
-            </div>
-          </Card>
-
-          <Card className="p-4">
-            <div className="flex items-center gap-2">
-              <SlidersHorizontal className="h-4 w-4 text-primary" />
-              <h2 className="font-semibold">Filtros</h2>
-            </div>
-            <div className="mt-4 space-y-3">
-              <select
-                value={sourceType ?? ""}
-                onChange={(event) => setSourceType(event.target.value)}
-                className="h-10 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-                aria-label="Tipo de fuente"
-              >
-                <option value="">Todas las fuentes</option>
-                {mergeSourceOptions(sources.data?.items).map((source) => (
-                  <option key={source.key} value={source.key}>
-                    {source.label}
-                    {typeof source.documentCount === "number" ? ` (${source.documentCount})` : ""}
-                  </option>
-                ))}
-              </select>
-              <Input value={topic ?? ""} onChange={(event) => setTopic(event.target.value)} placeholder="Tema" />
-              <Input
-                value={scriptureRef ?? ""}
-                onChange={(event) => setScriptureRef(event.target.value)}
-                placeholder="Referencia escritural"
-              />
-              <div className="grid grid-cols-2 gap-2">
-                <select
-                  value={draft.sourceKey}
-                  onChange={(event) => setDraft((value) => ({ ...value, sourceKey: event.target.value }))}
-                  className="h-10 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-                  aria-label="Fuente guardada"
-                >
-                  <option value="">Fuente</option>
-                  {mergeSourceOptions(sources.data?.items).map((source) => (
-                    <option key={source.key} value={source.key}>
-                      {source.label}
-                    </option>
-                  ))}
-                </select>
-                <Input
-                  value={draft.language}
-                  onChange={(event) => setDraft((value) => ({ ...value, language: event.target.value }))}
-                  placeholder="Idioma"
-                />
-              </div>
-              <Button
-                className="w-full"
-                variant="outline"
-                disabled={!canSourceFilter || createSourceFilter.isPending}
-                onClick={() => createSourceFilter.mutate()}
-              >
-                <Save className="h-4 w-4" />
-                Guardar filtro
-              </Button>
-              <div className="flex flex-wrap gap-2">
-                {sourceFilters.data?.items.map((filter) => (
-                  <button
-                    key={filter.id}
-                    onClick={() => deleteSourceFilter.mutate(filter.id)}
-                    className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
-                  >
-                    {filter.sourceKey ?? filter.language ?? filter.category ?? "Filtro"}
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-                ))}
-              </div>
+              {projects.isLoading ? <p className="text-sm text-muted-foreground">Cargando estudios...</p> : null}
             </div>
           </Card>
         </aside>
 
         <main className="space-y-4">
+          <ProjectSummary project={activeProject} loading={project.isLoading} />
           <Card className="p-4">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
               <div>
-                <h2 className="font-semibold">{activeWorkspace?.name ?? "Workspace sin seleccionar"}</h2>
+                <h2 className="font-semibold">Bloques del estudio</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {notes.data?.items.length ?? 0} notas, {citations.data?.items.length ?? 0} citas,{" "}
-                  {highlights.data?.items.length ?? 0} subrayados.
+                  Edita, guarda, descarta o reordena cualquier bloque.
                 </p>
               </div>
-              <div className="relative md:w-80">
-                <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                <Input
-                  className="pl-9"
-                  value={draft.documentSearch}
-                  onChange={(event) => setDraft((value) => ({ ...value, documentSearch: event.target.value }))}
-                  placeholder="Buscar documento real"
-                />
-              </div>
+              <Button disabled={!projectId || suggest.isPending} onClick={() => suggest.mutate()}>
+                <Sparkles className="h-4 w-4" />
+                Anadir informacion con IA
+              </Button>
             </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-[1fr_180px]">
+              <Input value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Prompt opcional para la IA" />
+              <select
+                value={mode}
+                onChange={(event) => setMode(event.target.value as AiSuggestionMode)}
+                className="h-10 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="rapido">Rapido</option>
+                <option value="profundo">Profundo</option>
+                <option value="citas">Citas</option>
+                <option value="manuales">Manuales</option>
+                <option value="nombres">Nombres</option>
+                <option value="llamamiento">Llamamiento</option>
+              </select>
+            </div>
+            {warnings.length ? (
+              <div className="mt-3 rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
+                {warnings.map((warning) => (
+                  <p key={warning}>{warning}</p>
+                ))}
+              </div>
+            ) : null}
           </Card>
 
-          <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
-            <Card className="max-h-[520px] overflow-auto p-3">
-              <h3 className="px-1 text-sm font-semibold">Documentos</h3>
-              <div className="mt-3 space-y-2">
-                {documents.data?.items.map((document) => (
-                  <DocumentChoice
-                    key={document.id}
-                    document={document}
-                    active={document.id === activeDocumentId}
-                    onClick={() => setActiveDocumentId(document.id)}
+          {suggestions.length ? (
+            <Card className="p-4">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="font-semibold">Sugerencias pendientes</h2>
+                <Button size="sm" disabled={saveAllSuggestions.isPending} onClick={() => saveAllSuggestions.mutate()}>
+                  Guardar todo
+                </Button>
+              </div>
+              <div className="mt-4 grid gap-3">
+                {suggestions.map((suggestion, index) => (
+                  <SuggestionCard
+                    key={`${suggestion.type}-${suggestion.title}-${index}`}
+                    suggestion={suggestion}
+                    onSave={() => saveSuggestion.mutate({ suggestion, index })}
+                    onDiscard={() => setSuggestions((items) => items.filter((item) => item !== suggestion))}
                   />
                 ))}
-                {documents.isLoading ? <p className="px-1 text-sm text-muted-foreground">Cargando documentos...</p> : null}
-                {!documents.isLoading && documents.data?.items.length === 0 ? (
-                  <p className="px-1 text-sm text-muted-foreground">No hay documentos para este filtro.</p>
-                ) : null}
               </div>
             </Card>
+          ) : null}
 
-            <Card className="p-4">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h3 className="text-lg font-semibold">{activeDocument?.title ?? "Documento no seleccionado"}</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {activeDocument?.author ?? "Autor desconocido"} · {activeDocument?.sourceType ?? activeDocument?.source ?? "Fuente"}
-                  </p>
-                </div>
-                {activeDocument?.status ? <Badge>{activeDocument.status}</Badge> : null}
-              </div>
-              <div
-                onMouseUp={applySelection}
-                className="mt-4 max-h-[360px] overflow-auto rounded-md border bg-muted/30 p-4 text-sm leading-7 text-muted-foreground"
-              >
-                {activeDocument?.excerpt ? (
-                  activeDocument.excerpt
-                ) : (
-                  <span>Selecciona un documento con extracto para crear notas y citas desde contenido real.</span>
-                )}
-              </div>
-              {selectedText ? (
-                <div className="mt-3 rounded-md border border-primary/30 bg-primary/10 p-3 text-sm">
-                  <p className="font-medium text-primary">Seleccion activa</p>
-                  <p className="mt-1 text-muted-foreground">{truncate(selectedText, 260)}</p>
-                </div>
-              ) : null}
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Input
-                    value={draft.noteTitle}
-                    onChange={(event) => setDraft((value) => ({ ...value, noteTitle: event.target.value }))}
-                    placeholder="Titulo de nota"
-                  />
-                  <textarea
-                    value={draft.noteContent}
-                    onChange={(event) => setDraft((value) => ({ ...value, noteContent: event.target.value }))}
-                    placeholder="Nota personal"
-                    className="min-h-28 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-                  />
-                  <Button className="w-full" disabled={!canCreateNote || createNote.isPending} onClick={() => createNote.mutate()}>
-                    <NotebookPen className="h-4 w-4" />
-                    Crear nota
-                  </Button>
-                </div>
-                <div className="space-y-2">
-                  <textarea
-                    value={draft.citationText || selectedText}
-                    onChange={(event) => setDraft((value) => ({ ...value, citationText: event.target.value }))}
-                    placeholder="Cita guardada"
-                    className="min-h-28 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-                  />
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button variant="secondary" disabled={!canSaveCitation || saveCitation.isPending} onClick={() => saveCitation.mutate()}>
-                      <BookmarkPlus className="h-4 w-4" />
-                      Cita
-                    </Button>
-                    <Button variant="outline" disabled={!canHighlight || createHighlight.isPending} onClick={() => createHighlight.mutate()}>
-                      <Highlighter className="h-4 w-4" />
-                      Subrayar
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </Card>
+          <div className="grid gap-3">
+            {blocks.map((block) => (
+              <StudyBlockCard
+                key={block.id}
+                block={block}
+                editing={editingBlock?.id === block.id ? editingBlock : null}
+                onEdit={setEditingBlock}
+                onSave={(next) => updateBlock.mutate(next)}
+                onDelete={() => deleteBlock.mutate(block.id)}
+                onMove={(direction) => updateBlock.mutate({ id: block.id, sortOrder: block.sortOrder + direction * 15 })}
+              />
+            ))}
+            {!project.isLoading && blocks.length === 0 ? (
+              <p className="rounded-md border p-4 text-sm text-muted-foreground">
+                Todavia no hay bloques. Agrega una nota manual o pide sugerencias con IA.
+              </p>
+            ) : null}
           </div>
-
-          <StudyNotesPanel
-            notes={notes.data?.items ?? []}
-            editingNote={editingNote}
-            onEdit={setEditingNote}
-            onUpdate={(note) => updateNote.mutate(note)}
-            onDelete={(noteId) => deleteNote.mutate(noteId)}
-          />
-          <RelatedDocumentsPanel
-            items={relatedDocuments.data?.results ?? []}
-            warning={relatedDocuments.data?.warning}
-            loading={relatedDocuments.isLoading}
-            onSelect={(documentId) => setActiveDocumentId(documentId)}
-          />
         </main>
 
         <aside className="space-y-4">
           <Card className="p-4">
-            <div className="flex items-center gap-2">
-              <BookmarkPlus className="h-4 w-4 text-primary" />
-              <h2 className="font-semibold">Citas guardadas</h2>
-            </div>
-            <div className="mt-4 space-y-3">
-              {citations.data?.items.map((citation) => (
-                <div key={citation.id} className="space-y-2">
-                  <CitationCard item={toCitationCardItem(citation)} />
-                  <Button variant="ghost" size="sm" onClick={() => deleteCitation.mutate(citation.id)}>
-                    <Trash2 className="h-4 w-4" />
-                    Eliminar cita
-                  </Button>
-                </div>
-              ))}
-              {citations.data?.items.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Selecciona texto de un documento para guardar una cita con fuente.</p>
-              ) : null}
+            <h2 className="font-semibold">Anadir cita manual</h2>
+            <div className="mt-3 space-y-2">
+              <Input
+                value={manualBlock.title}
+                onChange={(event) => setManualBlock((value) => ({ ...value, title: event.target.value }))}
+                placeholder="Fuente o titulo"
+              />
+              <textarea
+                value={manualBlock.quoteText}
+                onChange={(event) => setManualBlock((value) => ({ ...value, quoteText: event.target.value }))}
+                placeholder="Cita corta o referencia privada"
+                className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+              />
+              <textarea
+                value={manualBlock.content}
+                onChange={(event) => setManualBlock((value) => ({ ...value, content: event.target.value }))}
+                placeholder="Comentario personal"
+                className="min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+              />
+              <Button
+                className="w-full"
+                variant="outline"
+                disabled={!projectId || !manualBlock.quoteText.trim() || createManualCitation.isPending}
+                onClick={() => createManualCitation.mutate()}
+              >
+                <BookOpen className="h-4 w-4" />
+                Guardar cita
+              </Button>
             </div>
           </Card>
 
           <Card className="p-4">
-            <div className="flex items-center gap-2">
+            <h2 className="flex items-center gap-2 font-semibold">
               <StickyNote className="h-4 w-4 text-primary" />
-              <h2 className="font-semibold">Post-it</h2>
-            </div>
+              Anadir post-it
+            </h2>
             <textarea
-              value={draft.postItContent}
-              onChange={(event) => setDraft((value) => ({ ...value, postItContent: event.target.value }))}
+              value={postIt}
+              onChange={(event) => setPostIt(event.target.value)}
               placeholder="Idea rapida"
-              className="mt-4 min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+              className="mt-3 min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
             />
-            <div className="mt-2 flex gap-2">
-              {["yellow", "blue", "green", "rose"].map((color) => (
-                <button
-                  key={color}
-                  onClick={() => setDraft((value) => ({ ...value, postItColor: color }))}
-                  className={cn(
-                    "h-7 w-7 rounded-md border",
-                    color === "yellow" && "bg-yellow-300",
-                    color === "blue" && "bg-sky-300",
-                    color === "green" && "bg-emerald-300",
-                    color === "rose" && "bg-rose-300",
-                    draft.postItColor === color && "ring-2 ring-primary"
-                  )}
-                  aria-label={`Color ${color}`}
-                />
-              ))}
-            </div>
-            <Button className="mt-2 w-full" variant="outline" disabled={!canPostIt || createPostIt.isPending} onClick={() => createPostIt.mutate()}>
+            <Button className="mt-2 w-full" variant="outline" disabled={!projectId || !postIt.trim()} onClick={() => createPostIt.mutate()}>
               <Plus className="h-4 w-4" />
-              Agregar post-it
+              Anadir post-it
             </Button>
-            <div className="mt-4 space-y-2">
-              {postIts.data?.items.map((postIt) => (
-                <PostItCard
-                  key={postIt.id}
-                  postIt={postIt}
-                  onDelete={() => deletePostIt.mutate(postIt.id)}
-                  onUpdate={(patch) => updatePostIt.mutate({ postItId: postIt.id, patch })}
-                />
-              ))}
-            </div>
-          </Card>
-
-          <Card className="p-4">
-            <div className="flex items-center gap-2">
-              <Highlighter className="h-4 w-4 text-primary" />
-              <h2 className="font-semibold">Subrayados</h2>
-            </div>
-            <div className="mt-4 space-y-2">
-              {highlights.data?.items.map((highlight) => (
-                <div key={highlight.id} className="rounded-md border p-3 text-sm">
-                  <p className="text-muted-foreground">{truncate(highlight.selectedText, 180)}</p>
-                  <button onClick={() => deleteHighlight.mutate(highlight.id)} className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-                    <Trash2 className="h-3 w-3" />
-                    Eliminar
-                  </button>
-                </div>
-              ))}
-              {highlights.data?.items.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Aun no hay subrayados para estos filtros.</p>
-              ) : null}
-            </div>
           </Card>
         </aside>
       </section>
@@ -733,219 +353,186 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
   );
 }
 
-function RelatedDocumentsPanel({
-  items,
-  warning,
-  loading,
-  onSelect
-}: {
-  items: StudyDocument[];
-  warning?: string | null;
-  loading: boolean;
-  onSelect: (documentId: string) => void;
-}) {
+function EmptyStudyState() {
   return (
-    <Card className="p-4">
-      <div className="flex items-center gap-2">
-        <Search className="h-4 w-4 text-primary" />
-        <h2 className="font-semibold">Resultados relacionados</h2>
-      </div>
-      {warning ? <p className="mt-2 text-sm text-muted-foreground">{warning}</p> : null}
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
-        {items.map((document) => (
-          <button
-            key={document.id}
-            onClick={() => onSelect(document.id)}
-            className="rounded-md border p-3 text-left text-sm transition hover:bg-muted"
-          >
-            <span className="line-clamp-2 font-medium">{document.title}</span>
-            <span className="mt-1 block text-xs text-muted-foreground">
-              {document.author ?? "Autor desconocido"} - {document.sourceType ?? document.source ?? "Fuente"}
-            </span>
-            {document.excerpt ? <span className="mt-2 line-clamp-2 block text-xs text-muted-foreground">{document.excerpt}</span> : null}
-          </button>
-        ))}
-        {loading ? <p className="text-sm text-muted-foreground">Buscando documentos relacionados...</p> : null}
-        {!loading && items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No hay documentos relacionados para este workspace.</p>
-        ) : null}
-      </div>
+    <Card className="mx-auto max-w-2xl p-8 text-center">
+      <p className="text-sm font-medium text-primary">Mesa de Estudio Doctrinal</p>
+      <h1 className="mt-2 text-2xl font-semibold">Aun no tienes estudios</h1>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Crea tu primer estudio personal con una escritura base, una impresion y bloques editables.
+      </p>
+      <Link href="/study/new">
+        <Button className="mt-5">
+          <Plus className="h-4 w-4" />
+          Crear estudio
+        </Button>
+      </Link>
     </Card>
   );
 }
 
-function DocumentChoice({ document, active, onClick }: { document: StudyDocument; active: boolean; onClick: () => void }) {
+function ProjectSummary({ project, loading }: { project?: StudyProject; loading: boolean }) {
+  if (loading) return <Card className="p-4 text-sm text-muted-foreground">Cargando estudio...</Card>;
+  if (!project) return null;
   return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "w-full rounded-md border p-3 text-left text-sm transition hover:bg-muted",
-        active && "border-primary bg-primary/10"
-      )}
-    >
-      <span className="flex items-start gap-2">
-        <FileText className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-        <span>
-          <span className="line-clamp-2 font-medium">{document.title}</span>
-          <span className="mt-1 block text-xs text-muted-foreground">
-            {document.author ?? "Autor desconocido"} · {document.sourceType ?? document.source ?? "Fuente"}
-          </span>
-        </span>
-      </span>
-    </button>
+    <Card className="p-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h2 className="text-xl font-semibold">{project.title}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{project.scriptureReference || "Sin escritura base"}</p>
+        </div>
+        {project.topic ? <Badge>{project.topic}</Badge> : null}
+      </div>
+      {project.personalThought ? (
+        <p className="mt-4 rounded-md border bg-muted/40 p-3 text-sm leading-6 text-muted-foreground">{project.personalThought}</p>
+      ) : null}
+      {project.callingContext ? (
+        <p className="mt-3 text-sm text-muted-foreground">Llamamiento/contexto: {project.callingContext}</p>
+      ) : null}
+    </Card>
   );
 }
 
-function postItColorClass(color: string) {
-  if (color === "blue") return "border-sky-300 bg-sky-100 text-sky-950 dark:bg-sky-950/40 dark:text-sky-100";
-  if (color === "green") return "border-emerald-300 bg-emerald-100 text-emerald-950 dark:bg-emerald-950/40 dark:text-emerald-100";
-  if (color === "rose") return "border-rose-300 bg-rose-100 text-rose-950 dark:bg-rose-950/40 dark:text-rose-100";
-  return "border-yellow-300 bg-yellow-100 text-yellow-950 dark:bg-yellow-950/40 dark:text-yellow-100";
-}
-
-function PostItCard({
-  postIt,
-  onDelete,
-  onUpdate
+function SuggestionCard({
+  suggestion,
+  onSave,
+  onDiscard
 }: {
-  postIt: StudyPostIt;
-  onDelete: () => void;
-  onUpdate: (patch: { content?: string; color?: string; position?: Record<string, unknown>; pinned?: boolean }) => void;
+  suggestion: AiSuggestedBlock;
+  onSave: () => void;
+  onDiscard: () => void;
 }) {
-  const x = typeof postIt.position?.x === "number" ? postIt.position.x : 24;
-  const y = typeof postIt.position?.y === "number" ? postIt.position.y : 24;
-  const move = (dx: number, dy: number) => onUpdate({ position: { ...postIt.position, x: x + dx, y: y + dy } });
-
   return (
-    <div className={cn("rounded-md border p-3 text-sm", postItColorClass(postIt.color))}>
-      <textarea
-        defaultValue={postIt.content}
-        onBlur={(event) => {
-          const next = event.target.value.trim();
-          if (next && next !== postIt.content) onUpdate({ content: next });
-        }}
-        className="min-h-20 w-full resize-none rounded-md border border-black/10 bg-white/50 px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-ring dark:bg-black/20"
-      />
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        {["yellow", "blue", "green", "rose"].map((color) => (
-          <button
-            key={color}
-            onClick={() => onUpdate({ color })}
-            className={cn(
-              "h-6 w-6 rounded-md border border-black/10",
-              color === "yellow" && "bg-yellow-300",
-              color === "blue" && "bg-sky-300",
-              color === "green" && "bg-emerald-300",
-              color === "rose" && "bg-rose-300",
-              postIt.color === color && "ring-2 ring-primary"
-            )}
-            aria-label={`Cambiar a ${color}`}
-          />
-        ))}
-      </div>
-      <div className="mt-3 flex items-center justify-between gap-2">
-        <div className="grid grid-cols-3 gap-1">
-          <span />
-          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => move(0, -16)} aria-label="Mover arriba">
-            <ArrowUp className="h-3.5 w-3.5" />
-          </Button>
-          <span />
-          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => move(-16, 0)} aria-label="Mover izquierda">
-            <ArrowLeft className="h-3.5 w-3.5" />
-          </Button>
-          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => move(0, 16)} aria-label="Mover abajo">
-            <ArrowDown className="h-3.5 w-3.5" />
-          </Button>
-          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => move(16, 0)} aria-label="Mover derecha">
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Button>
+    <div className="rounded-md border p-4">
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <div>
+          <Badge className="border-primary/30 bg-primary/10 text-primary">{blockLabels[suggestion.type]}</Badge>
+          <h3 className="mt-2 font-semibold">{suggestion.title}</h3>
         </div>
-        <button onClick={onDelete} className="inline-flex items-center gap-1 text-xs opacity-80 hover:opacity-100">
-          <Trash2 className="h-3 w-3" />
-          Eliminar
-        </button>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={onSave}>Guardar</Button>
+          <Button size="sm" variant="ghost" onClick={onDiscard}>Descartar</Button>
+        </div>
       </div>
-      <p className="mt-2 text-xs opacity-70">
-        Posicion {x}, {y}
-      </p>
+      {suggestion.quoteText ? <blockquote className="mt-3 border-l-2 pl-3 text-sm">{suggestion.quoteText}</blockquote> : null}
+      <p className="mt-3 text-sm leading-6 text-muted-foreground">{suggestion.content}</p>
+      <SourceLine
+        title={suggestion.sourceTitle}
+        author={suggestion.sourceAuthor}
+        reference={suggestion.sourceReference}
+        status={suggestion.sourceStatus}
+      />
     </div>
   );
 }
 
-function StudyNotesPanel({
-  notes,
-  editingNote,
+function StudyBlockCard({
+  block,
+  editing,
   onEdit,
-  onUpdate,
-  onDelete
+  onSave,
+  onDelete,
+  onMove
 }: {
-  notes: StudyNote[];
-  editingNote: { id: string; title: string; content: string } | null;
-  onEdit: (note: { id: string; title: string; content: string } | null) => void;
-  onUpdate: (note: { id: string; title: string; content: string }) => void;
-  onDelete: (noteId: string) => void;
+  block: StudyBlock;
+  editing: StudyBlock | null;
+  onEdit: (block: StudyBlock | null) => void;
+  onSave: (block: StudyBlock) => void;
+  onDelete: () => void;
+  onMove: (direction: -1 | 1) => void;
 }) {
+  if (editing) {
+    return (
+      <Card className="p-4">
+        <div className="space-y-2">
+          <Input value={editing.title} onChange={(event) => onEdit({ ...editing, title: event.target.value })} />
+          <textarea
+            value={editing.quoteText ?? ""}
+            onChange={(event) => onEdit({ ...editing, quoteText: event.target.value })}
+            placeholder="Cita literal corta, si aplica"
+            className="min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+          />
+          <textarea
+            value={editing.content}
+            onChange={(event) => onEdit({ ...editing, content: event.target.value })}
+            className="min-h-32 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+          />
+          <div className="flex gap-2">
+            <Button size="sm" onClick={() => onSave(editing)}>
+              <Save className="h-4 w-4" />
+              Guardar
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => onEdit(null)}>Cancelar</Button>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  const sourceStatus = typeof block.metadata.sourceStatus === "string" ? block.metadata.sourceStatus : undefined;
   return (
-    <Card className="p-4">
-      <div className="flex items-center gap-2">
-        <NotebookPen className="h-4 w-4 text-primary" />
-        <h2 className="font-semibold">Notas</h2>
+    <Card className={cn("p-4", block.metadata.display === "post_it" && "border-yellow-300 bg-yellow-50 dark:bg-yellow-950/20")}>
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div className="flex flex-wrap gap-2">
+            <Badge className={block.isAiGenerated ? "border-primary/30 bg-primary/10 text-primary" : undefined}>
+              {blockLabels[block.type]}
+            </Badge>
+            {block.isAiGenerated ? <Badge>IA</Badge> : <Badge>Manual</Badge>}
+          </div>
+          <h3 className="mt-2 font-semibold">{block.title}</h3>
+        </div>
+        <div className="flex flex-wrap gap-1">
+          <Button size="icon" variant="ghost" onClick={() => onMove(-1)} aria-label="Mover arriba">
+            <ArrowUp className="h-4 w-4" />
+          </Button>
+          <Button size="icon" variant="ghost" onClick={() => onMove(1)} aria-label="Mover abajo">
+            <ArrowDown className="h-4 w-4" />
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => onEdit(block)}>Editar</Button>
+          <Button size="sm" variant="ghost" onClick={onDelete}>
+            <Trash2 className="h-4 w-4" />
+            Eliminar
+          </Button>
+        </div>
       </div>
-      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {notes.map((note) => {
-          const editing = editingNote?.id === note.id;
-          return (
-            <div key={note.id} className="rounded-md border p-3">
-              {editing ? (
-                <div className="space-y-2">
-                  <Input
-                    value={editingNote.title}
-                    onChange={(event) => onEdit({ ...editingNote, title: event.target.value })}
-                    placeholder="Titulo"
-                  />
-                  <textarea
-                    value={editingNote.content}
-                    onChange={(event) => onEdit({ ...editingNote, content: event.target.value })}
-                    className="min-h-28 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-                  />
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={() => onUpdate(editingNote)}>
-                      <Save className="h-4 w-4" />
-                      Guardar
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => onEdit(null)}>
-                      Cancelar
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <h3 className="font-medium">{note.title ?? "Nota sin titulo"}</h3>
-                  {note.selectedText ? (
-                    <p className="mt-2 rounded-md bg-muted p-2 text-xs text-muted-foreground">{truncate(note.selectedText, 160)}</p>
-                  ) : null}
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{note.content}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {note.scriptureRefs.map((ref) => (
-                      <Badge key={ref}>{ref}</Badge>
-                    ))}
-                  </div>
-                  <div className="mt-3 flex gap-2">
-                    <Button size="sm" variant="outline" onClick={() => onEdit({ id: note.id, title: note.title ?? "", content: note.content })}>
-                      Editar
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => onDelete(note.id)}>
-                      <Trash2 className="h-4 w-4" />
-                      Eliminar
-                    </Button>
-                  </div>
-                </>
-              )}
-            </div>
-          );
-        })}
-        {notes.length === 0 ? <p className="text-sm text-muted-foreground">No hay notas para este workspace y filtros.</p> : null}
-      </div>
+      {block.quoteText ? <blockquote className="mt-3 border-l-2 pl-3 text-sm">{block.quoteText}</blockquote> : null}
+      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{block.content}</p>
+      <SourceLine title={block.sourceTitle} author={block.sourceAuthor} reference={block.sourceReference} status={sourceStatus} />
     </Card>
   );
+}
+
+function SourceLine({
+  title,
+  author,
+  reference,
+  status
+}: {
+  title?: string | null;
+  author?: string | null;
+  reference?: string | null;
+  status?: string | null;
+}) {
+  if (!title && !author && !reference && !status) return null;
+  return (
+    <p className="mt-3 text-xs text-muted-foreground">
+      Fuente: {[title, author, reference].filter(Boolean).join(" - ") || "sin fuente local"}{" "}
+      {status ? <span className="font-medium">({status})</span> : null}
+    </p>
+  );
+}
+
+function renderStudyMarkdown(project: StudyProject, blocks: StudyBlock[]) {
+  const lines = [`# ${project.title}`, ""];
+  if (project.scriptureReference) lines.push(`**Escritura base:** ${project.scriptureReference}`, "");
+  if (project.personalThought) lines.push("## Mi pensamiento", "", project.personalThought, "");
+  for (const block of blocks) {
+    lines.push(`## ${block.title}`, "");
+    if (block.quoteText) lines.push(`> ${block.quoteText}`, "");
+    if (block.content) lines.push(block.content, "");
+    const source = [block.sourceTitle, block.sourceAuthor, block.sourceReference].filter(Boolean).join(" - ");
+    if (source) lines.push(`Fuente: ${source}`, "");
+  }
+  return lines.join("\n");
 }

@@ -108,3 +108,110 @@ export type StudyDocument = {
 export type StudyList<T> = {
   items: T[];
 };
+
+export type StudyBlockType =
+  | "personal_note"
+  | "ai_doctrinal_analysis"
+  | "ai_quote"
+  | "ai_reference"
+  | "scripture_connection"
+  | "reflection_question"
+  | "powerful_phrase"
+  | "name_meaning"
+  | "calling_application"
+  | "manual_reference"
+  | "book_reference";
+
+export type StudySourceType =
+  | "scripture"
+  | "church_manual"
+  | "book"
+  | "byu_speech"
+  | "discourse"
+  | "user_private_note"
+  | "library_document";
+
+export type StudyProject = {
+  id: string;
+  userId: string;
+  title: string;
+  scriptureReference?: string | null;
+  scriptureText?: string | null;
+  personalThought?: string | null;
+  topic?: string | null;
+  callingContext?: string | null;
+  blocks?: StudyBlock[];
+  sources?: StudySource[];
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  archivedAt?: string | null;
+};
+
+export type StudyBlock = {
+  id: string;
+  studyProjectId: string;
+  type: StudyBlockType;
+  title: string;
+  content: string;
+  sourceTitle?: string | null;
+  sourceAuthor?: string | null;
+  sourceUrl?: string | null;
+  sourceReference?: string | null;
+  quoteText?: string | null;
+  isAiGenerated: boolean;
+  isSaved: boolean;
+  isDeleted: boolean;
+  sortOrder: number;
+  metadata: Record<string, unknown>;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+export type StudySource = {
+  id: string;
+  studyProjectId: string;
+  sourceType: StudySourceType;
+  title: string;
+  author?: string | null;
+  url?: string | null;
+  reference?: string | null;
+  notes?: string | null;
+  createdAt?: string | null;
+};
+
+export type UserPrivateSource = {
+  id: string;
+  userId: string;
+  title: string;
+  author?: string | null;
+  sourceType: StudySourceType;
+  citationText?: string | null;
+  personalNote?: string | null;
+  tags: string[];
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+export type AiSuggestionMode = "rapido" | "profundo" | "citas" | "manuales" | "nombres" | "llamamiento";
+
+export type AiSuggestedBlock = {
+  type: StudyBlockType;
+  title: string;
+  content: string;
+  quoteText?: string | null;
+  sourceTitle?: string | null;
+  sourceAuthor?: string | null;
+  sourceUrl?: string | null;
+  sourceReference?: string | null;
+  sourceStatus: "local" | "referencia_sugerida" | "idea_relacionada" | "usuario";
+  sources: Array<Record<string, unknown>>;
+  metadata: Record<string, unknown>;
+};
+
+export type AiSuggestResponse = {
+  suggestions: AiSuggestedBlock[];
+  cached: boolean;
+  mode: AiSuggestionMode;
+  warnings: string[];
+  localContext: Array<Record<string, unknown>>;
+};

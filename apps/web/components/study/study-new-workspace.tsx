@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 import { ArrowLeft, Save } from "lucide-react";
-import Link from "next/link";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -12,45 +12,27 @@ import { Input } from "@/components/ui/input";
 import { studyApi } from "@/lib/api";
 import { useStudyWorkspaceStore } from "@/stores/study-workspace-store";
 
-const referenceTypes = [
-  { value: "topic", label: "Tema" },
-  { value: "scripture", label: "Escritura" },
-  { value: "talk", label: "Discurso" },
-  { value: "manual", label: "Manual" }
-];
-
 export function StudyNewWorkspace() {
   const router = useRouter();
   const userId = useStudyWorkspaceStore((state) => state.userId);
-  const setActiveWorkspaceId = useStudyWorkspaceStore((state) => state.setActiveWorkspaceId);
   const [form, setForm] = useState({
     title: "",
-    mainReference: "",
-    referenceType: "topic",
-    language: "es"
+    scriptureReference: "",
+    personalThought: "",
+    topic: "",
+    callingContext: ""
   });
 
-  const createWorkspace = useMutation({
+  const createProject = useMutation({
     mutationFn: () =>
-      studyApi.createWorkspace(userId, {
-        name: form.title.trim(),
-        description: form.mainReference.trim() || undefined,
-        sourceFilters: {
-          language: form.language,
-          mainReference: form.mainReference.trim(),
-          referenceType: form.referenceType
-        },
-        settings: {
-          title: form.title.trim(),
-          mainReference: form.mainReference.trim(),
-          referenceType: form.referenceType,
-          language: form.language
-        }
+      studyApi.createProject(userId, {
+        title: form.title.trim(),
+        scriptureReference: form.scriptureReference.trim() || undefined,
+        personalThought: form.personalThought.trim() || undefined,
+        topic: form.topic.trim() || undefined,
+        callingContext: form.callingContext.trim() || undefined
       }),
-    onSuccess: (workspace) => {
-      setActiveWorkspaceId(workspace.id);
-      router.push(`/study/${workspace.id}`);
-    }
+    onSuccess: (project) => router.push(`/study/${project.id}`)
   });
 
   const canCreate = form.title.trim().length > 0;
@@ -59,67 +41,66 @@ export function StudyNewWorkspace() {
     <div className="mx-auto max-w-3xl space-y-5">
       <Link href="/study" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="h-4 w-4" />
-        Volver a StudyWorkspace
+        Volver a Mis Estudios
       </Link>
       <Card className="p-6">
-        <div>
-          <p className="text-sm font-medium text-primary">Nuevo espacio</p>
-          <h1 className="mt-1 text-2xl font-semibold">Crear StudyWorkspace</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Define una referencia principal para sugerir documentos reales y mantener notas, citas y filtros juntos.
-          </p>
-        </div>
+        <p className="text-sm font-medium text-primary">Mesa de Estudio Doctrinal</p>
+        <h1 className="mt-1 text-2xl font-semibold">Crear estudio personal</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Empieza con una escritura, una impresion personal y un tema. La IA podra sugerir bloques editables despues.
+        </p>
+
         <div className="mt-6 grid gap-4">
           <label className="grid gap-2 text-sm">
-            Titulo
+            Titulo del estudio
             <Input
               value={form.title}
               onChange={(event) => setForm((value) => ({ ...value, title: event.target.value }))}
-              placeholder="Expiacion de Jesucristo"
+              placeholder="Los nombres en Helaman 5:6"
             />
           </label>
           <label className="grid gap-2 text-sm">
-            Referencia principal
+            Escritura base
             <Input
-              value={form.mainReference}
-              onChange={(event) => setForm((value) => ({ ...value, mainReference: event.target.value }))}
-              placeholder="2 Nefi 2, convenio, discipulado..."
+              value={form.scriptureReference}
+              onChange={(event) => setForm((value) => ({ ...value, scriptureReference: event.target.value }))}
+              placeholder="Helaman 5:6"
+            />
+          </label>
+          <label className="grid gap-2 text-sm">
+            Mi pensamiento
+            <textarea
+              value={form.personalThought}
+              onChange={(event) => setForm((value) => ({ ...value, personalThought: event.target.value }))}
+              placeholder="Me impresiona que Helaman haya puesto esos nombres a sus hijos..."
+              className="min-h-32 rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
             />
           </label>
           <div className="grid gap-4 md:grid-cols-2">
             <label className="grid gap-2 text-sm">
-              Tipo de referencia
-              <select
-                value={form.referenceType}
-                onChange={(event) => setForm((value) => ({ ...value, referenceType: event.target.value }))}
-                className="h-10 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-              >
-                {referenceTypes.map((type) => (
-                  <option key={type.value} value={type.value}>
-                    {type.label}
-                  </option>
-                ))}
-              </select>
+              Tema
+              <Input
+                value={form.topic}
+                onChange={(event) => setForm((value) => ({ ...value, topic: event.target.value }))}
+                placeholder="Convenios, memoria, identidad"
+              />
             </label>
             <label className="grid gap-2 text-sm">
-              Idioma
-              <select
-                value={form.language}
-                onChange={(event) => setForm((value) => ({ ...value, language: event.target.value }))}
-                className="h-10 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="es">Espanol</option>
-                <option value="en">English</option>
-              </select>
+              Llamamiento o contexto
+              <Input
+                value={form.callingContext}
+                onChange={(event) => setForm((value) => ({ ...value, callingContext: event.target.value }))}
+                placeholder="Clase de jovenes, familia, ministerio..."
+              />
             </label>
           </div>
-          <Button disabled={!canCreate || createWorkspace.isPending} onClick={() => createWorkspace.mutate()}>
+          <Button disabled={!canCreate || createProject.isPending} onClick={() => createProject.mutate()}>
             <Save className="h-4 w-4" />
-            Crear workspace
+            Crear estudio
           </Button>
-          {createWorkspace.error ? (
+          {createProject.error ? (
             <p className="text-sm text-destructive">
-              {createWorkspace.error instanceof Error ? createWorkspace.error.message : "No se pudo crear el workspace."}
+              {createProject.error instanceof Error ? createProject.error.message : "No se pudo crear el estudio."}
             </p>
           ) : null}
         </div>

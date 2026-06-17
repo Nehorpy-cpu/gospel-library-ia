@@ -1,12 +1,20 @@
 import type { ChatRequest, ChatResponse, ChatStreamEvent, SearchRequest, SearchResponse } from "@/types/rag";
 import type {
   SavedStudyCitation,
+  AiSuggestResponse,
+  AiSuggestionMode,
+  AiSuggestedBlock,
+  StudyBlock,
+  StudyBlockType,
   StudyDocument,
   StudyHighlight,
   StudyList,
   StudyNote,
   StudyPostIt,
+  StudyProject,
+  StudySourceType,
   StudyWorkspace,
+  UserPrivateSource,
   WorkspaceSourceFilter
 } from "@/types/study";
 import { chatRequestSchema, searchRequestSchema } from "@/lib/validators";
@@ -371,6 +379,149 @@ export const ragApi = {
 };
 
 export const studyApi = {
+  projects(userId: string) {
+    return request<StudyList<StudyProject>>("/study-projects", {
+      headers: studyHeaders(userId)
+    });
+  },
+  createProject(
+    userId: string,
+    payload: {
+      title: string;
+      scriptureReference?: string;
+      scriptureText?: string;
+      personalThought?: string;
+      topic?: string;
+      callingContext?: string;
+    }
+  ) {
+    return request<StudyProject>("/study-projects", {
+      method: "POST",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
+    });
+  },
+  project(userId: string, projectId: string) {
+    return request<StudyProject>(`/study-projects/${projectId}`, {
+      headers: studyHeaders(userId)
+    });
+  },
+  updateProject(
+    userId: string,
+    projectId: string,
+    payload: Partial<Pick<StudyProject, "title" | "scriptureReference" | "scriptureText" | "personalThought" | "topic" | "callingContext">> & {
+      archived?: boolean;
+    }
+  ) {
+    return request<StudyProject>(`/study-projects/${projectId}`, {
+      method: "PATCH",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
+    });
+  },
+  archiveProject(userId: string, projectId: string) {
+    return request<{ deleted: boolean }>(`/study-projects/${projectId}`, {
+      method: "DELETE",
+      headers: studyHeaders(userId)
+    });
+  },
+  createBlock(
+    userId: string,
+    projectId: string,
+    payload: {
+      type: StudyBlockType;
+      title: string;
+      content?: string;
+      sourceTitle?: string | null;
+      sourceAuthor?: string | null;
+      sourceUrl?: string | null;
+      sourceReference?: string | null;
+      quoteText?: string | null;
+      isAiGenerated?: boolean;
+      isSaved?: boolean;
+      isDeleted?: boolean;
+      sortOrder?: number;
+      metadata?: Record<string, unknown>;
+    }
+  ) {
+    return request<StudyBlock>(`/study-projects/${projectId}/blocks`, {
+      method: "POST",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
+    });
+  },
+  updateBlock(userId: string, projectId: string, blockId: string, payload: Partial<StudyBlock>) {
+    return request<StudyBlock>(`/study-projects/${projectId}/blocks/${blockId}`, {
+      method: "PATCH",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
+    });
+  },
+  deleteBlock(userId: string, projectId: string, blockId: string) {
+    return request<StudyBlock>(`/study-projects/${projectId}/blocks/${blockId}`, {
+      method: "DELETE",
+      headers: studyHeaders(userId)
+    });
+  },
+  suggestBlocks(
+    userId: string,
+    projectId: string,
+    payload: {
+      prompt?: string;
+      blockTypes?: StudyBlockType[];
+      preferredSources?: StudySourceType[];
+      mode?: AiSuggestionMode;
+      maxSuggestions?: number;
+    }
+  ) {
+    return request<AiSuggestResponse>(`/study-projects/${projectId}/ai-suggest`, {
+      method: "POST",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
+    });
+  },
+  saveSuggestion(userId: string, projectId: string, suggestion: AiSuggestedBlock, sortOrder?: number) {
+    return this.createBlock(userId, projectId, {
+      type: suggestion.type,
+      title: suggestion.title,
+      content: suggestion.content,
+      quoteText: suggestion.quoteText,
+      sourceTitle: suggestion.sourceTitle,
+      sourceAuthor: suggestion.sourceAuthor,
+      sourceUrl: suggestion.sourceUrl,
+      sourceReference: suggestion.sourceReference,
+      isAiGenerated: true,
+      isSaved: true,
+      sortOrder,
+      metadata: {
+        ...suggestion.metadata,
+        sourceStatus: suggestion.sourceStatus,
+        sources: suggestion.sources
+      }
+    });
+  },
+  privateSources(userId: string) {
+    return request<StudyList<UserPrivateSource>>("/study-projects/private-sources", {
+      headers: studyHeaders(userId)
+    });
+  },
+  createPrivateSource(
+    userId: string,
+    payload: {
+      title: string;
+      author?: string;
+      sourceType?: StudySourceType;
+      citationText?: string;
+      personalNote?: string;
+      tags?: string[];
+    }
+  ) {
+    return request<UserPrivateSource>("/study-projects/private-sources", {
+      method: "POST",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
+    });
+  },
   workspaces(userId: string, params?: { sourceType?: string; topic?: string }) {
     const searchParams = new URLSearchParams();
     if (params?.sourceType) searchParams.set("sourceType", params.sourceType);

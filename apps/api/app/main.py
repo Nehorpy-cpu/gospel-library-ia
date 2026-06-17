@@ -15,6 +15,7 @@ from app.routes.exports import router as exports_router
 from app.routes.ingestion import router as ingestion_router
 from app.routes.profile import router as profile_router
 from app.routes.public import router as public_router
+from app.routes.study_projects import router as study_projects_router
 from app.routes.study import alias_router as study_alias_router
 from app.routes.study import router as study_router
 from app.routes.talk_builder import router as talk_builder_router
@@ -40,6 +41,7 @@ app.include_router(admin_router)
 app.include_router(beta_router)
 app.include_router(study_router)
 app.include_router(study_alias_router)
+app.include_router(study_projects_router)
 app.include_router(talk_builder_router)
 app.include_router(exports_router)
 app.include_router(profile_router)
@@ -53,6 +55,7 @@ SENSITIVE_API_PREFIXES = (
     "/api/ingestion",
     "/api/profile",
     "/api/study",
+    "/api/study-projects",
     "/api/study-workspaces",
     "/api/talk-builder",
 )
