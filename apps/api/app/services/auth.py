@@ -127,12 +127,52 @@ def current_auth_context(
     return context
 
 
+def current_study_auth_context(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_role: str | None = Header(default=None, alias="X-User-Role"),
+    x_user_email: str | None = Header(default=None, alias="X-User-Email"),
+) -> AuthContext:
+    try:
+        return current_auth_context(
+            authorization=authorization,
+            x_user_id=x_user_id,
+            x_user_role=x_user_role,
+            x_user_email=x_user_email,
+        )
+    except HTTPException as exc:
+        settings = get_settings()
+        demo_user_id = normalize_user_id(settings.study_demo_user_id)
+        request_user_id = normalize_user_id(x_user_id) if x_user_id else None
+        if (
+            exc.status_code == status.HTTP_401_UNAUTHORIZED
+            and settings.allow_study_demo_user
+            and request_user_id == demo_user_id
+        ):
+            context = AuthContext(
+                user_id=demo_user_id,
+                external_id=x_user_id or settings.study_demo_user_id,
+                role="user",
+                email=x_user_email,
+                provider="study-demo",
+            )
+            _request_auth_context.set(context)
+            return context
+        raise
+
+
 def get_request_auth_context() -> AuthContext | None:
     return _request_auth_context.get()
 
 
 def require_user(context: AuthContext = Depends(current_auth_context)) -> AuthContext:
     _require_beta_access(context)
+    return context
+
+
+def require_study_user(context: AuthContext = Depends(current_study_auth_context)) -> AuthContext:
+    if context.provider != "study-demo":
+        _require_beta_access(context)
     return context
 
 

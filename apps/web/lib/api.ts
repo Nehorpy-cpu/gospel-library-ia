@@ -22,6 +22,7 @@ import type { SourceFilterOption } from "@/lib/source-filters";
 import type { TalkBuilderOutline, TalkBuilderRequest, TalkDraftResponse } from "@/types/talk-builder";
 import type { CallingFocus } from "@/lib/church-callings";
 import { apiFetch } from "@/lib/api-client";
+import { apiErrorMessage } from "@/lib/api-errors";
 import { buildDocumentDetailPath } from "@/lib/document-detail-url";
 
 const MISSING_OPENAI_MESSAGE = "Falta configurar la clave de OpenAI para busqueda IA.";
@@ -71,6 +72,22 @@ function requestHeaders(initHeaders?: HeadersInit) {
   return headers;
 }
 
+function detailToText(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (item && typeof item === "object" && "msg" in item) {
+          return String((item as { msg: unknown }).msg);
+        }
+        return typeof item === "string" ? item : undefined;
+      })
+      .filter(Boolean)
+      .join(" ");
+  }
+  return undefined;
+}
+
 function normalizeSearchResponse(value: unknown): SearchResponse {
   if (!value || typeof value !== "object") {
     throw new Error("Respuesta de búsqueda inválida: se esperaba un objeto.");
@@ -115,23 +132,19 @@ async function request<T>(
   }
   if (!response.ok) {
     const detail = await response.text();
+    let parsedDetail: string | undefined;
     try {
-      const parsed = JSON.parse(detail) as { status?: string };
+      const parsed = JSON.parse(detail) as { status?: string; detail?: unknown; message?: unknown };
       if (parsed.status === "missing_api_key") {
         throw new Error(MISSING_OPENAI_MESSAGE);
       }
+      parsedDetail = detailToText(parsed.detail) || detailToText(parsed.message);
     } catch (error) {
       if (error instanceof Error && error.message === MISSING_OPENAI_MESSAGE) {
         throw error;
       }
     }
-    let message = detail || `La API respondió con estado ${response.status}.`;
-    try {
-      const parsed = JSON.parse(detail) as { detail?: string };
-      message = parsed.detail || message;
-    } catch {
-      // La respuesta no siempre es JSON.
-    }
+    const message = apiErrorMessage(response.status, parsedDetail || detail);
     throw new ApiHttpError(message, response.status);
   }
   return response.json() as Promise<T>;
@@ -527,7 +540,7 @@ export const studyApi = {
     if (params?.sourceType) searchParams.set("sourceType", params.sourceType);
     if (params?.topic) searchParams.set("topic", params.topic);
     const query = searchParams.toString();
-    return request<StudyList<StudyWorkspace>>(`/study/workspaces${query ? `?${query}` : ""}`, {
+    return request<StudyList<StudyWorkspace>>(`/study-workspaces${query ? `?${query}` : ""}`, {
       headers: studyHeaders(userId)
     });
   },
@@ -546,14 +559,14 @@ export const studyApi = {
       callingContext?: string;
     }
   ) {
-    return request<StudyWorkspace>("/study/workspaces", {
+    return request<StudyWorkspace>("/study-workspaces", {
       method: "POST",
       headers: studyHeaders(userId),
       body: JSON.stringify(payload)
     });
   },
   workspace(userId: string, workspaceId: string) {
-    return request<StudyWorkspace>(`/study/workspaces/${workspaceId}`, {
+    return request<StudyWorkspace>(`/study-workspaces/${workspaceId}`, {
       headers: studyHeaders(userId)
     });
   },
@@ -573,20 +586,20 @@ export const studyApi = {
       callingContext?: string;
     }
   ) {
-    return request<StudyWorkspace>(`/study/workspaces/${workspaceId}`, {
+    return request<StudyWorkspace>(`/study-workspaces/${workspaceId}`, {
       method: "PATCH",
       headers: studyHeaders(userId),
       body: JSON.stringify(payload)
     });
   },
   deleteWorkspace(userId: string, workspaceId: string) {
-    return request<{ deleted: boolean }>(`/study/workspaces/${workspaceId}`, {
+    return request<{ deleted: boolean }>(`/study-workspaces/${workspaceId}`, {
       method: "DELETE",
       headers: studyHeaders(userId)
     });
   },
   workspaceBlocks(userId: string, workspaceId: string) {
-    return request<StudyList<StudyBlock>>(`/study/workspaces/${workspaceId}/blocks`, {
+    return request<StudyList<StudyBlock>>(`/study-workspaces/${workspaceId}/blocks`, {
       headers: studyHeaders(userId)
     });
   },
@@ -606,21 +619,21 @@ export const studyApi = {
       sortOrder?: number;
     }
   ) {
-    return request<StudyBlock>(`/study/workspaces/${workspaceId}/blocks`, {
+    return request<StudyBlock>(`/study-workspaces/${workspaceId}/blocks`, {
       method: "POST",
       headers: studyHeaders(userId),
       body: JSON.stringify(payload)
     });
   },
   updateWorkspaceBlock(userId: string, workspaceId: string, blockId: string, payload: Partial<StudyBlock>) {
-    return request<StudyBlock>(`/study/workspaces/${workspaceId}/blocks/${blockId}`, {
+    return request<StudyBlock>(`/study-workspaces/${workspaceId}/blocks/${blockId}`, {
       method: "PATCH",
       headers: studyHeaders(userId),
       body: JSON.stringify(payload)
     });
   },
   deleteWorkspaceBlock(userId: string, workspaceId: string, blockId: string) {
-    return request<{ deleted: boolean }>(`/study/workspaces/${workspaceId}/blocks/${blockId}`, {
+    return request<{ deleted: boolean }>(`/study-workspaces/${workspaceId}/blocks/${blockId}`, {
       method: "DELETE",
       headers: studyHeaders(userId)
     });

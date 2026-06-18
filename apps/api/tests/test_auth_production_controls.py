@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.main import app
 from app.routes import admin
+from app.services import auth as auth_service
 from app.services.auth import AuthContext, normalize_user_id, require_admin
 
 USER_ID = "00000000-0000-4000-8000-000000000001"
@@ -85,6 +86,40 @@ class AuthProductionControlsTest(unittest.TestCase):
     def test_require_admin_rejects_user_context(self):
         with self.assertRaises(HTTPException):
             require_admin(AuthContext(user_id=USER_ID, external_id=USER_ID, role="user"))
+
+    def test_study_demo_user_is_allowed_when_dev_headers_are_disabled(self):
+        original_get_settings = auth_service.get_settings
+
+        class ProductionStudySettings:
+            env = "production"
+            allow_dev_auth_headers = False
+            allow_study_demo_user = True
+            study_demo_user_id = USER_ID
+
+        auth_service.get_settings = lambda: ProductionStudySettings()
+        try:
+            context = auth_service.current_study_auth_context(x_user_id=USER_ID)
+        finally:
+            auth_service.get_settings = original_get_settings
+
+        self.assertEqual(context.user_id, USER_ID)
+        self.assertEqual(context.provider, "study-demo")
+
+    def test_study_demo_user_does_not_allow_other_dev_headers_in_production(self):
+        original_get_settings = auth_service.get_settings
+
+        class ProductionStudySettings:
+            env = "production"
+            allow_dev_auth_headers = False
+            allow_study_demo_user = True
+            study_demo_user_id = USER_ID
+
+        auth_service.get_settings = lambda: ProductionStudySettings()
+        try:
+            with self.assertRaises(HTTPException):
+                auth_service.current_study_auth_context(x_user_id="00000000-0000-4000-8000-000000000099")
+        finally:
+            auth_service.get_settings = original_get_settings
 
 
 if __name__ == "__main__":

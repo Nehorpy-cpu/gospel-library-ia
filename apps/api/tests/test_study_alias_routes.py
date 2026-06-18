@@ -3,6 +3,8 @@ from pathlib import Path
 import sys
 import unittest
 
+from pydantic import ValidationError
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.routes import study
@@ -249,6 +251,10 @@ class StudyAliasRoutesTest(unittest.TestCase):
 
         self.assertEqual(response["id"], WORKSPACE_ID)
         self.assertEqual(response["name"], "Fe en Jesucristo")
+
+    def test_workspace_payload_rejects_empty_name(self):
+        with self.assertRaises(ValidationError):
+            study.WorkspacePayload(name="")
 
 
 class PersonalWorkspaceRoutesTest(unittest.TestCase):

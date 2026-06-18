@@ -8,13 +8,13 @@ from psycopg.types.json import Jsonb
 
 from app.core.config import get_settings
 from app.core.logging import logger
-from app.services.auth import get_request_auth_context, normalize_user_id, require_user
+from app.services.auth import get_request_auth_context, normalize_user_id, require_study_user
 from app.services.db import get_conn
 from app.services.qdrant_admin import QdrantAdmin
 from app.services.source_filters import normalize_source_type, source_type_aliases
 
-router = APIRouter(prefix="/api/study-workspaces", tags=["study"], dependencies=[Depends(require_user)])
-alias_router = APIRouter(prefix="/api/study", tags=["study"], dependencies=[Depends(require_user)])
+router = APIRouter(prefix="/api/study-workspaces", tags=["study"], dependencies=[Depends(require_study_user)])
+alias_router = APIRouter(prefix="/api/study", tags=["study"], dependencies=[Depends(require_study_user)])
 log = logger(__name__)
 
 

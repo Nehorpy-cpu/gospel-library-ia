@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     env: str = "development"
     auth_provider: str = "clerk"
     allow_dev_auth_headers: bool = True
+    allow_study_demo_user: bool = True
+    study_demo_user_id: str = "00000000-0000-4000-8000-000000000001"
     clerk_jwks_url: str = ""
     clerk_jwt_issuer: str = ""
     clerk_secret_key: str = ""
