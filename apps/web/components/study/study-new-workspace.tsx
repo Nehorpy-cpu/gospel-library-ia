@@ -23,16 +23,18 @@ export function StudyNewWorkspace() {
     callingContext: ""
   });
 
-  const createProject = useMutation({
+  const createWorkspace = useMutation({
     mutationFn: () =>
-      studyApi.createProject(userId, {
+      studyApi.createWorkspace(userId, {
+        name: form.title.trim(),
         title: form.title.trim(),
+        description: form.scriptureReference.trim() || undefined,
         scriptureReference: form.scriptureReference.trim() || undefined,
         personalThought: form.personalThought.trim() || undefined,
         topic: form.topic.trim() || undefined,
         callingContext: form.callingContext.trim() || undefined
       }),
-    onSuccess: (project) => router.push(`/study/${project.id}`)
+    onSuccess: (workspace) => router.push(`/study/${workspace.id}`)
   });
 
   const canCreate = form.title.trim().length > 0;
@@ -94,13 +96,13 @@ export function StudyNewWorkspace() {
               />
             </label>
           </div>
-          <Button disabled={!canCreate || createProject.isPending} onClick={() => createProject.mutate()}>
+          <Button disabled={!canCreate || createWorkspace.isPending} onClick={() => createWorkspace.mutate()}>
             <Save className="h-4 w-4" />
             Crear estudio
           </Button>
-          {createProject.error ? (
+          {createWorkspace.error ? (
             <p className="text-sm text-destructive">
-              {createProject.error instanceof Error ? createProject.error.message : "No se pudo crear el estudio."}
+              {createWorkspace.error instanceof Error ? createWorkspace.error.message : "No se pudo crear el estudio."}
             </p>
           ) : null}
         </div>

@@ -2,6 +2,13 @@ export type StudyWorkspace = {
   id: string;
   userId: string;
   name: string;
+  title?: string | null;
+  scriptureReference?: string | null;
+  scriptureText?: string | null;
+  personalThought?: string | null;
+  topic?: string | null;
+  callingContext?: string | null;
+  blocks?: StudyBlock[];
   description?: string | null;
   sourceFilters: Record<string, unknown>;
   settings: Record<string, unknown>;
@@ -111,6 +118,11 @@ export type StudyList<T> = {
 
 export type StudyBlockType =
   | "personal_note"
+  | "post_it"
+  | "scripture"
+  | "quote"
+  | "reflection"
+  | "doctrinal_analysis"
   | "ai_doctrinal_analysis"
   | "ai_quote"
   | "ai_reference"
@@ -149,7 +161,8 @@ export type StudyProject = {
 
 export type StudyBlock = {
   id: string;
-  studyProjectId: string;
+  studyProjectId?: string;
+  workspaceId?: string;
   type: StudyBlockType;
   title: string;
   content: string;

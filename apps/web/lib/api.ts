@@ -533,7 +533,18 @@ export const studyApi = {
   },
   createWorkspace(
     userId: string,
-    payload: { name: string; description?: string; sourceFilters?: Record<string, unknown>; settings?: Record<string, unknown> }
+    payload: {
+      name: string;
+      description?: string;
+      sourceFilters?: Record<string, unknown>;
+      settings?: Record<string, unknown>;
+      title?: string;
+      scriptureReference?: string;
+      scriptureText?: string;
+      personalThought?: string;
+      topic?: string;
+      callingContext?: string;
+    }
   ) {
     return request<StudyWorkspace>("/study/workspaces", {
       method: "POST",
@@ -541,10 +552,26 @@ export const studyApi = {
       body: JSON.stringify(payload)
     });
   },
+  workspace(userId: string, workspaceId: string) {
+    return request<StudyWorkspace>(`/study/workspaces/${workspaceId}`, {
+      headers: studyHeaders(userId)
+    });
+  },
   updateWorkspace(
     userId: string,
     workspaceId: string,
-    payload: { name?: string; description?: string; sourceFilters?: Record<string, unknown>; settings?: Record<string, unknown> }
+    payload: {
+      name?: string;
+      description?: string;
+      sourceFilters?: Record<string, unknown>;
+      settings?: Record<string, unknown>;
+      title?: string;
+      scriptureReference?: string;
+      scriptureText?: string;
+      personalThought?: string;
+      topic?: string;
+      callingContext?: string;
+    }
   ) {
     return request<StudyWorkspace>(`/study/workspaces/${workspaceId}`, {
       method: "PATCH",
@@ -554,6 +581,46 @@ export const studyApi = {
   },
   deleteWorkspace(userId: string, workspaceId: string) {
     return request<{ deleted: boolean }>(`/study/workspaces/${workspaceId}`, {
+      method: "DELETE",
+      headers: studyHeaders(userId)
+    });
+  },
+  workspaceBlocks(userId: string, workspaceId: string) {
+    return request<StudyList<StudyBlock>>(`/study/workspaces/${workspaceId}/blocks`, {
+      headers: studyHeaders(userId)
+    });
+  },
+  createWorkspaceBlock(
+    userId: string,
+    workspaceId: string,
+    payload: {
+      type: StudyBlockType;
+      title: string;
+      content?: string;
+      quoteText?: string | null;
+      sourceTitle?: string | null;
+      sourceAuthor?: string | null;
+      sourceUrl?: string | null;
+      sourceReference?: string | null;
+      isAiGenerated?: boolean;
+      sortOrder?: number;
+    }
+  ) {
+    return request<StudyBlock>(`/study/workspaces/${workspaceId}/blocks`, {
+      method: "POST",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
+    });
+  },
+  updateWorkspaceBlock(userId: string, workspaceId: string, blockId: string, payload: Partial<StudyBlock>) {
+    return request<StudyBlock>(`/study/workspaces/${workspaceId}/blocks/${blockId}`, {
+      method: "PATCH",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
+    });
+  },
+  deleteWorkspaceBlock(userId: string, workspaceId: string, blockId: string) {
+    return request<{ deleted: boolean }>(`/study/workspaces/${workspaceId}/blocks/${blockId}`, {
       method: "DELETE",
       headers: studyHeaders(userId)
     });

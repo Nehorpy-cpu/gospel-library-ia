@@ -24,6 +24,12 @@ class WorkspacePayload(BaseModel):
     userId: str | None = None
     sourceFilters: dict[str, Any] = Field(default_factory=dict)
     settings: dict[str, Any] = Field(default_factory=dict)
+    title: str | None = Field(default=None, max_length=200)
+    scriptureReference: str | None = Field(default=None, max_length=240)
+    scriptureText: str | None = None
+    personalThought: str | None = None
+    topic: str | None = Field(default=None, max_length=160)
+    callingContext: str | None = Field(default=None, max_length=240)
 
 
 class WorkspaceUpdatePayload(BaseModel):
@@ -31,6 +37,12 @@ class WorkspaceUpdatePayload(BaseModel):
     description: str | None = None
     sourceFilters: dict[str, Any] | None = None
     settings: dict[str, Any] | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    scriptureReference: str | None = Field(default=None, max_length=240)
+    scriptureText: str | None = None
+    personalThought: str | None = None
+    topic: str | None = Field(default=None, max_length=160)
+    callingContext: str | None = Field(default=None, max_length=240)
 
 
 class SourceFilterPayload(BaseModel):
@@ -132,6 +144,35 @@ class PostItUpdatePayload(BaseModel):
     position: dict[str, Any] | None = None
     sourceFilters: dict[str, Any] | None = None
     pinned: bool | None = None
+
+
+StudyBlockType = str
+
+
+class BlockPayload(BaseModel):
+    type: StudyBlockType = Field(default="personal_note", max_length=80)
+    title: str = Field(default="Nota", max_length=240)
+    content: str = ""
+    quoteText: str | None = None
+    sourceTitle: str | None = Field(default=None, max_length=300)
+    sourceAuthor: str | None = Field(default=None, max_length=240)
+    sourceReference: str | None = Field(default=None, max_length=300)
+    sourceUrl: str | None = None
+    isAiGenerated: bool = False
+    sortOrder: int | None = None
+
+
+class BlockUpdatePayload(BaseModel):
+    type: StudyBlockType | None = Field(default=None, max_length=80)
+    title: str | None = Field(default=None, max_length=240)
+    content: str | None = None
+    quoteText: str | None = None
+    sourceTitle: str | None = Field(default=None, max_length=300)
+    sourceAuthor: str | None = Field(default=None, max_length=240)
+    sourceReference: str | None = Field(default=None, max_length=300)
+    sourceUrl: str | None = None
+    isAiGenerated: bool | None = None
+    sortOrder: int | None = None
 
 
 def current_user_id(x_user_id: str | None = Header(default=None, alias="X-User-Id")) -> str:
@@ -276,6 +317,56 @@ def _workspace_related_query(workspace: dict) -> tuple[str, list[str], list[str]
         languages.append(raw_language)
 
     return query, sorted(set(source_values)), sorted(set(languages))
+
+
+def _workspace_settings_from_payload(payload: WorkspacePayload) -> dict[str, Any]:
+    settings = dict(payload.settings or {})
+    if payload.title is not None:
+        settings["title"] = payload.title
+    if payload.scriptureReference is not None:
+        settings["scriptureReference"] = payload.scriptureReference
+        settings["mainReference"] = payload.scriptureReference
+        settings["referenceType"] = "scripture"
+    if payload.scriptureText is not None:
+        settings["scriptureText"] = payload.scriptureText
+    if payload.personalThought is not None:
+        settings["personalThought"] = payload.personalThought
+    if payload.topic is not None:
+        settings["topic"] = payload.topic
+    if payload.callingContext is not None:
+        settings["callingContext"] = payload.callingContext
+    return settings
+
+
+def _workspace_update_settings(payload: WorkspaceUpdatePayload) -> dict[str, Any] | None:
+    if payload.settings is None and all(
+        value is None
+        for value in (
+            payload.title,
+            payload.scriptureReference,
+            payload.scriptureText,
+            payload.personalThought,
+            payload.topic,
+            payload.callingContext,
+        )
+    ):
+        return None
+    settings = dict(payload.settings or {})
+    if payload.title is not None:
+        settings["title"] = payload.title
+    if payload.scriptureReference is not None:
+        settings["scriptureReference"] = payload.scriptureReference
+        settings["mainReference"] = payload.scriptureReference
+        settings["referenceType"] = "scripture"
+    if payload.scriptureText is not None:
+        settings["scriptureText"] = payload.scriptureText
+    if payload.personalThought is not None:
+        settings["personalThought"] = payload.personalThought
+    if payload.topic is not None:
+        settings["topic"] = payload.topic
+    if payload.callingContext is not None:
+        settings["callingContext"] = payload.callingContext
+    return settings
 
 
 def _semantic_related(workspace: dict, limit: int) -> dict | None:
@@ -444,6 +535,9 @@ def list_workspaces(
 def create_workspace(payload: WorkspacePayload, user_id: str | None = Header(default=None, alias="X-User-Id")):
     user_id = current_user_id(user_id)
     _ensure_payload_user(payload.userId, user_id)
+    settings = _workspace_settings_from_payload(payload)
+    name = payload.title or settings.get("title") or payload.name
+    description = payload.description or payload.scriptureReference or settings.get("scriptureReference") or settings.get("mainReference")
     with get_conn() as conn:
         conn.row_factory = dict_row
         workspace_count_row = conn.execute(
@@ -465,12 +559,25 @@ def create_workspace(payload: WorkspacePayload, user_id: str | None = Header(def
             """,
             {
                 "user_id": user_id,
-                "name": payload.name,
-                "description": payload.description,
+                "name": name,
+                "description": description,
                 "source_filters": Jsonb(payload.sourceFilters),
-                "settings": Jsonb(payload.settings),
+                "settings": Jsonb(settings),
             },
         ).fetchone()
+        if payload.personalThought:
+            conn.execute(
+                """
+                INSERT INTO study_notes (workspace_id, user_id, title, content, position)
+                VALUES (%s, %s, 'Mi pensamiento', %s, %s)
+                """,
+                (
+                    row["id"],
+                    user_id,
+                    payload.personalThought,
+                    Jsonb({"blockType": "personal_note", "sortOrder": 10, "isAiGenerated": False}),
+                ),
+            )
         conn.commit()
     log.info("study_workspace_created", workspace_id=row["id"], user_id=user_id)
     return _workspace_row(row)
@@ -482,7 +589,8 @@ def get_workspace(workspace_id: str, user_id: str | None = Header(default=None, 
     with get_conn() as conn:
         conn.row_factory = dict_row
         row = _require_workspace(conn, workspace_id, user_id)
-    return _workspace_row(row)
+        blocks = _workspace_blocks(conn, workspace_id, user_id)
+    return {**_workspace_row(row), "blocks": blocks}
 
 
 @router.patch("/{workspace_id}")
@@ -499,9 +607,21 @@ def update_workspace(workspace_id: str, payload: WorkspaceUpdatePayload, user_id
     if payload.sourceFilters is not None:
         updates.append("source_filters = %(source_filters)s")
         params["source_filters"] = Jsonb(payload.sourceFilters)
-    if payload.settings is not None:
+    settings_update = _workspace_update_settings(payload)
+    if settings_update is not None:
         updates.append("settings = %(settings)s")
-        params["settings"] = Jsonb(payload.settings)
+        if payload.settings is None:
+            with get_conn() as conn:
+                conn.row_factory = dict_row
+                current = _require_workspace(conn, workspace_id, user_id)
+                settings_update = {**(current.get("settings") or {}), **settings_update}
+        params["settings"] = Jsonb(settings_update)
+    if payload.title is not None and payload.name is None:
+        updates.append("name = %(name)s")
+        params["name"] = payload.title
+    if payload.scriptureReference is not None and payload.description is None:
+        updates.append("description = %(description)s")
+        params["description"] = payload.scriptureReference
     if not updates:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
     updates.extend(["updated_at = now()", "server_rev = server_rev + 1"])
@@ -1036,6 +1156,167 @@ def delete_post_it(workspace_id: str, post_it_id: str, user_id: str | None = Hea
     return _soft_delete_resource("post_its", post_it_id, workspace_id, current_user_id(user_id), "post_it_deleted")
 
 
+@router.get("/{workspace_id}/blocks")
+def list_blocks(workspace_id: str, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    user_id = current_user_id(user_id)
+    with get_conn() as conn:
+        conn.row_factory = dict_row
+        _require_workspace(conn, workspace_id, user_id)
+        return {"items": _workspace_blocks(conn, workspace_id, user_id)}
+
+
+@router.post("/{workspace_id}/blocks", status_code=status.HTTP_201_CREATED)
+def create_block(workspace_id: str, payload: BlockPayload, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    user_id = current_user_id(user_id)
+    block_type = _normalize_block_type(payload.type)
+    sort_order = payload.sortOrder
+    with get_conn() as conn:
+        conn.row_factory = dict_row
+        _require_workspace(conn, workspace_id, user_id)
+        if sort_order is None:
+            sort_order = _next_block_sort_order(conn, workspace_id, user_id)
+        metadata = _block_metadata(payload, block_type, sort_order)
+        if block_type == "post_it":
+            row = conn.execute(
+                """
+                INSERT INTO post_its (workspace_id, user_id, content, color, position, source_filters, pinned)
+                VALUES (%(workspace_id)s, %(user_id)s, %(content)s, 'yellow', %(position)s, '{}'::jsonb, false)
+                RETURNING id::text, workspace_id::text, user_id::text, document_id::text, content, color,
+                          position, source_filters, pinned, created_at, updated_at
+                """,
+                {
+                    "workspace_id": workspace_id,
+                    "user_id": user_id,
+                    "content": payload.content or payload.quoteText or payload.title,
+                    "position": Jsonb(metadata),
+                },
+            ).fetchone()
+            conn.commit()
+            return _post_it_block_row(row)
+        row = conn.execute(
+            """
+            INSERT INTO study_notes (
+              workspace_id, user_id, title, content, selected_text, selection_range,
+              scripture_refs, color, position
+            )
+            VALUES (
+              %(workspace_id)s, %(user_id)s, %(title)s, %(content)s, %(selected_text)s,
+              '{}'::jsonb, '[]'::jsonb, 'yellow', %(position)s
+            )
+            RETURNING id::text, workspace_id::text, user_id::text, document_id::text, chunk_id::text,
+                      title, content, selected_text, selection_range, scripture_refs, color, position,
+                      created_at, updated_at
+            """,
+            {
+                "workspace_id": workspace_id,
+                "user_id": user_id,
+                "title": payload.title,
+                "content": payload.content or "",
+                "selected_text": payload.quoteText,
+                "position": Jsonb(metadata),
+            },
+        ).fetchone()
+        conn.commit()
+    return _note_block_row(row)
+
+
+@router.patch("/{workspace_id}/blocks/{block_id}")
+def update_block(workspace_id: str, block_id: str, payload: BlockUpdatePayload, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    user_id = current_user_id(user_id)
+    with get_conn() as conn:
+        conn.row_factory = dict_row
+        _require_workspace(conn, workspace_id, user_id)
+        note = _find_block_note(conn, workspace_id, block_id, user_id)
+        post_it = None if note else _find_block_post_it(conn, workspace_id, block_id, user_id)
+        if not note and not post_it:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Block not found")
+        current = _note_block_row(note) if note else _post_it_block_row(post_it)
+        next_type = _normalize_block_type(payload.type or current["type"])
+        metadata = {
+            **(current.get("metadata") or {}),
+            "blockType": next_type,
+            "title": payload.title if payload.title is not None else current["title"],
+            "sourceTitle": payload.sourceTitle if payload.sourceTitle is not None else current.get("sourceTitle"),
+            "sourceAuthor": payload.sourceAuthor if payload.sourceAuthor is not None else current.get("sourceAuthor"),
+            "sourceReference": payload.sourceReference if payload.sourceReference is not None else current.get("sourceReference"),
+            "sourceUrl": payload.sourceUrl if payload.sourceUrl is not None else current.get("sourceUrl"),
+            "isAiGenerated": payload.isAiGenerated if payload.isAiGenerated is not None else current.get("isAiGenerated", False),
+            "sortOrder": payload.sortOrder if payload.sortOrder is not None else current.get("sortOrder", 0),
+        }
+        if note:
+            row = conn.execute(
+                """
+                UPDATE study_notes
+                SET title = %(title)s, content = %(content)s, selected_text = %(selected_text)s,
+                    position = %(position)s, updated_at = now(), server_rev = server_rev + 1
+                WHERE id = %(block_id)s AND workspace_id = %(workspace_id)s AND user_id = %(user_id)s AND deleted_at IS NULL
+                RETURNING id::text, workspace_id::text, user_id::text, document_id::text, chunk_id::text,
+                          title, content, selected_text, selection_range, scripture_refs, color, position,
+                          created_at, updated_at
+                """,
+                {
+                    "block_id": block_id,
+                    "workspace_id": workspace_id,
+                    "user_id": user_id,
+                    "title": payload.title if payload.title is not None else current["title"],
+                    "content": payload.content if payload.content is not None else current["content"],
+                    "selected_text": payload.quoteText if payload.quoteText is not None else current.get("quoteText"),
+                    "position": Jsonb(metadata),
+                },
+            ).fetchone()
+            conn.commit()
+            return _note_block_row(row)
+        row = conn.execute(
+            """
+            UPDATE post_its
+            SET content = %(content)s, position = %(position)s, updated_at = now(), server_rev = server_rev + 1
+            WHERE id = %(block_id)s AND workspace_id = %(workspace_id)s AND user_id = %(user_id)s AND deleted_at IS NULL
+            RETURNING id::text, workspace_id::text, user_id::text, document_id::text, content, color,
+                      position, source_filters, pinned, created_at, updated_at
+            """,
+            {
+                "block_id": block_id,
+                "workspace_id": workspace_id,
+                "user_id": user_id,
+                "content": payload.content if payload.content is not None else current["content"],
+                "position": Jsonb(metadata),
+            },
+        ).fetchone()
+        conn.commit()
+    return _post_it_block_row(row)
+
+
+@router.delete("/{workspace_id}/blocks/{block_id}")
+def delete_block(workspace_id: str, block_id: str, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    user_id = current_user_id(user_id)
+    with get_conn() as conn:
+        conn.row_factory = dict_row
+        _require_workspace(conn, workspace_id, user_id)
+        if _find_block_note(conn, workspace_id, block_id, user_id):
+            conn.execute(
+                """
+                UPDATE study_notes
+                SET deleted_at = now(), updated_at = now(), server_rev = server_rev + 1
+                WHERE id = %(block_id)s AND workspace_id = %(workspace_id)s AND user_id = %(user_id)s
+                """,
+                {"block_id": block_id, "workspace_id": workspace_id, "user_id": user_id},
+            )
+            conn.commit()
+            return {"deleted": True}
+        if _find_block_post_it(conn, workspace_id, block_id, user_id):
+            conn.execute(
+                """
+                UPDATE post_its
+                SET deleted_at = now(), updated_at = now(), server_rev = server_rev + 1
+                WHERE id = %(block_id)s AND workspace_id = %(workspace_id)s AND user_id = %(user_id)s
+                """,
+                {"block_id": block_id, "workspace_id": workspace_id, "user_id": user_id},
+            )
+            conn.commit()
+            return {"deleted": True}
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Block not found")
+
+
 @alias_router.get("/workspaces")
 def alias_list_workspaces(
     user_id: str | None = Header(default=None, alias="X-User-Id"),
@@ -1218,6 +1499,26 @@ def alias_delete_sticky_note(workspace_id: str, post_it_id: str, user_id: str | 
     return delete_post_it(workspace_id=workspace_id, post_it_id=post_it_id, user_id=user_id)
 
 
+@alias_router.get("/workspaces/{workspace_id}/blocks")
+def alias_list_blocks(workspace_id: str, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    return list_blocks(workspace_id=workspace_id, user_id=user_id)
+
+
+@alias_router.post("/workspaces/{workspace_id}/blocks", status_code=status.HTTP_201_CREATED)
+def alias_create_block(workspace_id: str, payload: BlockPayload, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    return create_block(workspace_id=workspace_id, payload=payload, user_id=user_id)
+
+
+@alias_router.patch("/workspaces/{workspace_id}/blocks/{block_id}")
+def alias_update_block(workspace_id: str, block_id: str, payload: BlockUpdatePayload, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    return update_block(workspace_id=workspace_id, block_id=block_id, payload=payload, user_id=user_id)
+
+
+@alias_router.delete("/workspaces/{workspace_id}/blocks/{block_id}")
+def alias_delete_block(workspace_id: str, block_id: str, user_id: str | None = Header(default=None, alias="X-User-Id")):
+    return delete_block(workspace_id=workspace_id, block_id=block_id, user_id=user_id)
+
+
 def _update_json_resource(
     *,
     table: str,
@@ -1273,14 +1574,103 @@ def _soft_delete_resource(table: str, resource_id: str, workspace_id: str, user_
     return {"deleted": True}
 
 
+def _normalize_block_type(value: str) -> str:
+    allowed = {"personal_note", "post_it", "scripture", "quote", "reflection", "doctrinal_analysis"}
+    aliases = {
+        "ai_quote": "quote",
+        "manual_reference": "quote",
+        "ai_doctrinal_analysis": "doctrinal_analysis",
+        "reflection_question": "reflection",
+    }
+    normalized = aliases.get(value, value)
+    return normalized if normalized in allowed else "personal_note"
+
+
+def _block_metadata(payload: BlockPayload, block_type: str, sort_order: int) -> dict[str, Any]:
+    return {
+        "blockType": block_type,
+        "title": payload.title,
+        "sourceTitle": payload.sourceTitle,
+        "sourceAuthor": payload.sourceAuthor,
+        "sourceReference": payload.sourceReference,
+        "sourceUrl": payload.sourceUrl,
+        "quoteText": payload.quoteText,
+        "isAiGenerated": payload.isAiGenerated,
+        "sortOrder": sort_order,
+    }
+
+
+def _find_block_note(conn, workspace_id: str, block_id: str, user_id: str) -> dict | None:
+    return conn.execute(
+        """
+        SELECT id::text, workspace_id::text, user_id::text, document_id::text, chunk_id::text,
+               title, content, selected_text, selection_range, scripture_refs, color, position,
+               created_at, updated_at
+        FROM study_notes
+        WHERE id = %(block_id)s AND workspace_id = %(workspace_id)s AND user_id = %(user_id)s AND deleted_at IS NULL
+        """,
+        {"block_id": block_id, "workspace_id": workspace_id, "user_id": user_id},
+    ).fetchone()
+
+
+def _find_block_post_it(conn, workspace_id: str, block_id: str, user_id: str) -> dict | None:
+    return conn.execute(
+        """
+        SELECT id::text, workspace_id::text, user_id::text, document_id::text, content, color,
+               position, source_filters, pinned, created_at, updated_at
+        FROM post_its
+        WHERE id = %(block_id)s AND workspace_id = %(workspace_id)s AND user_id = %(user_id)s AND deleted_at IS NULL
+        """,
+        {"block_id": block_id, "workspace_id": workspace_id, "user_id": user_id},
+    ).fetchone()
+
+
+def _workspace_blocks(conn, workspace_id: str, user_id: str) -> list[dict[str, Any]]:
+    notes = conn.execute(
+        """
+        SELECT id::text, workspace_id::text, user_id::text, document_id::text, chunk_id::text,
+               title, content, selected_text, selection_range, scripture_refs, color, position,
+               created_at, updated_at
+        FROM study_notes
+        WHERE workspace_id = %(workspace_id)s AND user_id = %(user_id)s AND deleted_at IS NULL
+        """,
+        {"workspace_id": workspace_id, "user_id": user_id},
+    ).fetchall()
+    post_its = conn.execute(
+        """
+        SELECT id::text, workspace_id::text, user_id::text, document_id::text, content, color,
+               position, source_filters, pinned, created_at, updated_at
+        FROM post_its
+        WHERE workspace_id = %(workspace_id)s AND user_id = %(user_id)s AND deleted_at IS NULL
+        """,
+        {"workspace_id": workspace_id, "user_id": user_id},
+    ).fetchall()
+    blocks = [_note_block_row(row) for row in notes] + [_post_it_block_row(row) for row in post_its]
+    return sorted(blocks, key=lambda item: (item["sortOrder"], item.get("createdAt") or ""))
+
+
+def _next_block_sort_order(conn, workspace_id: str, user_id: str) -> int:
+    blocks = _workspace_blocks(conn, workspace_id, user_id)
+    if not blocks:
+        return 10
+    return max(int(block.get("sortOrder") or 0) for block in blocks) + 10
+
+
 def _workspace_row(row: dict) -> dict:
+    settings = row["settings"] or {}
     return {
         "id": row["id"],
         "userId": row["user_id"],
         "name": row["name"],
+        "title": settings.get("title") or row["name"],
+        "scriptureReference": settings.get("scriptureReference") or settings.get("mainReference") or row["description"],
+        "scriptureText": settings.get("scriptureText"),
+        "personalThought": settings.get("personalThought"),
+        "topic": settings.get("topic"),
+        "callingContext": settings.get("callingContext"),
         "description": row["description"],
         "sourceFilters": row["source_filters"] or {},
-        "settings": row["settings"] or {},
+        "settings": settings,
         "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         "updatedAt": row["updated_at"].isoformat() if row["updated_at"] else None,
     }
@@ -1373,6 +1763,50 @@ def _post_it_row(row: dict) -> dict:
         "position": row["position"] or {},
         "sourceFilters": row["source_filters"] or {},
         "pinned": row["pinned"],
+        "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
+        "updatedAt": row["updated_at"].isoformat() if row["updated_at"] else None,
+    }
+
+
+def _note_block_row(row: dict) -> dict[str, Any]:
+    position = row["position"] or {}
+    block_type = _normalize_block_type(position.get("blockType") or ("quote" if row["selected_text"] else "personal_note"))
+    title = position.get("title") or row["title"] or ("Cita manual" if block_type == "quote" else "Nota")
+    return {
+        "id": row["id"],
+        "workspaceId": row["workspace_id"],
+        "type": block_type,
+        "title": title,
+        "content": row["content"] or "",
+        "quoteText": row["selected_text"] or position.get("quoteText"),
+        "sourceTitle": position.get("sourceTitle"),
+        "sourceAuthor": position.get("sourceAuthor"),
+        "sourceReference": position.get("sourceReference"),
+        "sourceUrl": position.get("sourceUrl"),
+        "isAiGenerated": bool(position.get("isAiGenerated", False)),
+        "sortOrder": int(position.get("sortOrder") or 0),
+        "metadata": position,
+        "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
+        "updatedAt": row["updated_at"].isoformat() if row["updated_at"] else None,
+    }
+
+
+def _post_it_block_row(row: dict) -> dict[str, Any]:
+    position = row["position"] or {}
+    return {
+        "id": row["id"],
+        "workspaceId": row["workspace_id"],
+        "type": "post_it",
+        "title": position.get("title") or "Post-it",
+        "content": row["content"] or "",
+        "quoteText": position.get("quoteText"),
+        "sourceTitle": position.get("sourceTitle"),
+        "sourceAuthor": position.get("sourceAuthor"),
+        "sourceReference": position.get("sourceReference"),
+        "sourceUrl": position.get("sourceUrl"),
+        "isAiGenerated": bool(position.get("isAiGenerated", False)),
+        "sortOrder": int(position.get("sortOrder") or 0),
+        "metadata": {**position, "display": "post_it", "color": row["color"]},
         "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         "updatedAt": row["updated_at"].isoformat() if row["updated_at"] else None,
     }
