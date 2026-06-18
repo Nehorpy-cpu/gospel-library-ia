@@ -272,6 +272,24 @@ que Qdrant tenga `points_count > 0`.
 
 ## Validacion runtime
 
+En Windows/PowerShell, usar primero la guia especifica:
+
+```txt
+docs/deploy/VALIDATION_COMMANDS_WINDOWS.md
+```
+
+Resumen sin Docker:
+
+```powershell
+.\scripts\validate_backend.ps1
+.\scripts\validate_frontend.ps1
+.\scripts\validate_all_no_docker.ps1
+```
+
+`pnpm build` desde la raiz ejecuta `docker compose build`; requiere Docker
+Desktop abierto. Para el build frontend de Vercel usar `corepack pnpm build`
+desde `apps/web`.
+
 ```bash
 corepack pnpm install
 corepack pnpm build
