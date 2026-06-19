@@ -70,6 +70,6 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
   try {
     return await fetch(url, init);
   } catch {
-    throw new Error(`No se pudo establecer conexión con la API en ${getApiOrigin()}. Inténtalo nuevamente más tarde.`);
+    throw new Error("No se pudo establecer conexión con la API.");
   }
 }

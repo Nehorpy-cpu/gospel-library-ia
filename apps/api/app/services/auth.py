@@ -40,6 +40,10 @@ def _split_csv(value: str) -> set[str]:
     return {item.strip().lower() for item in value.split(",") if item.strip()}
 
 
+def _plain_header(value: str | None) -> str | None:
+    return value if isinstance(value, str) else None
+
+
 def _admin_role(user_id: str, role: str | None, email: str | None) -> str:
     settings = get_settings()
     admin_user_ids = _split_csv(settings.admin_user_ids)
@@ -105,6 +109,10 @@ def current_auth_context(
     x_user_role: str | None = Header(default=None, alias="X-User-Role"),
     x_user_email: str | None = Header(default=None, alias="X-User-Email"),
 ) -> AuthContext:
+    authorization = _plain_header(authorization)
+    x_user_id = _plain_header(x_user_id)
+    x_user_role = _plain_header(x_user_role)
+    x_user_email = _plain_header(x_user_email)
     settings = get_settings()
     if authorization and authorization.lower().startswith("bearer "):
         return _decode_clerk_token(authorization.split(" ", 1)[1].strip())

@@ -22,7 +22,7 @@ import type { SourceFilterOption } from "@/lib/source-filters";
 import type { TalkBuilderOutline, TalkBuilderRequest, TalkDraftResponse } from "@/types/talk-builder";
 import type { CallingFocus } from "@/lib/church-callings";
 import { apiFetch } from "@/lib/api-client";
-import { apiErrorMessage } from "@/lib/api-errors";
+import { apiErrorMessage, studyWorkspaceCreateErrorMessage } from "@/lib/api-errors";
 import { buildDocumentDetailPath } from "@/lib/document-detail-url";
 
 const MISSING_OPENAI_MESSAGE = "Falta configurar la clave de OpenAI para busqueda IA.";
@@ -547,7 +547,7 @@ export const studyApi = {
   createWorkspace(
     userId: string,
     payload: {
-      name: string;
+      name?: string;
       description?: string;
       sourceFilters?: Record<string, unknown>;
       settings?: Record<string, unknown>;
@@ -563,6 +563,11 @@ export const studyApi = {
       method: "POST",
       headers: studyHeaders(userId),
       body: JSON.stringify(payload)
+    }).catch((error) => {
+      if (error instanceof ApiHttpError) {
+        throw new ApiHttpError(studyWorkspaceCreateErrorMessage(error.status), error.status);
+      }
+      throw error;
     });
   },
   workspace(userId: string, workspaceId: string) {

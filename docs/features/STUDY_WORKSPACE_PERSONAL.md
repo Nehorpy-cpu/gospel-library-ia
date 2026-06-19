@@ -220,6 +220,46 @@ Estados esperados:
 - `422`: el formulario envio un payload invalido.
 - `500`: revisar logs de Render y conexion a PostgreSQL.
 
+## Solucion de 404 en /study/new
+
+El frontend debe crear estudios contra el endpoint canonico:
+
+```txt
+POST https://api.estudiopy.com/api/study-workspaces
+```
+
+El backend tambien mantiene el alias historico para compatibilidad:
+
+```txt
+POST https://api.estudiopy.com/api/study/workspaces
+```
+
+Si DevTools muestra `404` en `/study/new`:
+
+- Confirmar que la URL no sea relativa ni apunte a `http://api:8000`.
+- Confirmar que Vercel tenga desplegado el commit que usa `/study-workspaces`.
+- Confirmar que Render tenga desplegado el router `study_router` y el alias
+  `study_alias_router`.
+- Probar la ruta base con PowerShell. Un `401` indica que la ruta existe pero
+  falta auth; un `404` indica que Render no tiene el backend actualizado.
+
+```powershell
+$body = @{
+  title = "Prueba 404"
+  scriptureReference = "Helaman 5:6"
+  personalThought = "Verificar que la ruta existe."
+  topic = "Convenios"
+  callingContext = "Diagnostico"
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "https://api.estudiopy.com/api/study-workspaces" `
+  -ContentType "application/json" `
+  -Headers @{ "X-User-Id" = "00000000-0000-4000-8000-000000000001" } `
+  -Body $body
+```
+
 ## Troubleshooting: endpoints return 500 after schema initialization
 
 Si la creacion falla despues de inicializar Supabase:

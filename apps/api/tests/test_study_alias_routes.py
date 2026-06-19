@@ -3,10 +3,12 @@ from pathlib import Path
 import sys
 import unittest
 
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.main import app
 from app.routes import study
 
 USER_ID = "00000000-0000-0000-0000-000000000001"
@@ -256,11 +258,29 @@ class StudyAliasRoutesTest(unittest.TestCase):
         with self.assertRaises(ValidationError):
             study.WorkspacePayload(name="")
 
+    def test_workspace_payload_accepts_snake_case_without_name(self):
+        payload = study.WorkspacePayload.model_validate(
+            {
+                "title": "Convenios en Helaman",
+                "scripture_reference": "Helaman 5:6",
+                "scripture_text": "Texto base",
+                "personal_thought": "Pensamiento personal",
+                "calling_context": "Clase dominical",
+            }
+        )
+
+        self.assertEqual(payload.name, "Convenios en Helaman")
+        self.assertEqual(payload.scriptureReference, "Helaman 5:6")
+        self.assertEqual(payload.scriptureText, "Texto base")
+        self.assertEqual(payload.personalThought, "Pensamiento personal")
+        self.assertEqual(payload.callingContext, "Clase dominical")
+
 
 class PersonalWorkspaceRoutesTest(unittest.TestCase):
     def setUp(self):
         self.original_get_conn = study.get_conn
         study.get_conn = personal_workspace_get_conn
+        self.client = TestClient(app)
         PersonalWorkspaceFakeConnection.workspaces = {}
         PersonalWorkspaceFakeConnection.notes = {}
         PersonalWorkspaceFakeConnection.post_its = {}
@@ -311,6 +331,64 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
 
         deleted = study.delete_block(workspace_id=WORKSPACE_ID, block_id=block["id"], user_id=USER_ID)
         self.assertTrue(deleted["deleted"])
+
+    def test_http_post_canonical_route_creates_workspace_from_camel_case(self):
+        response = self.client.post(
+            "/api/study-workspaces",
+            headers={"X-User-Id": USER_ID},
+            json={
+                "title": "Los nombres en Helaman 5:6",
+                "scriptureReference": "Helaman 5:6",
+                "scriptureText": "Texto base",
+                "personalThought": "Recordar convenios familiares.",
+                "topic": "Convenios",
+                "callingContext": "Clase de jovenes",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+        self.assertEqual(body["name"], "Los nombres en Helaman 5:6")
+        self.assertEqual(body["scriptureReference"], "Helaman 5:6")
+
+    def test_http_post_alias_route_creates_workspace_from_snake_case(self):
+        response = self.client.post(
+            "/api/study/workspaces",
+            headers={"X-User-Id": USER_ID},
+            json={
+                "title": "Convenios en Helaman",
+                "scripture_reference": "Helaman 5:6",
+                "scripture_text": "Texto base",
+                "personal_thought": "Pensamiento personal",
+                "topic": "Convenios",
+                "calling_context": "Clase dominical",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+        self.assertEqual(body["name"], "Convenios en Helaman")
+        self.assertEqual(body["callingContext"], "Clase dominical")
+
+    def test_http_get_canonical_routes_list_and_read_workspace(self):
+        self.client.post(
+            "/api/study-workspaces",
+            headers={"X-User-Id": USER_ID},
+            json={"title": "Estudio para leer", "personalThought": "Mi nota"},
+        )
+
+        listed = self.client.get("/api/study-workspaces", headers={"X-User-Id": USER_ID})
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.json()["items"][0]["id"], WORKSPACE_ID)
+
+        detail = self.client.get(f"/api/study-workspaces/{WORKSPACE_ID}", headers={"X-User-Id": USER_ID})
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["blocks"][0]["type"], "personal_note")
+
+    def test_http_missing_workspace_returns_404_without_hiding_base_route(self):
+        response = self.client.get("/api/study-workspaces/missing-id", headers={"X-User-Id": USER_ID})
+
+        self.assertEqual(response.status_code, 404)
 
 
 if __name__ == "__main__":

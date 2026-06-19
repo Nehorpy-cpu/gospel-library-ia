@@ -13,3 +13,19 @@ export function apiErrorMessage(status: number, fallback?: string): string {
   }
   return fallback || `La API respondio con estado ${status}.`;
 }
+
+export function studyWorkspaceCreateErrorMessage(status: number): string {
+  if (status === 401) {
+    return "Debes iniciar sesión para crear estudios.";
+  }
+  if (status === 404) {
+    return "El endpoint de estudios no está disponible en la API desplegada.";
+  }
+  if (status === 422) {
+    return "Revisá los campos del estudio.";
+  }
+  if (status >= 500) {
+    return "La API tuvo un error al crear el estudio.";
+  }
+  return apiErrorMessage(status);
+}

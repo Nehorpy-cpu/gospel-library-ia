@@ -2,7 +2,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
@@ -19,30 +19,43 @@ log = logger(__name__)
 
 
 class WorkspacePayload(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def fill_name_from_title(cls, data):
+        if isinstance(data, dict) and not data.get("name"):
+            title = data.get("title")
+            if isinstance(title, str) and title.strip():
+                return {**data, "name": title.strip()}
+        return data
+
     name: str = Field(min_length=1, max_length=200)
     description: str | None = None
-    userId: str | None = None
-    sourceFilters: dict[str, Any] = Field(default_factory=dict)
+    userId: str | None = Field(default=None, validation_alias=AliasChoices("userId", "user_id"))
+    sourceFilters: dict[str, Any] = Field(default_factory=dict, validation_alias=AliasChoices("sourceFilters", "source_filters"))
     settings: dict[str, Any] = Field(default_factory=dict)
     title: str | None = Field(default=None, max_length=200)
-    scriptureReference: str | None = Field(default=None, max_length=240)
-    scriptureText: str | None = None
-    personalThought: str | None = None
+    scriptureReference: str | None = Field(default=None, max_length=240, validation_alias=AliasChoices("scriptureReference", "scripture_reference"))
+    scriptureText: str | None = Field(default=None, validation_alias=AliasChoices("scriptureText", "scripture_text"))
+    personalThought: str | None = Field(default=None, validation_alias=AliasChoices("personalThought", "personal_thought"))
     topic: str | None = Field(default=None, max_length=160)
-    callingContext: str | None = Field(default=None, max_length=240)
+    callingContext: str | None = Field(default=None, max_length=240, validation_alias=AliasChoices("callingContext", "calling_context"))
 
 
 class WorkspaceUpdatePayload(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = None
-    sourceFilters: dict[str, Any] | None = None
+    sourceFilters: dict[str, Any] | None = Field(default=None, validation_alias=AliasChoices("sourceFilters", "source_filters"))
     settings: dict[str, Any] | None = None
     title: str | None = Field(default=None, min_length=1, max_length=200)
-    scriptureReference: str | None = Field(default=None, max_length=240)
-    scriptureText: str | None = None
-    personalThought: str | None = None
+    scriptureReference: str | None = Field(default=None, max_length=240, validation_alias=AliasChoices("scriptureReference", "scripture_reference"))
+    scriptureText: str | None = Field(default=None, validation_alias=AliasChoices("scriptureText", "scripture_text"))
+    personalThought: str | None = Field(default=None, validation_alias=AliasChoices("personalThought", "personal_thought"))
     topic: str | None = Field(default=None, max_length=160)
-    callingContext: str | None = Field(default=None, max_length=240)
+    callingContext: str | None = Field(default=None, max_length=240, validation_alias=AliasChoices("callingContext", "calling_context"))
 
 
 class SourceFilterPayload(BaseModel):
