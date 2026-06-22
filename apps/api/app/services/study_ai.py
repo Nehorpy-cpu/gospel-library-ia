@@ -8,7 +8,10 @@ import httpx
 from psycopg.rows import dict_row
 
 from app.core.config import get_settings
+from app.core.logging import logger
 from app.services.privacy import sanitize_value
+
+log = logger(__name__)
 
 DEFAULT_BLOCKS = [
     "ai_doctrinal_analysis",
@@ -51,50 +54,65 @@ WORKSPACE_DEFAULT_TYPES = [
     "powerful_phrase",
 ]
 
+FALLBACK_OPENAI_CHAT_MODEL = "gpt-4.1-mini"
+WORKSPACE_SCHEMA_NAME = "study_ai_suggestions"
+PROJECT_SCHEMA_NAME = "study_project_suggestions"
+
 WORKSPACE_SUGGESTION_SCHEMA: dict[str, Any] = {
-    "name": "study_workspace_suggestions",
-    "strict": True,
-    "schema": {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-            "suggestions": {
-                "type": "array",
-                "maxItems": 12,
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": {
-                        "type": {"type": "string", "enum": WORKSPACE_SUGGESTION_TYPES},
-                        "title": {"type": "string"},
-                        "content": {"type": "string"},
-                        "source_title": {"type": ["string", "null"]},
-                        "source_author": {"type": ["string", "null"]},
-                        "source_reference": {"type": ["string", "null"]},
-                        "source_url": {"type": ["string", "null"]},
-                        "quote_text": {"type": ["string", "null"]},
-                        "is_ai_generated": {"type": "boolean"},
-                        "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
-                        "source_status": {"type": "string", "enum": ["local", "suggested", "user_private", "none"]},
-                    },
-                    "required": [
-                        "type",
-                        "title",
-                        "content",
-                        "source_title",
-                        "source_author",
-                        "source_reference",
-                        "source_url",
-                        "quote_text",
-                        "is_ai_generated",
-                        "confidence",
-                        "source_status",
-                    ],
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["suggestions", "sources_used", "warnings"],
+    "properties": {
+        "suggestions": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": [
+                    "type",
+                    "title",
+                    "content",
+                    "source_title",
+                    "source_author",
+                    "source_reference",
+                    "source_url",
+                    "quote_text",
+                    "is_ai_generated",
+                    "confidence",
+                    "source_status",
+                ],
+                "properties": {
+                    "type": {"type": "string", "enum": WORKSPACE_SUGGESTION_TYPES},
+                    "title": {"type": "string"},
+                    "content": {"type": "string"},
+                    "source_title": {"type": "string"},
+                    "source_author": {"type": "string"},
+                    "source_reference": {"type": "string"},
+                    "source_url": {"type": "string"},
+                    "quote_text": {"type": "string"},
+                    "is_ai_generated": {"type": "boolean"},
+                    "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+                    "source_status": {"type": "string", "enum": ["local", "suggested", "user_private", "none"]},
                 },
             },
-            "warnings": {"type": "array", "items": {"type": "string"}},
         },
-        "required": ["suggestions", "warnings"],
+        "sources_used": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["title", "author", "url", "reference", "source_status"],
+                "properties": {
+                    "title": {"type": "string"},
+                    "author": {"type": "string"},
+                    "url": {"type": "string"},
+                    "reference": {"type": "string"},
+                    "source_status": {"type": "string", "enum": ["local", "suggested", "user_private", "none"]},
+                },
+            },
+        },
+        "warnings": {"type": "array", "items": {"type": "string"}},
     },
 }
 
@@ -104,6 +122,14 @@ class StudyAiConfigurationError(RuntimeError):
 
 
 class StudyAiGenerationError(RuntimeError):
+    pass
+
+
+class StudyAiProviderInvalidRequestError(StudyAiGenerationError):
+    pass
+
+
+class StudyAiModelUnavailableError(StudyAiGenerationError):
     pass
 
 SUGGESTION_SCHEMA: dict[str, Any] = {
@@ -368,6 +394,7 @@ async def generate_workspace_suggestions(
     if not settings.openai_api_key:
         raise StudyAiConfigurationError("La funcion de IA todavia no esta configurada en el servidor.")
 
+    model = _openai_chat_model(settings.openai_chat_model)
     workspace_settings = workspace.get("settings") or {}
     title = workspace_settings.get("title") or workspace.get("name")
     scripture_reference = (
@@ -380,13 +407,15 @@ async def generate_workspace_suggestions(
     preferred_sources = payload.get("preferredSources") or []
     system_prompt = (
         "Eres un asistente de estudio doctrinal para uso personal de miembros de La Iglesia de Jesucristo "
-        "de los Santos de los Ultimos Dias. Responde siempre en espanol. Sugiere bloques editables; no decidas "
+        "de los Santos de los Ultimos Dias. Devuelve solo JSON compatible con el schema indicado. Responde siempre en espanol. Sugiere bloques editables; no decidas "
         "por el usuario. No inventes citas literales, paginas, capitulos, autores ni referencias exactas. "
         "Distingue escritura, cita literal, parafrasis, comentario doctrinal, reflexion personal y pregunta de reflexion. "
         "Usa quote_text solo cuando el texto literal este respaldado por el contexto local. Si una fuente no esta "
         "verificada localmente, usa source_status='suggested' y describe la idea como referencia sugerida. "
         "Incluye relacion con Jesucristo, preguntas de reflexion y aplicacion personal. Si hay callingContext, "
-        "incluye aplicacion al llamamiento. Si el modo es nombres o el titulo trata sobre nombres, incluye significado doctrinal de nombres."
+        "incluye aplicacion al llamamiento. Si el modo es nombres o el titulo trata sobre nombres, incluye significado doctrinal de nombres. "
+        "Genera como maximo maxSuggestions. No guardes nada automaticamente; solo propone contenido editable. "
+        "Si un dato de fuente no existe, usa string vacio. Usa source_status='none' o 'suggested' cuando corresponda."
     )
     user_payload = {
         "workspace": {
@@ -412,46 +441,70 @@ async def generate_workspace_suggestions(
         "maxSuggestions": max_suggestions,
         "allowedTypes": WORKSPACE_SUGGESTION_TYPES,
     }
-    request_body = {
-        "model": settings.openai_chat_model,
+    request_body = build_workspace_responses_request(
+        model=model,
+        system_prompt=system_prompt,
+        user_payload=user_payload,
+        max_output_tokens=2400,
+        structured=True,
+    )
+    log.info("study_workspace_ai_openai_request", **openai_request_summary(request_body))
+    try:
+        data = await _post_openai_responses(settings.openai_api_key, request_body)
+        parsed = _extract_response_json(data)
+        provider = "openai_responses_structured"
+    except StudyAiProviderInvalidRequestError:
+        fallback_body = build_workspace_responses_request(
+            model=model,
+            system_prompt=system_prompt,
+            user_payload=user_payload,
+            max_output_tokens=2400,
+            structured=False,
+        )
+        log.warning("study_workspace_ai_openai_structured_request_invalid", **openai_request_summary(request_body))
+        log.info("study_workspace_ai_openai_request", **openai_request_summary(fallback_body))
+        data = await _post_openai_responses(settings.openai_api_key, fallback_body)
+        parsed = _extract_response_json(data)
+        provider = "openai_responses_json_object_fallback"
+
+    suggestions = parsed.get("suggestions") if isinstance(parsed, dict) else None
+    if not isinstance(suggestions, list):
+        raise StudyAiGenerationError("OpenAI no devolvio sugerencias validas.")
+    parsed_sources = parsed.get("sources_used") if isinstance(parsed, dict) else None
+    warnings.extend(str(item) for item in parsed.get("warnings", []) if item)
+    normalized = [_normalize_workspace_suggestion(item) for item in suggestions[:max_suggestions] if isinstance(item, dict)]
+    normalized_sources = _normalize_workspace_sources(parsed_sources if isinstance(parsed_sources, list) else sources_used)
+    return normalized, normalized_sources or sources_used, warnings, provider
+
+
+def build_workspace_responses_request(
+    *,
+    model: str,
+    system_prompt: str,
+    user_payload: dict[str, Any],
+    max_output_tokens: int,
+    structured: bool,
+) -> dict[str, Any]:
+    text_format: dict[str, Any]
+    if structured:
+        text_format = {
+            "type": "json_schema",
+            "name": WORKSPACE_SCHEMA_NAME,
+            "schema": WORKSPACE_SUGGESTION_SCHEMA,
+            "strict": True,
+        }
+    else:
+        text_format = {"type": "json_object"}
+    return {
+        "model": model,
         "store": False,
         "input": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
         ],
-        "text": {
-            "verbosity": "low",
-            "format": {
-                "type": "json_schema",
-                "json_schema": WORKSPACE_SUGGESTION_SCHEMA,
-            },
-        },
-        "reasoning": {"effort": "low"},
+        "text": {"format": text_format},
+        "max_output_tokens": max_output_tokens,
     }
-    try:
-        async with httpx.AsyncClient(timeout=45) as client:
-            response = await client.post(
-                "https://api.openai.com/v1/responses",
-                headers={
-                    "Authorization": f"Bearer {settings.openai_api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=request_body,
-            )
-            response.raise_for_status()
-            data = response.json()
-    except Exception as exc:
-        raise StudyAiGenerationError(
-            f"No se pudo generar informacion con IA. Detalle seguro: {sanitize_value(str(exc))}"
-        ) from exc
-
-    parsed = _extract_response_json(data)
-    suggestions = parsed.get("suggestions") if isinstance(parsed, dict) else None
-    if not isinstance(suggestions, list):
-        raise StudyAiGenerationError("OpenAI no devolvio sugerencias validas.")
-    warnings.extend(str(item) for item in parsed.get("warnings", []) if item)
-    normalized = [_normalize_workspace_suggestion(item) for item in suggestions[:max_suggestions] if isinstance(item, dict)]
-    return normalized, sources_used, warnings, "openai_responses"
 
 
 async def generate_suggestions(
@@ -471,6 +524,7 @@ async def generate_suggestions(
         warnings.append("OPENAI_API_KEY no esta configurada; se devolvieron sugerencias estructuradas de respaldo sin llamada externa.")
         return _fallback_suggestions(project, block_types, local_context, max_suggestions), warnings, "fallback_no_openai_key"
 
+    model = _openai_chat_model(settings.openai_chat_model)
     system_prompt = (
         "Eres un asistente de estudio doctrinal para uso personal y familiar. "
         "Habla en espanol. Respeta la doctrina de La Iglesia de Jesucristo de los Santos de los Ultimos Dias. "
@@ -497,34 +551,18 @@ async def generate_suggestions(
         "maxSuggestions": max_suggestions,
     }
     request_body = {
-        "model": settings.openai_chat_model,
+        "model": model,
         "store": False,
         "input": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
         ],
-        "text": {
-            "verbosity": "low",
-            "format": {
-                "type": "json_schema",
-                "json_schema": SUGGESTION_SCHEMA,
-            },
-        },
-        "reasoning": {"effort": "low"},
+        "text": {"format": _responses_json_schema_format(PROJECT_SCHEMA_NAME, SUGGESTION_SCHEMA["schema"])},
+        "max_output_tokens": 2200,
     }
     try:
-        async with httpx.AsyncClient(timeout=45) as client:
-            response = await client.post(
-                "https://api.openai.com/v1/responses",
-                headers={
-                    "Authorization": f"Bearer {settings.openai_api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=request_body,
-            )
-            response.raise_for_status()
-            data = response.json()
-    except Exception as exc:
+        data = await _post_openai_responses(settings.openai_api_key, request_body)
+    except StudyAiGenerationError as exc:
         warnings.append(f"No se pudo generar con OpenAI; se uso respaldo local. Detalle seguro: {sanitize_value(str(exc))}")
         return _fallback_suggestions(project, block_types, local_context, max_suggestions), warnings, "fallback_openai_error"
     parsed = _extract_response_json(data)
@@ -615,14 +653,118 @@ def _fallback_suggestions(
     ]
 
 
-def _extract_response_json(data: dict[str, Any]) -> dict[str, Any]:
-    if isinstance(data.get("output_text"), str):
-        return json.loads(data["output_text"])
+def _openai_chat_model(configured_model: str | None) -> str:
+    model = (configured_model or "").strip()
+    return model or FALLBACK_OPENAI_CHAT_MODEL
+
+
+def _responses_json_schema_format(name: str, schema: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "json_schema",
+        "name": name,
+        "schema": schema,
+        "strict": True,
+    }
+
+
+def openai_request_summary(request_body: dict[str, Any]) -> dict[str, Any]:
+    text_format = ((request_body.get("text") or {}).get("format") or {}) if isinstance(request_body.get("text"), dict) else {}
+    input_value = request_body.get("input")
+    summary = {
+        "model": request_body.get("model"),
+        "has_text_format": bool(text_format),
+        "schema_name": text_format.get("name") if isinstance(text_format, dict) else None,
+        "input_type": "array" if isinstance(input_value, list) else type(input_value).__name__,
+        "max_output_tokens": request_body.get("max_output_tokens"),
+        "temperature": request_body.get("temperature"),
+    }
+    return summary
+
+
+async def _post_openai_responses(api_key: str, request_body: dict[str, Any]) -> dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=45) as client:
+            response = await client.post(
+                "https://api.openai.com/v1/responses",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=request_body,
+            )
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as exc:
+        safe_error = _safe_openai_error(exc.response)
+        message = safe_error.get("message") or str(exc)
+        if _is_model_unavailable(safe_error):
+            raise StudyAiModelUnavailableError(message) from exc
+        if exc.response.status_code == 400:
+            raise StudyAiProviderInvalidRequestError(json.dumps(safe_error, ensure_ascii=False)) from exc
+        raise StudyAiGenerationError(json.dumps(safe_error, ensure_ascii=False)) from exc
+    except Exception as exc:
+        raise StudyAiGenerationError(
+            f"No se pudo generar informacion con IA. Detalle seguro: {sanitize_value(str(exc))}"
+        ) from exc
+
+
+def _safe_openai_error(response: httpx.Response) -> dict[str, Any]:
+    safe: dict[str, Any] = {"status_code": response.status_code}
+    try:
+        body = response.json()
+    except Exception:
+        safe["message"] = sanitize_value(response.text[:500])
+        return safe
+    error = body.get("error") if isinstance(body, dict) else None
+    if isinstance(error, dict):
+        for key in ("message", "type", "param", "code"):
+            value = error.get(key)
+            safe[key] = sanitize_value(str(value)) if value is not None else None
+    else:
+        safe["message"] = sanitize_value(str(body)[:500])
+    return safe
+
+
+def _is_model_unavailable(error: dict[str, Any]) -> bool:
+    values = " ".join(str(error.get(key) or "") for key in ("message", "type", "param", "code")).casefold()
+    return "model_not_found" in values or "does not exist" in values or "do not have access" in values
+
+
+def extract_response_text(data: dict[str, Any]) -> str:
+    output_text = data.get("output_text")
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text
+    content = data.get("content")
+    if isinstance(content, str) and content.strip():
+        return content
     for output in data.get("output", []) or []:
-        for content in output.get("content", []) or []:
-            if content.get("type") in {"output_text", "text"} and isinstance(content.get("text"), str):
-                return json.loads(content["text"])
-    return {}
+        if not isinstance(output, dict):
+            continue
+        output_content = output.get("content")
+        if isinstance(output_content, str) and output_content.strip():
+            return output_content
+        for item in output_content or []:
+            if not isinstance(item, dict):
+                continue
+            text = item.get("text") or item.get("content")
+            if isinstance(text, str) and text.strip():
+                return text
+    return ""
+
+
+def _extract_response_json(data: dict[str, Any]) -> dict[str, Any]:
+    text = extract_response_text(data).strip()
+    if not text:
+        return {}
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    return json.loads(text)
+
 
 
 def _normalize_workspace_suggestion(item: dict[str, Any]) -> dict[str, Any]:
@@ -637,20 +779,40 @@ def _normalize_workspace_suggestion(item: dict[str, Any]) -> dict[str, Any]:
         confidence = "medium"
     quote_text = item.get("quote_text")
     if source_status != "local" and quote_text:
-        quote_text = None
+        quote_text = ""
     return {
         "type": suggestion_type,
         "title": str(item.get("title") or "Sugerencia doctrinal")[:240],
         "content": str(item.get("content") or ""),
-        "source_title": item.get("source_title"),
-        "source_author": item.get("source_author"),
-        "source_reference": item.get("source_reference"),
-        "source_url": item.get("source_url"),
-        "quote_text": quote_text,
+        "source_title": str(item.get("source_title") or ""),
+        "source_author": str(item.get("source_author") or ""),
+        "source_reference": str(item.get("source_reference") or ""),
+        "source_url": str(item.get("source_url") or ""),
+        "quote_text": str(quote_text or ""),
         "is_ai_generated": True,
         "confidence": confidence,
         "source_status": source_status,
     }
+
+
+def _normalize_workspace_sources(items: list[Any]) -> list[dict[str, str]]:
+    normalized: list[dict[str, str]] = []
+    for item in items[:10]:
+        if not isinstance(item, dict):
+            continue
+        source_status = str(item.get("source_status") or item.get("sourceStatus") or "none")
+        if source_status not in {"local", "suggested", "user_private", "none"}:
+            source_status = "none"
+        normalized.append(
+            {
+                "title": str(item.get("title") or ""),
+                "author": str(item.get("author") or ""),
+                "url": str(item.get("url") or ""),
+                "reference": str(item.get("reference") or item.get("source") or item.get("kind") or ""),
+                "source_status": source_status,
+            }
+        )
+    return normalized
 
 
 def _sources_used(local_context: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -658,11 +820,11 @@ def _sources_used(local_context: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for item in local_context[:10]:
         sources.append(
             {
-                "kind": item.get("kind"),
-                "title": item.get("title"),
-                "author": item.get("author"),
-                "url": item.get("url"),
-                "source": item.get("source") or item.get("source_type"),
+                "title": str(item.get("title") or ""),
+                "author": str(item.get("author") or ""),
+                "url": str(item.get("url") or ""),
+                "reference": str(item.get("source") or item.get("source_type") or item.get("kind") or ""),
+                "source_status": "user_private" if item.get("kind") == "user_private_note" else "local",
             }
         )
     return sources

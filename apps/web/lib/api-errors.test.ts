@@ -25,6 +25,9 @@ test("usa mensajes especificos para sugerencias de IA del estudio", () => {
   assert.equal(studyWorkspaceAiErrorMessage(401), "Debes iniciar sesion para usar la IA del estudio.");
   assert.equal(studyWorkspaceAiErrorMessage(404), "El endpoint de IA de estudios no esta disponible en la API desplegada.");
   assert.equal(studyWorkspaceAiErrorMessage(422), "Revisa los campos del pedido de IA.");
-  assert.equal(studyWorkspaceAiErrorMessage(502), "No se pudo generar informacion con IA. Intenta nuevamente mas tarde.");
+  assert.equal(
+    studyWorkspaceAiErrorMessage(502),
+    "La IA respondio con una solicitud invalida hacia el proveedor. Revisa la configuracion del modelo o schema."
+  );
   assert.equal(studyWorkspaceAiErrorMessage(503), "La funcion de IA todavia no esta configurada en el servidor.");
 });

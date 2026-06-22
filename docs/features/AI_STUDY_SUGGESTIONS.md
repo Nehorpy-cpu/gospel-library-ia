@@ -40,11 +40,11 @@ Respuesta:
       "type": "doctrinal_analysis",
       "title": "Analisis doctrinal",
       "content": "Texto editable",
-      "source_title": null,
-      "source_author": null,
-      "source_reference": null,
-      "source_url": null,
-      "quote_text": null,
+      "source_title": "",
+      "source_author": "",
+      "source_reference": "",
+      "source_url": "",
+      "quote_text": "",
       "is_ai_generated": true,
       "confidence": "medium",
       "source_status": "suggested"
@@ -65,6 +65,10 @@ OPENAI_CHAT_MODEL=gpt-5.5
 STUDY_AI_MAX_SUGGESTIONS=12
 ```
 
+Si `OPENAI_CHAT_MODEL` esta vacio, el backend usa el fallback seguro
+`gpt-4.1-mini`. Si Render devuelve `model_not_found`, configurar un modelo
+disponible para la cuenta.
+
 No configurar `NEXT_PUBLIC_OPENAI_API_KEY` en Vercel. La clave de OpenAI se usa
 solo desde FastAPI.
 
@@ -81,6 +85,48 @@ solo desde FastAPI.
 POST /api/study-workspaces/{workspaceId}/blocks
 ```
 
+## Payload OpenAI seguro
+
+El backend usa Responses API con `text.format` directo:
+
+```json
+{
+  "model": "OPENAI_CHAT_MODEL o gpt-4.1-mini",
+  "store": false,
+  "input": [
+    { "role": "system", "content": "..." },
+    { "role": "user", "content": "{...}" }
+  ],
+  "text": {
+    "format": {
+      "type": "json_schema",
+      "name": "study_ai_suggestions",
+      "schema": { "type": "object" },
+      "strict": true
+    }
+  },
+  "max_output_tokens": 2400
+}
+```
+
+No usar `response_format` en Responses API. Tampoco envolver el schema dentro
+de `text.format.json_schema`; el formato correcto es `text.format.name`,
+`text.format.schema` y `text.format.strict`.
+
+Si Structured Outputs devuelve `400 Bad Request`, el backend intenta un fallback
+controlado con:
+
+```json
+{
+  "text": {
+    "format": { "type": "json_object" }
+  }
+}
+```
+
+El prompt sigue pidiendo JSON compatible con el schema y el backend valida y
+normaliza la respuesta antes de devolverla al frontend.
+
 ## Reglas de fuentes y citas
 
 - `quote_text` solo debe usarse cuando el texto literal esta respaldado por
@@ -90,6 +136,8 @@ POST /api/study-workspaces/{workspaceId}/blocks
 - `source_status=suggested` o `none` exige revision humana antes de usarlo como
   cita o referencia exacta.
 - El backend no debe inventar paginas, autores, capitulos ni citas literales.
+- Si una fuente no tiene titulo, autor, URL o referencia, se usa string vacio
+  `""` para mantener el JSON Schema simple y estricto.
 
 ## Probar desde PowerShell
 
@@ -131,7 +179,34 @@ Estados esperados:
 - `404`: Render no tiene desplegado el endpoint.
 - `422`: payload invalido.
 - `502`: OpenAI no devolvio una respuesta valida o fallo la llamada externa.
-- `503`: `OPENAI_API_KEY` no esta configurada en Render.
+- `503`: `OPENAI_API_KEY` no esta configurada en Render o el modelo no esta
+  disponible para la cuenta.
+
+## Troubleshooting: OpenAI 400 Bad Request
+
+Causas comunes:
+
+- Usar `response_format` en `/v1/responses` en lugar de `text.format`.
+- Envolver el schema como `text.format.json_schema` en vez de enviar
+  `type`, `name`, `schema` y `strict` directamente.
+- Configurar un modelo que no soporta Structured Outputs.
+- Usar features de JSON Schema no compatibles con modo estricto.
+- No pedir JSON explicitamente cuando se usa el fallback `json_object`.
+
+Logs seguros esperados en Render:
+
+```txt
+study_workspace_ai_openai_request
+model=...
+has_text_format=true
+schema_name=study_ai_suggestions
+input_type=array
+max_output_tokens=2400
+```
+
+El log no debe incluir `OPENAI_API_KEY`, prompt completo ni contenido completo
+del estudio. Si OpenAI devuelve un error, el backend registra solo campos
+seguros como `error.message`, `error.type`, `error.param` y `error.code`.
 
 ## Costos y limites
 

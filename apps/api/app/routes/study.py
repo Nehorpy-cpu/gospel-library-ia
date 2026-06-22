@@ -16,6 +16,8 @@ from app.services.source_filters import normalize_source_type, source_type_alias
 from app.services.study_ai import (
     StudyAiConfigurationError,
     StudyAiGenerationError,
+    StudyAiModelUnavailableError,
+    StudyAiProviderInvalidRequestError,
     generate_workspace_suggestions,
     load_workspace_local_context,
 )
@@ -1414,6 +1416,18 @@ async def ai_suggest_workspace(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="La funcion de IA todavia no esta configurada en el servidor.",
+        ) from exc
+    except StudyAiModelUnavailableError as exc:
+        log.warning("study_workspace_ai_model_unavailable", workspace_id=workspace_id, error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="El modelo de IA configurado no esta disponible para esta cuenta.",
+        ) from exc
+    except StudyAiProviderInvalidRequestError as exc:
+        log.warning("study_workspace_ai_provider_invalid_request", workspace_id=workspace_id, error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="La IA respondio con una solicitud invalida hacia el proveedor. Revisa la configuracion del modelo o schema.",
         ) from exc
     except StudyAiGenerationError as exc:
         log.warning("study_workspace_ai_suggestions_failed", workspace_id=workspace_id, error=str(exc))

@@ -418,6 +418,41 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["detail"], "La funcion de IA todavia no esta configurada en el servidor.")
 
+    def test_ai_suggest_returns_controlled_error_for_invalid_provider_request(self):
+        study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
+
+        async def fake_generate_workspace_suggestions(**kwargs):
+            raise study.StudyAiProviderInvalidRequestError("invalid_json_schema")
+
+        study.generate_workspace_suggestions = fake_generate_workspace_suggestions
+        response = self.client.post(
+            f"/api/study-workspaces/{WORKSPACE_ID}/ai-suggest",
+            headers={"X-User-Id": USER_ID},
+            json={"mode": "rapido", "maxSuggestions": 3},
+        )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(
+            response.json()["detail"],
+            "La IA respondio con una solicitud invalida hacia el proveedor. Revisa la configuracion del modelo o schema.",
+        )
+
+    def test_ai_suggest_returns_controlled_error_for_unavailable_model(self):
+        study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
+
+        async def fake_generate_workspace_suggestions(**kwargs):
+            raise study.StudyAiModelUnavailableError("model_not_found")
+
+        study.generate_workspace_suggestions = fake_generate_workspace_suggestions
+        response = self.client.post(
+            f"/api/study-workspaces/{WORKSPACE_ID}/ai-suggest",
+            headers={"X-User-Id": USER_ID},
+            json={"mode": "rapido", "maxSuggestions": 3},
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"], "El modelo de IA configurado no esta disponible para esta cuenta.")
+
     def test_ai_suggest_respects_max_suggestions_and_does_not_save_blocks(self):
         study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
         before_notes = len(PersonalWorkspaceFakeConnection.notes)

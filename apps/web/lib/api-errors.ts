@@ -41,7 +41,7 @@ export function studyWorkspaceAiErrorMessage(status: number): string {
     return "Revisa los campos del pedido de IA.";
   }
   if (status === 502) {
-    return "No se pudo generar informacion con IA. Intenta nuevamente mas tarde.";
+    return "La IA respondio con una solicitud invalida hacia el proveedor. Revisa la configuracion del modelo o schema.";
   }
   if (status === 503) {
     return "La funcion de IA todavia no esta configurada en el servidor.";
