@@ -1,24 +1,19 @@
+import asyncio
 import unittest
-import httpx
 from types import SimpleNamespace
+
+import httpx
 
 from app.services import study_ai
 from app.services.study_ai import (
-    _extract_response_json,
     _fallback_suggestions,
     _normalize_workspace_suggestion,
     build_workspace_responses_request,
+    extract_json_object,
+    normalize_ai_suggestions,
     openai_request_summary,
     prompt_hash,
 )
-
-
-def _contains_key(value, key: str) -> bool:
-    if isinstance(value, dict):
-        return key in value or any(_contains_key(item, key) for item in value.values())
-    if isinstance(value, list):
-        return any(_contains_key(item, key) for item in value)
-    return False
 
 
 class StudyAiServiceTests(unittest.TestCase):
@@ -62,23 +57,33 @@ class StudyAiServiceTests(unittest.TestCase):
         self.assertEqual(suggestion["source_status"], "suggested")
         self.assertTrue(suggestion["is_ai_generated"])
 
-    def test_workspace_responses_payload_uses_current_text_format(self):
+    def test_workspace_responses_payload_uses_json_object_without_schema(self):
         request_body = build_workspace_responses_request(
             model="gpt-4.1-mini",
-            system_prompt="Devuelve solo JSON.",
+            system_prompt="Responde unicamente con JSON valido.",
             user_payload={"maxSuggestions": 2},
             max_output_tokens=500,
-            structured=True,
+            json_mode=True,
         )
 
-        text_format = request_body["text"]["format"]
         self.assertNotIn("response_format", request_body)
-        self.assertNotIn("json_schema", text_format)
-        self.assertEqual(text_format["type"], "json_schema")
-        self.assertEqual(text_format["name"], "study_ai_suggestions")
-        self.assertEqual(text_format["strict"], True)
-        self.assertIn("schema", text_format)
-        self.assertFalse(_contains_key(text_format["schema"], "default"))
+        self.assertEqual(request_body["text"]["format"], {"type": "json_object"})
+        self.assertNotIn("json_schema", str(request_body))
+        self.assertNotIn("strict", str(request_body))
+        self.assertNotIn("reasoning", request_body)
+        self.assertNotIn("temperature", request_body)
+
+    def test_workspace_responses_payload_can_omit_text_format_for_fallback(self):
+        request_body = build_workspace_responses_request(
+            model="gpt-4.1-mini",
+            system_prompt="Responde unicamente con JSON valido.",
+            user_payload={"maxSuggestions": 2},
+            max_output_tokens=500,
+            json_mode=False,
+        )
+
+        self.assertNotIn("text", request_body)
+        self.assertNotIn("response_format", request_body)
 
     def test_openai_request_summary_does_not_include_prompt(self):
         request_body = build_workspace_responses_request(
@@ -86,44 +91,51 @@ class StudyAiServiceTests(unittest.TestCase):
             system_prompt="Prompt secreto",
             user_payload={"localContext": ["texto"]},
             max_output_tokens=500,
-            structured=True,
+            json_mode=True,
         )
 
         summary = openai_request_summary(request_body)
 
         self.assertEqual(summary["model"], "gpt-4.1-mini")
         self.assertEqual(summary["has_text_format"], True)
-        self.assertEqual(summary["schema_name"], "study_ai_suggestions")
+        self.assertEqual(summary["schema_name"], None)
         self.assertEqual(summary["input_type"], "array")
         self.assertNotIn("Prompt secreto", str(summary))
 
-    def test_extract_response_json_reads_output_text(self):
-        parsed = _extract_response_json(
-            {
-                "output_text": '{"suggestions":[],"sources_used":[],"warnings":[]}',
-            }
-        )
+    def test_extract_json_object_reads_valid_json(self):
+        parsed = extract_json_object('{"suggestions":[],"sources_used":[],"warnings":[]}')
 
         self.assertEqual(parsed["suggestions"], [])
 
-    def test_extract_response_json_reads_output_content_text(self):
-        parsed = _extract_response_json(
-            {
-                "output": [
-                    {
-                        "type": "message",
-                        "content": [
-                            {
-                                "type": "output_text",
-                                "text": '{"suggestions":[],"sources_used":[],"warnings":["ok"]}',
-                            }
-                        ],
-                    }
-                ]
-            }
+    def test_extract_json_object_reads_json_with_surrounding_text(self):
+        parsed = extract_json_object(
+            'Texto antes {"suggestions":[{"type":"unknown","title":"T"}],"sources_used":[],"warnings":[]} texto despues'
         )
 
-        self.assertEqual(parsed["warnings"], ["ok"])
+        self.assertEqual(parsed["suggestions"][0]["title"], "T")
+
+    def test_normalize_ai_suggestions_fills_missing_fields_and_limits(self):
+        suggestions, sources, warnings = normalize_ai_suggestions(
+            {
+                "suggestions": [
+                    {"type": "unknown_type", "title": "Uno"},
+                    {"type": "reflection_question", "content": "Dos"},
+                ],
+                "sources_used": [{"title": "Fuente"}],
+                "warnings": ["revisar"],
+            },
+            1,
+        )
+
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions[0]["type"], "doctrinal_analysis")
+        self.assertEqual(suggestions[0]["content"], "")
+        self.assertEqual(suggestions[0]["source_title"], "")
+        self.assertEqual(suggestions[0]["is_ai_generated"], True)
+        self.assertEqual(suggestions[0]["confidence"], "medium")
+        self.assertEqual(suggestions[0]["source_status"], "none")
+        self.assertEqual(sources[0]["title"], "Fuente")
+        self.assertEqual(warnings, ["revisar"])
 
     def test_openai_400_raises_controlled_invalid_request(self):
         original_async_client = study_ai.httpx.AsyncClient
@@ -143,10 +155,10 @@ class StudyAiServiceTests(unittest.TestCase):
                     400,
                     json={
                         "error": {
-                            "message": "Invalid schema shape",
+                            "message": "Invalid json_object",
                             "type": "invalid_request_error",
                             "param": "text.format",
-                            "code": "invalid_json_schema",
+                            "code": None,
                         }
                     },
                     request=httpx.Request("POST", url),
@@ -155,15 +167,13 @@ class StudyAiServiceTests(unittest.TestCase):
         study_ai.httpx.AsyncClient = FakeAsyncClient
         try:
             with self.assertRaises(study_ai.StudyAiProviderInvalidRequestError) as context:
-                import asyncio
-
                 asyncio.run(study_ai._post_openai_responses("sk-test", {"model": "gpt-4.1-mini"}))
-            self.assertIn("Invalid schema shape", str(context.exception))
+            self.assertIn("Invalid json_object", str(context.exception))
             self.assertNotIn("sk-test", str(context.exception))
         finally:
             study_ai.httpx.AsyncClient = original_async_client
 
-    def test_workspace_generation_falls_back_to_json_object_after_structured_400(self):
+    def test_workspace_generation_falls_back_to_plain_response_after_json_object_400(self):
         original_async_client = study_ai.httpx.AsyncClient
         original_get_settings = study_ai.get_settings
         requests: list[dict] = []
@@ -183,17 +193,15 @@ class StudyAiServiceTests(unittest.TestCase):
                 if len(requests) == 1:
                     return httpx.Response(
                         400,
-                        json={"error": {"message": "Invalid schema", "type": "invalid_request_error"}},
+                        json={"error": {"message": "json_object unsupported", "type": "invalid_request_error"}},
                         request=httpx.Request("POST", url),
                     )
                 return httpx.Response(
                     200,
                     json={
                         "output_text": (
-                            '{"suggestions":[{"type":"reflection_question","title":"Pregunta",'
-                            '"content":"Que debo aplicar?","source_title":"","source_author":"",'
-                            '"source_reference":"","source_url":"","quote_text":"","is_ai_generated":true,'
-                            '"confidence":"medium","source_status":"none"}],"sources_used":[],"warnings":[]}'
+                            'Aqui va el JSON: {"suggestions":[{"type":"reflection_question","title":"Pregunta",'
+                            '"content":"Que debo aplicar?"}],"sources_used":[],"warnings":[]}'
                         )
                     },
                     request=httpx.Request("POST", url),
@@ -206,8 +214,6 @@ class StudyAiServiceTests(unittest.TestCase):
             study_ai_max_suggestions=12,
         )
         try:
-            import asyncio
-
             suggestions, sources_used, warnings, provider = asyncio.run(
                 study_ai.generate_workspace_suggestions(
                     workspace={"id": "w1", "name": "Estudio", "settings": {"title": "Estudio"}},
@@ -218,14 +224,56 @@ class StudyAiServiceTests(unittest.TestCase):
                 )
             )
 
-            self.assertEqual(provider, "openai_responses_json_object_fallback")
+            self.assertEqual(provider, "openai_responses_plain_json_fallback")
             self.assertEqual(suggestions[0]["type"], "reflection_question")
             self.assertEqual(suggestions[0]["quote_text"], "")
             self.assertEqual(sources_used, [])
-            self.assertEqual(requests[0]["text"]["format"]["type"], "json_schema")
-            self.assertEqual(requests[1]["text"]["format"]["type"], "json_object")
+            self.assertEqual(requests[0]["text"]["format"]["type"], "json_object")
+            self.assertNotIn("text", requests[1])
             self.assertEqual(requests[0]["model"], "gpt-4.1-mini")
             self.assertIn("No se encontraron suficientes fuentes locales", warnings[0])
+        finally:
+            study_ai.httpx.AsyncClient = original_async_client
+            study_ai.get_settings = original_get_settings
+
+    def test_workspace_generation_raises_unexpected_format_after_final_400(self):
+        original_async_client = study_ai.httpx.AsyncClient
+        original_get_settings = study_ai.get_settings
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return None
+
+            async def post(self, url, headers=None, json=None):
+                return httpx.Response(
+                    400,
+                    json={"error": {"message": "bad request", "type": "invalid_request_error"}},
+                    request=httpx.Request("POST", url),
+                )
+
+        study_ai.httpx.AsyncClient = FakeAsyncClient
+        study_ai.get_settings = lambda: SimpleNamespace(
+            openai_api_key="sk-test",
+            openai_chat_model="gpt-4.1-mini",
+            study_ai_max_suggestions=12,
+        )
+        try:
+            with self.assertRaises(study_ai.StudyAiUnexpectedFormatError):
+                asyncio.run(
+                    study_ai.generate_workspace_suggestions(
+                        workspace={"id": "w1", "name": "Estudio", "settings": {"title": "Estudio"}},
+                        blocks=[],
+                        user_id="u1",
+                        payload={"mode": "rapido", "maxSuggestions": 1},
+                        local_context=[],
+                    )
+                )
         finally:
             study_ai.httpx.AsyncClient = original_async_client
             study_ai.get_settings = original_get_settings

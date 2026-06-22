@@ -132,6 +132,14 @@ class StudyAiProviderInvalidRequestError(StudyAiGenerationError):
 class StudyAiModelUnavailableError(StudyAiGenerationError):
     pass
 
+
+class StudyAiUnexpectedFormatError(StudyAiGenerationError):
+    pass
+
+
+class StudyAiTimeoutError(StudyAiGenerationError):
+    pass
+
 SUGGESTION_SCHEMA: dict[str, Any] = {
     "name": "study_project_suggestions",
     "strict": True,
@@ -407,8 +415,10 @@ async def generate_workspace_suggestions(
     preferred_sources = payload.get("preferredSources") or []
     system_prompt = (
         "Eres un asistente de estudio doctrinal para uso personal de miembros de La Iglesia de Jesucristo "
-        "de los Santos de los Ultimos Dias. Devuelve solo JSON compatible con el schema indicado. Responde siempre en espanol. Sugiere bloques editables; no decidas "
-        "por el usuario. No inventes citas literales, paginas, capitulos, autores ni referencias exactas. "
+        "de los Santos de los Ultimos Dias. Responde unicamente con JSON valido. No uses Markdown. No uses ```."
+        " No agregues explicacion fuera del JSON. El JSON debe tener exactamente estas claves principales:"
+        " suggestions, sources_used y warnings. Responde siempre en espanol. Sugiere bloques editables; no decidas por el usuario."
+        " No inventes citas literales, paginas, capitulos, autores ni referencias exactas. "
         "Distingue escritura, cita literal, parafrasis, comentario doctrinal, reflexion personal y pregunta de reflexion. "
         "Usa quote_text solo cuando el texto literal este respaldado por el contexto local. Si una fuente no esta "
         "verificada localmente, usa source_status='suggested' y describe la idea como referencia sugerida. "
@@ -440,40 +450,52 @@ async def generate_workspace_suggestions(
         "localContext": local_context[:10],
         "maxSuggestions": max_suggestions,
         "allowedTypes": WORKSPACE_SUGGESTION_TYPES,
+        "requiredJsonShape": {
+            "suggestions": [],
+            "sources_used": [],
+            "warnings": [],
+        },
     }
     request_body = build_workspace_responses_request(
         model=model,
         system_prompt=system_prompt,
         user_payload=user_payload,
         max_output_tokens=2400,
-        structured=True,
+        json_mode=True,
     )
     log.info("study_workspace_ai_openai_request", **openai_request_summary(request_body))
     try:
         data = await _post_openai_responses(settings.openai_api_key, request_body)
         parsed = _extract_response_json(data)
-        provider = "openai_responses_structured"
-    except StudyAiProviderInvalidRequestError:
+        provider = "openai_responses_json_object"
+    except StudyAiProviderInvalidRequestError as exc:
         fallback_body = build_workspace_responses_request(
             model=model,
             system_prompt=system_prompt,
             user_payload=user_payload,
             max_output_tokens=2400,
-            structured=False,
+            json_mode=False,
         )
-        log.warning("study_workspace_ai_openai_structured_request_invalid", **openai_request_summary(request_body))
+        log.warning("study_workspace_ai_openai_json_object_request_invalid", error=str(exc), **openai_request_summary(request_body))
         log.info("study_workspace_ai_openai_request", **openai_request_summary(fallback_body))
-        data = await _post_openai_responses(settings.openai_api_key, fallback_body)
-        parsed = _extract_response_json(data)
-        provider = "openai_responses_json_object_fallback"
+        try:
+            data = await _post_openai_responses(settings.openai_api_key, fallback_body)
+            parsed = _extract_response_json(data)
+            provider = "openai_responses_plain_json_fallback"
+        except StudyAiProviderInvalidRequestError as fallback_exc:
+            log.warning("study_workspace_ai_openai_plain_request_invalid", error=str(fallback_exc), **openai_request_summary(fallback_body))
+            raise StudyAiUnexpectedFormatError("La IA respondio con un formato inesperado.") from fallback_exc
+    except json.JSONDecodeError as exc:
+        raise StudyAiUnexpectedFormatError("La IA respondio con un formato inesperado.") from exc
 
-    suggestions = parsed.get("suggestions") if isinstance(parsed, dict) else None
-    if not isinstance(suggestions, list):
-        raise StudyAiGenerationError("OpenAI no devolvio sugerencias validas.")
-    parsed_sources = parsed.get("sources_used") if isinstance(parsed, dict) else None
-    warnings.extend(str(item) for item in parsed.get("warnings", []) if item)
-    normalized = [_normalize_workspace_suggestion(item) for item in suggestions[:max_suggestions] if isinstance(item, dict)]
-    normalized_sources = _normalize_workspace_sources(parsed_sources if isinstance(parsed_sources, list) else sources_used)
+    try:
+        normalized, normalized_sources, parsed_warnings = normalize_ai_suggestions(parsed, max_suggestions)
+    except Exception as exc:
+        raise StudyAiUnexpectedFormatError("La IA respondio con un formato inesperado.") from exc
+    warnings.extend(parsed_warnings)
+    if not normalized:
+        warnings.append("La IA no devolvio sugerencias utiles para este estudio.")
+    normalized_sources = normalized_sources or sources_used
     return normalized, normalized_sources or sources_used, warnings, provider
 
 
@@ -483,28 +505,20 @@ def build_workspace_responses_request(
     system_prompt: str,
     user_payload: dict[str, Any],
     max_output_tokens: int,
-    structured: bool,
+    json_mode: bool,
 ) -> dict[str, Any]:
-    text_format: dict[str, Any]
-    if structured:
-        text_format = {
-            "type": "json_schema",
-            "name": WORKSPACE_SCHEMA_NAME,
-            "schema": WORKSPACE_SUGGESTION_SCHEMA,
-            "strict": True,
-        }
-    else:
-        text_format = {"type": "json_object"}
-    return {
+    request_body = {
         "model": model,
         "store": False,
         "input": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
         ],
-        "text": {"format": text_format},
         "max_output_tokens": max_output_tokens,
     }
+    if json_mode:
+        request_body["text"] = {"format": {"type": "json_object"}}
+    return request_body
 
 
 async def generate_suggestions(
@@ -702,6 +716,8 @@ async def _post_openai_responses(api_key: str, request_body: dict[str, Any]) -> 
         if exc.response.status_code == 400:
             raise StudyAiProviderInvalidRequestError(json.dumps(safe_error, ensure_ascii=False)) from exc
         raise StudyAiGenerationError(json.dumps(safe_error, ensure_ascii=False)) from exc
+    except httpx.TimeoutException as exc:
+        raise StudyAiTimeoutError("La IA tardo demasiado en responder.") from exc
     except Exception as exc:
         raise StudyAiGenerationError(
             f"No se pudo generar informacion con IA. Detalle seguro: {sanitize_value(str(exc))}"
@@ -756,14 +772,49 @@ def _extract_response_json(data: dict[str, Any]) -> dict[str, Any]:
     text = extract_response_text(data).strip()
     if not text:
         return {}
-    if text.startswith("```"):
-        lines = text.splitlines()
+    return extract_json_object(text)
+
+
+def extract_json_object(text: str) -> dict[str, Any]:
+    clean = text.strip()
+    if clean.startswith("```"):
+        lines = clean.splitlines()
         if lines and lines[0].startswith("```"):
             lines = lines[1:]
         if lines and lines[-1].startswith("```"):
             lines = lines[:-1]
-        text = "\n".join(lines).strip()
-    return json.loads(text)
+        clean = "\n".join(lines).strip()
+    try:
+        value = json.loads(clean)
+        return value if isinstance(value, dict) else {}
+    except json.JSONDecodeError:
+        pass
+    start = clean.find("{")
+    if start < 0:
+        raise json.JSONDecodeError("No JSON object found", clean, 0)
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(clean)):
+        char = clean[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                value = json.loads(clean[start : index + 1])
+                return value if isinstance(value, dict) else {}
+    raise json.JSONDecodeError("No complete JSON object found", clean, start)
 
 
 
@@ -793,6 +844,22 @@ def _normalize_workspace_suggestion(item: dict[str, Any]) -> dict[str, Any]:
         "confidence": confidence,
         "source_status": source_status,
     }
+
+
+def normalize_ai_suggestions(raw: Any, max_suggestions: int) -> tuple[list[dict[str, Any]], list[dict[str, str]], list[str]]:
+    if not isinstance(raw, dict):
+        return [], [], ["La IA devolvio una respuesta vacia o invalida."]
+    raw_suggestions = raw.get("suggestions")
+    raw_sources = raw.get("sources_used")
+    raw_warnings = raw.get("warnings")
+    suggestions = [
+        _normalize_workspace_suggestion(item)
+        for item in (raw_suggestions if isinstance(raw_suggestions, list) else [])
+        if isinstance(item, dict)
+    ][:max_suggestions]
+    sources = _normalize_workspace_sources(raw_sources if isinstance(raw_sources, list) else [])
+    warnings = [str(item) for item in (raw_warnings if isinstance(raw_warnings, list) else []) if item]
+    return suggestions, sources, warnings
 
 
 def _normalize_workspace_sources(items: list[Any]) -> list[dict[str, str]]:

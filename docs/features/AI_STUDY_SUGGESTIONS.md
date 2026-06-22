@@ -61,7 +61,7 @@ Backend Render:
 
 ```txt
 OPENAI_API_KEY=...
-OPENAI_CHAT_MODEL=gpt-5.5
+OPENAI_CHAT_MODEL=gpt-4.1-mini
 STUDY_AI_MAX_SUGGESTIONS=12
 ```
 
@@ -77,7 +77,7 @@ solo desde FastAPI.
 1. El frontend llama al backend con `POST /api/study-workspaces/{id}/ai-suggest`.
 2. FastAPI verifica el usuario y carga el workspace, sus bloques existentes y
    contexto local de la biblioteca.
-3. El backend llama a OpenAI Responses API con salida estructurada JSON.
+3. El backend llama a OpenAI Responses API en modo JSON simple.
 4. El frontend muestra sugerencias editables.
 5. Al guardar una sugerencia, el frontend reutiliza:
 
@@ -85,9 +85,9 @@ solo desde FastAPI.
 POST /api/study-workspaces/{workspaceId}/blocks
 ```
 
-## Payload OpenAI seguro
+## Payload OpenAI estable
 
-El backend usa Responses API con `text.format` directo:
+El backend usa Responses API con `json_object` por estabilidad:
 
 ```json
 {
@@ -99,33 +99,39 @@ El backend usa Responses API con `text.format` directo:
   ],
   "text": {
     "format": {
-      "type": "json_schema",
-      "name": "study_ai_suggestions",
-      "schema": { "type": "object" },
-      "strict": true
+      "type": "json_object"
     }
   },
   "max_output_tokens": 2400
 }
 ```
 
-No usar `response_format` en Responses API. Tampoco envolver el schema dentro
-de `text.format.json_schema`; el formato correcto es `text.format.name`,
-`text.format.schema` y `text.format.strict`.
+No usar `response_format` en Responses API. No usar `json_schema`, `strict`,
+`text.verbosity`, `reasoning`, `temperature` ni parametros experimentales en
+este flujo de produccion estable.
 
-Si Structured Outputs devuelve `400 Bad Request`, el backend intenta un fallback
-controlado con:
+Si `json_object` devuelve `400 Bad Request`, el backend intenta un fallback
+controlado sin `text.format`:
 
 ```json
 {
-  "text": {
-    "format": { "type": "json_object" }
-  }
+  "model": "OPENAI_CHAT_MODEL o gpt-4.1-mini",
+  "store": false,
+  "input": [
+    { "role": "system", "content": "..." },
+    { "role": "user", "content": "{...}" }
+  ],
+  "max_output_tokens": 2400
 }
 ```
 
-El prompt sigue pidiendo JSON compatible con el schema y el backend valida y
-normaliza la respuesta antes de devolverla al frontend.
+El prompt pide: responder unicamente con JSON valido, sin Markdown, sin bloques
+``` y sin explicacion fuera del JSON. El backend extrae el primer objeto JSON
+valido si la respuesta trae texto alrededor, valida manualmente y normaliza
+campos faltantes antes de devolverlos al frontend.
+
+Structured Outputs estricto (`json_schema`) queda como fase futura. Para esta
+app personal/familiar se prioriza estabilidad y parsing manual robusto.
 
 ## Reglas de fuentes y citas
 
@@ -137,7 +143,7 @@ normaliza la respuesta antes de devolverla al frontend.
   cita o referencia exacta.
 - El backend no debe inventar paginas, autores, capitulos ni citas literales.
 - Si una fuente no tiene titulo, autor, URL o referencia, se usa string vacio
-  `""` para mantener el JSON Schema simple y estricto.
+  `""` para mantener un contrato JSON simple y facil de normalizar.
 
 ## Probar desde PowerShell
 
@@ -181,17 +187,18 @@ Estados esperados:
 - `502`: OpenAI no devolvio una respuesta valida o fallo la llamada externa.
 - `503`: `OPENAI_API_KEY` no esta configurada en Render o el modelo no esta
   disponible para la cuenta.
+- `504`: OpenAI tardo demasiado en responder.
 
 ## Troubleshooting: OpenAI 400 Bad Request
 
 Causas comunes:
 
-- Usar `response_format` en `/v1/responses` en lugar de `text.format`.
-- Envolver el schema como `text.format.json_schema` en vez de enviar
-  `type`, `name`, `schema` y `strict` directamente.
-- Configurar un modelo que no soporta Structured Outputs.
-- Usar features de JSON Schema no compatibles con modo estricto.
-- No pedir JSON explicitamente cuando se usa el fallback `json_object`.
+- Usar `response_format` en `/v1/responses`.
+- Usar `json_schema`/Structured Outputs con un modelo o cuenta que no lo acepta.
+- Configurar un modelo no disponible para la cuenta.
+- No pedir JSON explicitamente en el prompt cuando se usa `json_object`.
+- Enviar parametros no necesarios o incompatibles como `reasoning`,
+  `text.verbosity`, `temperature` o schema estricto.
 
 Logs seguros esperados en Render:
 
@@ -199,7 +206,7 @@ Logs seguros esperados en Render:
 study_workspace_ai_openai_request
 model=...
 has_text_format=true
-schema_name=study_ai_suggestions
+schema_name=null
 input_type=array
 max_output_tokens=2400
 ```

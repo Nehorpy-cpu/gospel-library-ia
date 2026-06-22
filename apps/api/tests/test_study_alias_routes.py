@@ -422,7 +422,7 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
         study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
 
         async def fake_generate_workspace_suggestions(**kwargs):
-            raise study.StudyAiProviderInvalidRequestError("invalid_json_schema")
+            raise study.StudyAiProviderInvalidRequestError("json_object_bad_request")
 
         study.generate_workspace_suggestions = fake_generate_workspace_suggestions
         response = self.client.post(
@@ -434,7 +434,7 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
         self.assertEqual(response.status_code, 502)
         self.assertEqual(
             response.json()["detail"],
-            "La IA respondio con una solicitud invalida hacia el proveedor. Revisa la configuracion del modelo o schema.",
+            "La IA respondio con un formato inesperado.",
         )
 
     def test_ai_suggest_returns_controlled_error_for_unavailable_model(self):
@@ -452,6 +452,22 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["detail"], "El modelo de IA configurado no esta disponible para esta cuenta.")
+
+    def test_ai_suggest_returns_controlled_error_for_timeout(self):
+        study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
+
+        async def fake_generate_workspace_suggestions(**kwargs):
+            raise study.StudyAiTimeoutError("timeout")
+
+        study.generate_workspace_suggestions = fake_generate_workspace_suggestions
+        response = self.client.post(
+            f"/api/study-workspaces/{WORKSPACE_ID}/ai-suggest",
+            headers={"X-User-Id": USER_ID},
+            json={"mode": "rapido", "maxSuggestions": 3},
+        )
+
+        self.assertEqual(response.status_code, 504)
+        self.assertEqual(response.json()["detail"], "La IA tardo demasiado en responder. Intenta nuevamente mas tarde.")
 
     def test_ai_suggest_respects_max_suggestions_and_does_not_save_blocks(self):
         study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)

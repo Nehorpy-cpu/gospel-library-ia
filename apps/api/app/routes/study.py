@@ -18,6 +18,8 @@ from app.services.study_ai import (
     StudyAiGenerationError,
     StudyAiModelUnavailableError,
     StudyAiProviderInvalidRequestError,
+    StudyAiTimeoutError,
+    StudyAiUnexpectedFormatError,
     generate_workspace_suggestions,
     load_workspace_local_context,
 )
@@ -1427,7 +1429,19 @@ async def ai_suggest_workspace(
         log.warning("study_workspace_ai_provider_invalid_request", workspace_id=workspace_id, error=str(exc))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="La IA respondio con una solicitud invalida hacia el proveedor. Revisa la configuracion del modelo o schema.",
+            detail="La IA respondio con un formato inesperado.",
+        ) from exc
+    except StudyAiUnexpectedFormatError as exc:
+        log.warning("study_workspace_ai_unexpected_format", workspace_id=workspace_id, error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="La IA respondio con un formato inesperado.",
+        ) from exc
+    except StudyAiTimeoutError as exc:
+        log.warning("study_workspace_ai_timeout", workspace_id=workspace_id, error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="La IA tardo demasiado en responder. Intenta nuevamente mas tarde.",
         ) from exc
     except StudyAiGenerationError as exc:
         log.warning("study_workspace_ai_suggestions_failed", workspace_id=workspace_id, error=str(exc))
