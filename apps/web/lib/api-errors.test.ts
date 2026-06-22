@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { apiErrorMessage, studyWorkspaceCreateErrorMessage } from "./api-errors.ts";
+import { apiErrorMessage, studyWorkspaceAiErrorMessage, studyWorkspaceCreateErrorMessage } from "./api-errors.ts";
 
 test("diferencia errores de autenticacion y API", () => {
   assert.equal(apiErrorMessage(401), "Debes iniciar sesion para continuar.");
@@ -15,8 +15,16 @@ test("mantiene detalles utiles para otros estados", () => {
 });
 
 test("usa mensajes especificos al crear estudios personales", () => {
-  assert.equal(studyWorkspaceCreateErrorMessage(401), "Debes iniciar sesión para crear estudios.");
-  assert.equal(studyWorkspaceCreateErrorMessage(404), "El endpoint de estudios no está disponible en la API desplegada.");
-  assert.equal(studyWorkspaceCreateErrorMessage(422), "Revisá los campos del estudio.");
+  assert.equal(studyWorkspaceCreateErrorMessage(401), "Debes iniciar sesion para crear estudios.");
+  assert.equal(studyWorkspaceCreateErrorMessage(404), "El endpoint de estudios no esta disponible en la API desplegada.");
+  assert.equal(studyWorkspaceCreateErrorMessage(422), "Revisa los campos del estudio.");
   assert.equal(studyWorkspaceCreateErrorMessage(500), "La API tuvo un error al crear el estudio.");
+});
+
+test("usa mensajes especificos para sugerencias de IA del estudio", () => {
+  assert.equal(studyWorkspaceAiErrorMessage(401), "Debes iniciar sesion para usar la IA del estudio.");
+  assert.equal(studyWorkspaceAiErrorMessage(404), "El endpoint de IA de estudios no esta disponible en la API desplegada.");
+  assert.equal(studyWorkspaceAiErrorMessage(422), "Revisa los campos del pedido de IA.");
+  assert.equal(studyWorkspaceAiErrorMessage(502), "No se pudo generar informacion con IA. Intenta nuevamente mas tarde.");
+  assert.equal(studyWorkspaceAiErrorMessage(503), "La funcion de IA todavia no esta configurada en el servidor.");
 });

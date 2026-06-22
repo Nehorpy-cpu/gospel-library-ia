@@ -100,6 +100,7 @@ class FakeConnection:
                       "id": "doc-1",
                       "title": "La fe en Jesucristo",
                       "author": "Autor real",
+                      "source_name": "BYU Speeches",
                       "source": "BYU Speeches",
                       "source_type": "byu_speeches_es",
                       "language": "es",
@@ -279,6 +280,7 @@ class StudyAliasRoutesTest(unittest.TestCase):
 class PersonalWorkspaceRoutesTest(unittest.TestCase):
     def setUp(self):
         self.original_get_conn = study.get_conn
+        self.original_generate_workspace_suggestions = study.generate_workspace_suggestions
         study.get_conn = personal_workspace_get_conn
         self.client = TestClient(app)
         PersonalWorkspaceFakeConnection.workspaces = {}
@@ -288,6 +290,7 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
 
     def tearDown(self):
         study.get_conn = self.original_get_conn
+        study.generate_workspace_suggestions = self.original_generate_workspace_suggestions
 
     def test_create_list_and_read_personal_workspace(self):
         response = study.create_workspace(
@@ -389,6 +392,122 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
         response = self.client.get("/api/study-workspaces/missing-id", headers={"X-User-Id": USER_ID})
 
         self.assertEqual(response.status_code, 404)
+
+    def test_ai_suggest_requires_existing_workspace(self):
+        response = self.client.post(
+            "/api/study-workspaces/missing-id/ai-suggest",
+            headers={"X-User-Id": USER_ID},
+            json={"mode": "rapido", "maxSuggestions": 3},
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_ai_suggest_returns_controlled_error_without_openai_key(self):
+        study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
+
+        async def fake_generate_workspace_suggestions(**kwargs):
+            raise study.StudyAiConfigurationError("missing")
+
+        study.generate_workspace_suggestions = fake_generate_workspace_suggestions
+        response = self.client.post(
+            f"/api/study-workspaces/{WORKSPACE_ID}/ai-suggest",
+            headers={"X-User-Id": USER_ID},
+            json={"mode": "rapido", "maxSuggestions": 3},
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"], "La funcion de IA todavia no esta configurada en el servidor.")
+
+    def test_ai_suggest_respects_max_suggestions_and_does_not_save_blocks(self):
+        study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
+        before_notes = len(PersonalWorkspaceFakeConnection.notes)
+
+        async def fake_generate_workspace_suggestions(**kwargs):
+            max_suggestions = kwargs["payload"]["maxSuggestions"]
+            return (
+                [
+                    {
+                        "type": "doctrinal_analysis",
+                        "title": f"Sugerencia {index}",
+                        "content": "Contenido editable",
+                        "source_title": None,
+                        "source_author": None,
+                        "source_reference": None,
+                        "source_url": None,
+                        "quote_text": None,
+                        "is_ai_generated": True,
+                        "confidence": "medium",
+                        "source_status": "none",
+                    }
+                    for index in range(max_suggestions)
+                ],
+                [],
+                [],
+                "test",
+            )
+
+        study.generate_workspace_suggestions = fake_generate_workspace_suggestions
+        response = self.client.post(
+            f"/api/study-workspaces/{WORKSPACE_ID}/ai-suggest",
+            headers={"X-User-Id": USER_ID},
+            json={"mode": "profundo", "maxSuggestions": 4},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()["suggestions"]), 4)
+        self.assertEqual(len(PersonalWorkspaceFakeConnection.notes), before_notes)
+
+    def test_ai_suggest_alias_route_works(self):
+        study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
+
+        async def fake_generate_workspace_suggestions(**kwargs):
+            return (
+                [
+                    {
+                        "type": "reflection_question",
+                        "title": "Pregunta de reflexión",
+                        "content": "¿Qué debo recordar?",
+                        "source_title": None,
+                        "source_author": None,
+                        "source_reference": None,
+                        "source_url": None,
+                        "quote_text": None,
+                        "is_ai_generated": True,
+                        "confidence": "medium",
+                        "source_status": "none",
+                    }
+                ],
+                [],
+                [],
+                "test",
+            )
+
+        study.generate_workspace_suggestions = fake_generate_workspace_suggestions
+        response = self.client.post(
+            f"/api/study/workspaces/{WORKSPACE_ID}/ai-suggest",
+            headers={"X-User-Id": USER_ID},
+            json={"mode": "rapido", "maxSuggestions": 1},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["suggestions"][0]["type"], "reflection_question")
+
+    def test_save_ai_suggestion_uses_existing_blocks_endpoint(self):
+        study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
+
+        response = self.client.post(
+            f"/api/study-workspaces/{WORKSPACE_ID}/blocks",
+            headers={"X-User-Id": USER_ID},
+            json={
+                "type": "doctrinal_analysis",
+                "title": "Análisis doctrinal",
+                "content": "Contenido revisado por el usuario.",
+                "isAiGenerated": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["type"], "doctrinal_analysis")
 
 
 if __name__ == "__main__":

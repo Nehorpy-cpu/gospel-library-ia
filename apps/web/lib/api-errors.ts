@@ -16,16 +16,38 @@ export function apiErrorMessage(status: number, fallback?: string): string {
 
 export function studyWorkspaceCreateErrorMessage(status: number): string {
   if (status === 401) {
-    return "Debes iniciar sesión para crear estudios.";
+    return "Debes iniciar sesion para crear estudios.";
   }
   if (status === 404) {
-    return "El endpoint de estudios no está disponible en la API desplegada.";
+    return "El endpoint de estudios no esta disponible en la API desplegada.";
   }
   if (status === 422) {
-    return "Revisá los campos del estudio.";
+    return "Revisa los campos del estudio.";
   }
   if (status >= 500) {
     return "La API tuvo un error al crear el estudio.";
+  }
+  return apiErrorMessage(status);
+}
+
+export function studyWorkspaceAiErrorMessage(status: number): string {
+  if (status === 401) {
+    return "Debes iniciar sesion para usar la IA del estudio.";
+  }
+  if (status === 404) {
+    return "El endpoint de IA de estudios no esta disponible en la API desplegada.";
+  }
+  if (status === 422) {
+    return "Revisa los campos del pedido de IA.";
+  }
+  if (status === 502) {
+    return "No se pudo generar informacion con IA. Intenta nuevamente mas tarde.";
+  }
+  if (status === 503) {
+    return "La funcion de IA todavia no esta configurada en el servidor.";
+  }
+  if (status >= 500) {
+    return "La API tuvo un error al generar informacion con IA.";
   }
   return apiErrorMessage(status);
 }

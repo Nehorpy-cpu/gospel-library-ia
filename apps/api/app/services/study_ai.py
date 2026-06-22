@@ -23,6 +23,89 @@ DEFAULT_BLOCKS = [
     "book_reference",
 ]
 
+WORKSPACE_SUGGESTION_TYPES = [
+    "doctrinal_analysis",
+    "scripture_context",
+    "name_meaning",
+    "christ_connection",
+    "scripture_connection",
+    "quote",
+    "manual_reference",
+    "book_reference",
+    "calling_application",
+    "reflection_question",
+    "powerful_phrase",
+    "personal_application",
+]
+
+WORKSPACE_DEFAULT_TYPES = [
+    "doctrinal_analysis",
+    "scripture_context",
+    "name_meaning",
+    "christ_connection",
+    "scripture_connection",
+    "quote",
+    "manual_reference",
+    "calling_application",
+    "reflection_question",
+    "powerful_phrase",
+]
+
+WORKSPACE_SUGGESTION_SCHEMA: dict[str, Any] = {
+    "name": "study_workspace_suggestions",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "suggestions": {
+                "type": "array",
+                "maxItems": 12,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "type": {"type": "string", "enum": WORKSPACE_SUGGESTION_TYPES},
+                        "title": {"type": "string"},
+                        "content": {"type": "string"},
+                        "source_title": {"type": ["string", "null"]},
+                        "source_author": {"type": ["string", "null"]},
+                        "source_reference": {"type": ["string", "null"]},
+                        "source_url": {"type": ["string", "null"]},
+                        "quote_text": {"type": ["string", "null"]},
+                        "is_ai_generated": {"type": "boolean"},
+                        "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+                        "source_status": {"type": "string", "enum": ["local", "suggested", "user_private", "none"]},
+                    },
+                    "required": [
+                        "type",
+                        "title",
+                        "content",
+                        "source_title",
+                        "source_author",
+                        "source_reference",
+                        "source_url",
+                        "quote_text",
+                        "is_ai_generated",
+                        "confidence",
+                        "source_status",
+                    ],
+                },
+            },
+            "warnings": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["suggestions", "warnings"],
+    },
+}
+
+
+class StudyAiConfigurationError(RuntimeError):
+    pass
+
+
+class StudyAiGenerationError(RuntimeError):
+    pass
+
 SUGGESTION_SCHEMA: dict[str, Any] = {
     "name": "study_project_suggestions",
     "strict": True,
@@ -176,6 +259,199 @@ def load_local_context(conn, project: dict[str, Any], user_id: str, limit: int =
         for row in previous_rows
     )
     return context
+
+
+def load_workspace_local_context(
+    conn,
+    workspace: dict[str, Any],
+    blocks: list[dict[str, Any]],
+    user_id: str,
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    settings = workspace.get("settings") or {}
+    query_seed = " ".join(
+        str(value or "")
+        for value in (
+            settings.get("title") or workspace.get("name"),
+            settings.get("scriptureReference") or settings.get("mainReference") or workspace.get("description"),
+            settings.get("personalThought"),
+            settings.get("topic"),
+            " ".join(str(block.get("title") or "") for block in blocks[:5]),
+            "Jesucristo",
+            "nombres" if _looks_like_name_study(settings.get("title") or workspace.get("name")) else "",
+        )
+    )
+    terms = _search_terms(query_seed)
+    context: list[dict[str, Any]] = []
+    if terms:
+        patterns = [f"%{term}%" for term in terms]
+        rows = conn.execute(
+            """
+            SELECT d.id::text, d.title, d.author, d.canonical_url, s.name AS source_name,
+                   left(coalesce(dc.text, d.text, ''), 900) AS excerpt
+            FROM documents d
+            JOIN sources s ON s.id = d.source_id
+            LEFT JOIN LATERAL (
+              SELECT text
+              FROM document_chunks
+              WHERE document_id = d.id AND text ILIKE ANY(%(patterns)s)
+              ORDER BY chunk_index
+              LIMIT 1
+            ) dc ON TRUE
+            WHERE d.deleted_at IS NULL
+              AND (d.title ILIKE ANY(%(patterns)s)
+                   OR coalesce(d.author, '') ILIKE ANY(%(patterns)s)
+                   OR coalesce(d.text, '') ILIKE ANY(%(patterns)s)
+                   OR dc.text IS NOT NULL)
+            ORDER BY d.updated_at DESC
+            LIMIT %(limit)s
+            """,
+            {"patterns": patterns, "limit": limit},
+        ).fetchall()
+        context.extend(
+            {
+                "kind": "library_document",
+                "document_id": row["id"],
+                "title": row["title"],
+                "author": row["author"],
+                "url": row["canonical_url"],
+                "source": row["source_name"],
+                "excerpt": row["excerpt"],
+            }
+            for row in rows
+        )
+    try:
+        private_rows = conn.execute(
+            """
+            SELECT id::text, title, author, source_type, citation_text, personal_note, tags
+            FROM user_private_sources
+            WHERE user_id = %(user_id)s
+            ORDER BY updated_at DESC
+            LIMIT 4
+            """,
+            {"user_id": user_id},
+        ).fetchall()
+    except Exception:
+        private_rows = []
+    context.extend(
+        {
+            "kind": "user_private_note",
+            "source_id": row["id"],
+            "title": row["title"],
+            "author": row["author"],
+            "source_type": row["source_type"],
+            "citation_text": row["citation_text"],
+            "personal_note": row["personal_note"],
+            "tags": row["tags"] or [],
+        }
+        for row in private_rows
+    )
+    return context
+
+
+async def generate_workspace_suggestions(
+    *,
+    workspace: dict[str, Any],
+    blocks: list[dict[str, Any]],
+    user_id: str,
+    payload: dict[str, Any],
+    local_context: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str], str]:
+    settings = get_settings()
+    max_suggestions = min(max(int(payload.get("maxSuggestions") or 8), 1), 12)
+    if settings.study_ai_max_suggestions:
+        max_suggestions = min(max_suggestions, settings.study_ai_max_suggestions)
+    warnings: list[str] = []
+    sources_used = _sources_used(local_context)
+    if not local_context:
+        warnings.append("No se encontraron suficientes fuentes locales; las referencias no verificadas se marcaran como sugeridas.")
+    if not settings.openai_api_key:
+        raise StudyAiConfigurationError("La funcion de IA todavia no esta configurada en el servidor.")
+
+    workspace_settings = workspace.get("settings") or {}
+    title = workspace_settings.get("title") or workspace.get("name")
+    scripture_reference = (
+        workspace_settings.get("scriptureReference")
+        or workspace_settings.get("mainReference")
+        or workspace.get("description")
+    )
+    mode = payload.get("mode") or "rapido"
+    user_prompt = _limit_text(str(payload.get("userPrompt") or payload.get("prompt") or ""), 1200)
+    preferred_sources = payload.get("preferredSources") or []
+    system_prompt = (
+        "Eres un asistente de estudio doctrinal para uso personal de miembros de La Iglesia de Jesucristo "
+        "de los Santos de los Ultimos Dias. Responde siempre en espanol. Sugiere bloques editables; no decidas "
+        "por el usuario. No inventes citas literales, paginas, capitulos, autores ni referencias exactas. "
+        "Distingue escritura, cita literal, parafrasis, comentario doctrinal, reflexion personal y pregunta de reflexion. "
+        "Usa quote_text solo cuando el texto literal este respaldado por el contexto local. Si una fuente no esta "
+        "verificada localmente, usa source_status='suggested' y describe la idea como referencia sugerida. "
+        "Incluye relacion con Jesucristo, preguntas de reflexion y aplicacion personal. Si hay callingContext, "
+        "incluye aplicacion al llamamiento. Si el modo es nombres o el titulo trata sobre nombres, incluye significado doctrinal de nombres."
+    )
+    user_payload = {
+        "workspace": {
+            "title": title,
+            "scriptureReference": scripture_reference,
+            "scriptureText": workspace_settings.get("scriptureText"),
+            "personalThought": workspace_settings.get("personalThought"),
+            "topic": workspace_settings.get("topic"),
+            "callingContext": workspace_settings.get("callingContext"),
+        },
+        "existingBlocks": [
+            {
+                "type": block.get("type"),
+                "title": block.get("title"),
+                "content": _limit_text(str(block.get("content") or ""), 500),
+            }
+            for block in blocks[:8]
+        ],
+        "mode": mode,
+        "preferredSources": preferred_sources,
+        "userPrompt": user_prompt,
+        "localContext": local_context[:10],
+        "maxSuggestions": max_suggestions,
+        "allowedTypes": WORKSPACE_SUGGESTION_TYPES,
+    }
+    request_body = {
+        "model": settings.openai_chat_model,
+        "store": False,
+        "input": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+        ],
+        "text": {
+            "verbosity": "low",
+            "format": {
+                "type": "json_schema",
+                "json_schema": WORKSPACE_SUGGESTION_SCHEMA,
+            },
+        },
+        "reasoning": {"effort": "low"},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=45) as client:
+            response = await client.post(
+                "https://api.openai.com/v1/responses",
+                headers={
+                    "Authorization": f"Bearer {settings.openai_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=request_body,
+            )
+            response.raise_for_status()
+            data = response.json()
+    except Exception as exc:
+        raise StudyAiGenerationError(
+            f"No se pudo generar informacion con IA. Detalle seguro: {sanitize_value(str(exc))}"
+        ) from exc
+
+    parsed = _extract_response_json(data)
+    suggestions = parsed.get("suggestions") if isinstance(parsed, dict) else None
+    if not isinstance(suggestions, list):
+        raise StudyAiGenerationError("OpenAI no devolvio sugerencias validas.")
+    warnings.extend(str(item) for item in parsed.get("warnings", []) if item)
+    normalized = [_normalize_workspace_suggestion(item) for item in suggestions[:max_suggestions] if isinstance(item, dict)]
+    return normalized, sources_used, warnings, "openai_responses"
 
 
 async def generate_suggestions(
@@ -347,6 +623,61 @@ def _extract_response_json(data: dict[str, Any]) -> dict[str, Any]:
             if content.get("type") in {"output_text", "text"} and isinstance(content.get("text"), str):
                 return json.loads(content["text"])
     return {}
+
+
+def _normalize_workspace_suggestion(item: dict[str, Any]) -> dict[str, Any]:
+    suggestion_type = str(item.get("type") or "doctrinal_analysis")
+    if suggestion_type not in WORKSPACE_SUGGESTION_TYPES:
+        suggestion_type = "doctrinal_analysis"
+    source_status = str(item.get("source_status") or "none")
+    if source_status not in {"local", "suggested", "user_private", "none"}:
+        source_status = "suggested"
+    confidence = str(item.get("confidence") or "medium")
+    if confidence not in {"low", "medium", "high"}:
+        confidence = "medium"
+    quote_text = item.get("quote_text")
+    if source_status != "local" and quote_text:
+        quote_text = None
+    return {
+        "type": suggestion_type,
+        "title": str(item.get("title") or "Sugerencia doctrinal")[:240],
+        "content": str(item.get("content") or ""),
+        "source_title": item.get("source_title"),
+        "source_author": item.get("source_author"),
+        "source_reference": item.get("source_reference"),
+        "source_url": item.get("source_url"),
+        "quote_text": quote_text,
+        "is_ai_generated": True,
+        "confidence": confidence,
+        "source_status": source_status,
+    }
+
+
+def _sources_used(local_context: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    sources: list[dict[str, Any]] = []
+    for item in local_context[:10]:
+        sources.append(
+            {
+                "kind": item.get("kind"),
+                "title": item.get("title"),
+                "author": item.get("author"),
+                "url": item.get("url"),
+                "source": item.get("source") or item.get("source_type"),
+            }
+        )
+    return sources
+
+
+def _limit_text(value: str, limit: int) -> str:
+    clean = " ".join(value.split())
+    return clean[:limit]
+
+
+def _looks_like_name_study(value: str | None) -> bool:
+    if not value:
+        return False
+    lowered = value.casefold()
+    return "nombre" in lowered or "nombres" in lowered
 
 
 def _search_terms(value: str) -> list[str]:

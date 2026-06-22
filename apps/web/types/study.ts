@@ -228,3 +228,39 @@ export type AiSuggestResponse = {
   warnings: string[];
   localContext: Array<Record<string, unknown>>;
 };
+
+export type WorkspaceAiSuggestionMode = "rapido" | "profundo" | "citas" | "manuales" | "nombres" | "llamamiento";
+
+export type WorkspaceAiSuggestionType =
+  | "doctrinal_analysis"
+  | "scripture_context"
+  | "name_meaning"
+  | "christ_connection"
+  | "scripture_connection"
+  | "quote"
+  | "manual_reference"
+  | "book_reference"
+  | "calling_application"
+  | "reflection_question"
+  | "powerful_phrase"
+  | "personal_application";
+
+export type WorkspaceAiSuggestion = {
+  type: WorkspaceAiSuggestionType;
+  title: string;
+  content: string;
+  source_title?: string | null;
+  source_author?: string | null;
+  source_reference?: string | null;
+  source_url?: string | null;
+  quote_text?: string | null;
+  is_ai_generated: boolean;
+  confidence: "low" | "medium" | "high";
+  source_status: "local" | "suggested" | "user_private" | "none";
+};
+
+export type WorkspaceAiSuggestResponse = {
+  suggestions: WorkspaceAiSuggestion[];
+  sources_used: Array<Record<string, unknown>>;
+  warnings: string[];
+};

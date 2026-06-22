@@ -5,8 +5,8 @@
 La Mesa de Estudio Doctrinal permite crear estudios personales o familiares con
 una escritura base, un pensamiento personal, un tema y bloques editables. Esta
 primera version se concentra en la estructura de workspace y edicion manual.
-La IA queda preparada para una fase posterior, sin exponer claves ni llamar
-OpenAI desde el frontend.
+La IA se ejecuta solo desde el backend. El frontend nunca recibe ni expone la
+clave de OpenAI.
 
 ## Rutas frontend
 
@@ -42,6 +42,11 @@ Bloques editables:
 - `POST /api/study/workspaces/{id}/blocks`
 - `PATCH /api/study/workspaces/{id}/blocks/{block_id}`
 - `DELETE /api/study/workspaces/{id}/blocks/{block_id}`
+
+Sugerencias con IA:
+
+- `POST /api/study-workspaces/{id}/ai-suggest`
+- `POST /api/study/workspaces/{id}/ai-suggest`
 
 Tambien siguen disponibles los endpoints existentes de notas, citas,
 highlights, post-its, filtros y documentos relacionados.
@@ -117,22 +122,22 @@ Cada bloque visible permite:
 
 El borrado es suave: marca `deleted_at` en la tabla real reutilizada.
 
-## Proxima fase de IA
+## Anadir informacion con IA
 
-El boton `Anadir informacion con IA` existe como preparacion visual. En esta
-fase muestra el mensaje:
+El boton `Anadir informacion con IA` en `/study/[workspaceId]` llama al backend:
 
 ```txt
-Esta funcion se activara en la siguiente fase.
+POST /api/study-workspaces/{workspaceId}/ai-suggest
 ```
 
-La siguiente fase puede conectar este boton al backend seguro de sugerencias,
-manteniendo estas reglas:
+La IA devuelve sugerencias editables. Nada se guarda automaticamente. Cada
+sugerencia puede guardarse con el endpoint existente de bloques:
 
-- OpenAI solo desde backend.
-- Nunca exponer `OPENAI_API_KEY` en frontend.
-- La IA devuelve bloques sugeridos, no guarda automaticamente.
-- El usuario decide que guardar, editar o descartar.
+```txt
+POST /api/study-workspaces/{workspaceId}/blocks
+```
+
+Ver detalles operativos en `docs/features/AI_STUDY_SUGGESTIONS.md`.
 
 ## Variables necesarias
 
@@ -150,6 +155,9 @@ CORS_ORIGINS=http://localhost:3000,https://www.estudiopy.com,https://estudiopy.c
 ALLOW_DEV_AUTH_HEADERS=false
 ALLOW_STUDY_DEMO_USER=true
 STUDY_DEMO_USER_ID=00000000-0000-4000-8000-000000000001
+OPENAI_API_KEY=...
+OPENAI_CHAT_MODEL=gpt-5.5
+STUDY_AI_MAX_SUGGESTIONS=12
 ```
 
 `ALLOW_STUDY_DEMO_USER=true` mantiene la compatibilidad de la Mesa de Estudio

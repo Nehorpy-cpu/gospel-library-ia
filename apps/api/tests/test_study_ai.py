@@ -1,6 +1,6 @@
 import unittest
 
-from app.services.study_ai import _fallback_suggestions, prompt_hash
+from app.services.study_ai import _fallback_suggestions, _normalize_workspace_suggestion, prompt_hash
 
 
 class StudyAiServiceTests(unittest.TestCase):
@@ -27,6 +27,22 @@ class StudyAiServiceTests(unittest.TestCase):
         self.assertIn("type", suggestions[0])
         self.assertIn("title", suggestions[0])
         self.assertIn("content", suggestions[0])
+
+    def test_workspace_suggestion_clears_unverified_quote_text(self):
+        suggestion = _normalize_workspace_suggestion(
+            {
+                "type": "quote",
+                "title": "Cita sugerida",
+                "content": "Buscar y verificar antes de guardar.",
+                "quote_text": "Texto literal no verificado",
+                "source_status": "suggested",
+                "confidence": "medium",
+            }
+        )
+
+        self.assertIsNone(suggestion["quote_text"])
+        self.assertEqual(suggestion["source_status"], "suggested")
+        self.assertTrue(suggestion["is_ai_generated"])
 
 
 if __name__ == "__main__":

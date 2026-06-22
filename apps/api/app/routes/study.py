@@ -1,7 +1,7 @@
-from typing import Any
+from typing import Any, Literal
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
@@ -11,11 +11,19 @@ from app.core.logging import logger
 from app.services.auth import get_request_auth_context, normalize_user_id, require_study_user
 from app.services.db import get_conn
 from app.services.qdrant_admin import QdrantAdmin
+from app.services.rate_limit import RateLimiter
 from app.services.source_filters import normalize_source_type, source_type_aliases
+from app.services.study_ai import (
+    StudyAiConfigurationError,
+    StudyAiGenerationError,
+    generate_workspace_suggestions,
+    load_workspace_local_context,
+)
 
 router = APIRouter(prefix="/api/study-workspaces", tags=["study"], dependencies=[Depends(require_study_user)])
 alias_router = APIRouter(prefix="/api/study", tags=["study"], dependencies=[Depends(require_study_user)])
 log = logger(__name__)
+limiter = RateLimiter()
 
 
 class WorkspacePayload(BaseModel):
@@ -186,6 +194,54 @@ class BlockUpdatePayload(BaseModel):
     sourceUrl: str | None = None
     isAiGenerated: bool | None = None
     sortOrder: int | None = None
+
+
+WorkspaceAiMode = Literal["rapido", "profundo", "citas", "manuales", "nombres", "llamamiento"]
+WorkspaceAiSuggestionType = Literal[
+    "doctrinal_analysis",
+    "scripture_context",
+    "name_meaning",
+    "christ_connection",
+    "scripture_connection",
+    "quote",
+    "manual_reference",
+    "book_reference",
+    "calling_application",
+    "reflection_question",
+    "powerful_phrase",
+    "personal_application",
+]
+WorkspaceAiSourceStatus = Literal["local", "suggested", "user_private", "none"]
+WorkspaceAiConfidence = Literal["low", "medium", "high"]
+
+
+class WorkspaceAiSuggestPayload(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    mode: WorkspaceAiMode = "rapido"
+    userPrompt: str | None = Field(default=None, max_length=1200, validation_alias=AliasChoices("userPrompt", "user_prompt"))
+    preferredSources: list[str] = Field(default_factory=list, validation_alias=AliasChoices("preferredSources", "preferred_sources"))
+    maxSuggestions: int = Field(default=8, ge=1, le=12, validation_alias=AliasChoices("maxSuggestions", "max_suggestions"))
+
+
+class WorkspaceAiSuggestion(BaseModel):
+    type: WorkspaceAiSuggestionType
+    title: str
+    content: str
+    source_title: str | None = None
+    source_author: str | None = None
+    source_reference: str | None = None
+    source_url: str | None = None
+    quote_text: str | None = None
+    is_ai_generated: bool = True
+    confidence: WorkspaceAiConfidence = "medium"
+    source_status: WorkspaceAiSourceStatus = "none"
+
+
+class WorkspaceAiSuggestResponse(BaseModel):
+    suggestions: list[WorkspaceAiSuggestion]
+    sources_used: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 def current_user_id(x_user_id: str | None = Header(default=None, alias="X-User-Id")) -> str:
@@ -1330,6 +1386,45 @@ def delete_block(workspace_id: str, block_id: str, user_id: str | None = Header(
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Block not found")
 
 
+@router.post("/{workspace_id}/ai-suggest", response_model=WorkspaceAiSuggestResponse)
+async def ai_suggest_workspace(
+    workspace_id: str,
+    payload: WorkspaceAiSuggestPayload,
+    request: Request,
+    user_id: str | None = Header(default=None, alias="X-User-Id"),
+):
+    user_id = current_user_id(user_id)
+    settings = get_settings()
+    await limiter.check(request, settings.chat_rate_limit_per_minute, scope="study-ai")
+    await limiter.check_daily(request, settings.max_user_study_ai_per_day, "study-ai")
+    with get_conn() as conn:
+        conn.row_factory = dict_row
+        workspace = _require_workspace(conn, workspace_id, user_id)
+        blocks = _workspace_blocks(conn, workspace_id, user_id)
+        local_context = load_workspace_local_context(conn, workspace, blocks, user_id)
+    try:
+        suggestions, sources_used, warnings, provider = await generate_workspace_suggestions(
+            workspace=workspace,
+            blocks=blocks,
+            user_id=user_id,
+            payload=payload.model_dump(mode="json"),
+            local_context=local_context,
+        )
+    except StudyAiConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="La funcion de IA todavia no esta configurada en el servidor.",
+        ) from exc
+    except StudyAiGenerationError as exc:
+        log.warning("study_workspace_ai_suggestions_failed", workspace_id=workspace_id, error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="No se pudo generar informacion con IA. Intenta nuevamente mas tarde.",
+        ) from exc
+    log.info("study_workspace_ai_suggestions_generated", workspace_id=workspace_id, user_id=user_id, provider=provider)
+    return {"suggestions": suggestions, "sources_used": sources_used, "warnings": warnings}
+
+
 @alias_router.get("/workspaces")
 def alias_list_workspaces(
     user_id: str | None = Header(default=None, alias="X-User-Id"),
@@ -1530,6 +1625,16 @@ def alias_update_block(workspace_id: str, block_id: str, payload: BlockUpdatePay
 @alias_router.delete("/workspaces/{workspace_id}/blocks/{block_id}")
 def alias_delete_block(workspace_id: str, block_id: str, user_id: str | None = Header(default=None, alias="X-User-Id")):
     return delete_block(workspace_id=workspace_id, block_id=block_id, user_id=user_id)
+
+
+@alias_router.post("/workspaces/{workspace_id}/ai-suggest", response_model=WorkspaceAiSuggestResponse)
+async def alias_ai_suggest_workspace(
+    workspace_id: str,
+    payload: WorkspaceAiSuggestPayload,
+    request: Request,
+    user_id: str | None = Header(default=None, alias="X-User-Id"),
+):
+    return await ai_suggest_workspace(workspace_id=workspace_id, payload=payload, request=request, user_id=user_id)
 
 
 def _update_json_resource(

@@ -15,6 +15,8 @@ import type {
   StudySourceType,
   StudyWorkspace,
   UserPrivateSource,
+  WorkspaceAiSuggestResponse,
+  WorkspaceAiSuggestionMode,
   WorkspaceSourceFilter
 } from "@/types/study";
 import { chatRequestSchema, searchRequestSchema } from "@/lib/validators";
@@ -22,7 +24,7 @@ import type { SourceFilterOption } from "@/lib/source-filters";
 import type { TalkBuilderOutline, TalkBuilderRequest, TalkDraftResponse } from "@/types/talk-builder";
 import type { CallingFocus } from "@/lib/church-callings";
 import { apiFetch } from "@/lib/api-client";
-import { apiErrorMessage, studyWorkspaceCreateErrorMessage } from "@/lib/api-errors";
+import { apiErrorMessage, studyWorkspaceAiErrorMessage, studyWorkspaceCreateErrorMessage } from "@/lib/api-errors";
 import { buildDocumentDetailPath } from "@/lib/document-detail-url";
 
 const MISSING_OPENAI_MESSAGE = "Falta configurar la clave de OpenAI para busqueda IA.";
@@ -641,6 +643,27 @@ export const studyApi = {
     return request<{ deleted: boolean }>(`/study-workspaces/${workspaceId}/blocks/${blockId}`, {
       method: "DELETE",
       headers: studyHeaders(userId)
+    });
+  },
+  suggestWorkspaceBlocks(
+    userId: string,
+    workspaceId: string,
+    payload: {
+      mode?: WorkspaceAiSuggestionMode;
+      userPrompt?: string;
+      preferredSources?: string[];
+      maxSuggestions?: number;
+    }
+  ) {
+    return request<WorkspaceAiSuggestResponse>(`/study-workspaces/${workspaceId}/ai-suggest`, {
+      method: "POST",
+      headers: studyHeaders(userId),
+      body: JSON.stringify(payload)
+    }).catch((error) => {
+      if (error instanceof ApiHttpError) {
+        throw new ApiHttpError(studyWorkspaceAiErrorMessage(error.status), error.status);
+      }
+      throw error;
     });
   },
   related(userId: string, workspaceId: string, limit = 12) {

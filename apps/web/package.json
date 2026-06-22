@@ -9,7 +9,7 @@
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
     "test:document-detail-url": "node --test lib/document-detail-url.test.ts",
-    "test:api-client": "node --test lib/api-client.test.ts lib/api-errors.test.ts"
+    "test:api-client": "node --test lib/api-client.test.ts lib/api-errors.test.ts lib/study-ai.test.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.63.0",

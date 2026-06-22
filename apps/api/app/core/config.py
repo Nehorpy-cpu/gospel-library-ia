@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     max_user_talk_builder_per_day: int = 20
     max_user_exports_per_day: int = 10
     max_user_study_ai_per_day: int = 20
-    study_ai_max_suggestions: int = 10
+    study_ai_max_suggestions: int = 12
     beta_max_workspaces_per_user: int = 12
     beta_allowlist_enabled: bool = False
     beta_environment: str = "beta"

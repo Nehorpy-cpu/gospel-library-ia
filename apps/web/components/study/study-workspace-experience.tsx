@@ -10,12 +10,24 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { studyApi } from "@/lib/api";
+import {
+  type EditableWorkspaceAiSuggestion,
+  isSuggestedReference,
+  mapWorkspaceAiTypeToBlockType,
+  sourceStatusLabel
+} from "@/lib/study-ai";
 import { cn } from "@/lib/utils";
 import { useStudyWorkspaceStore } from "@/stores/study-workspace-store";
-import type { StudyBlock, StudyBlockType, StudyWorkspace } from "@/types/study";
+import type { StudyBlock, StudyBlockType, StudyWorkspace, WorkspaceAiSuggestionMode } from "@/types/study";
 
 type Props = {
   workspaceId?: string;
+};
+
+type AiFormState = {
+  mode: WorkspaceAiSuggestionMode;
+  userPrompt: string;
+  maxSuggestions: number;
 };
 
 const blockLabels: Record<string, string> = {
@@ -27,6 +39,36 @@ const blockLabels: Record<string, string> = {
   doctrinal_analysis: "Analisis doctrinal"
 };
 
+const aiModeLabels: Record<WorkspaceAiSuggestionMode, string> = {
+  rapido: "Rapido",
+  profundo: "Profundo",
+  citas: "Citas",
+  manuales: "Manuales",
+  nombres: "Nombres",
+  llamamiento: "Llamamiento"
+};
+
+const aiTypeLabels: Record<EditableWorkspaceAiSuggestion["type"], string> = {
+  doctrinal_analysis: "Analisis doctrinal",
+  scripture_context: "Contexto de escritura",
+  name_meaning: "Significado de nombres",
+  christ_connection: "Relacion con Jesucristo",
+  scripture_connection: "Conexion de escrituras",
+  quote: "Cita",
+  manual_reference: "Referencia de manual",
+  book_reference: "Referencia de libro",
+  calling_application: "Aplicacion al llamamiento",
+  reflection_question: "Pregunta de reflexion",
+  powerful_phrase: "Frase poderosa",
+  personal_application: "Aplicacion personal"
+};
+
+const confidenceLabels: Record<EditableWorkspaceAiSuggestion["confidence"], string> = {
+  low: "Baja",
+  medium: "Media",
+  high: "Alta"
+};
+
 export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Props) {
   const queryClient = useQueryClient();
   const userId = useStudyWorkspaceStore((state) => state.userId);
@@ -34,7 +76,15 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
   const [postIt, setPostIt] = useState("");
   const [reflection, setReflection] = useState("");
   const [editingBlock, setEditingBlock] = useState<StudyBlock | null>(null);
-  const [aiNotice, setAiNotice] = useState(false);
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiForm, setAiForm] = useState<AiFormState>({
+    mode: "rapido" as WorkspaceAiSuggestionMode,
+    userPrompt: "",
+    maxSuggestions: 8
+  });
+  const [aiSuggestions, setAiSuggestions] = useState<EditableWorkspaceAiSuggestion[]>([]);
+  const [aiWarnings, setAiWarnings] = useState<string[]>([]);
+  const [aiStatus, setAiStatus] = useState<string | null>(null);
 
   const workspaces = useQuery({
     queryKey: ["study-workspaces", userId],
@@ -63,6 +113,10 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
       content?: string;
       quoteText?: string | null;
       sourceTitle?: string | null;
+      sourceAuthor?: string | null;
+      sourceReference?: string | null;
+      sourceUrl?: string | null;
+      isAiGenerated?: boolean;
     }) => studyApi.createWorkspaceBlock(userId, workspaceId as string, payload),
     onSuccess: () => {
       setManualBlock({ title: "", content: "", quoteText: "" });
@@ -89,6 +143,52 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
   const archiveWorkspace = useMutation({
     mutationFn: () => studyApi.deleteWorkspace(userId, workspaceId as string),
     onSuccess: invalidate
+  });
+
+  const generateAiSuggestions = useMutation({
+    mutationFn: () =>
+      studyApi.suggestWorkspaceBlocks(userId, workspaceId as string, {
+        mode: aiForm.mode,
+        userPrompt: aiForm.userPrompt.trim() || undefined,
+        preferredSources: ["biblioteca", "manuales", "discursos"],
+        maxSuggestions: aiForm.maxSuggestions
+      }),
+    onMutate: () => {
+      setAiStatus("Generando sugerencias...");
+      setAiWarnings([]);
+    },
+    onSuccess: (response) => {
+      setAiSuggestions(
+        response.suggestions.map((suggestion, index) => ({
+          ...suggestion,
+          localId: `${Date.now()}-${index}`
+        }))
+      );
+      setAiWarnings(response.warnings);
+      setAiStatus(response.suggestions.length ? "Sugerencias generadas" : "No se encontraron suficientes fuentes locales");
+    },
+    onError: (error) => {
+      setAiStatus(error instanceof Error ? error.message : "No se pudo generar informacion con IA");
+    }
+  });
+
+  const saveAiSuggestion = useMutation({
+    mutationFn: (suggestion: EditableWorkspaceAiSuggestion) =>
+      studyApi.createWorkspaceBlock(userId, workspaceId as string, {
+        type: mapWorkspaceAiTypeToBlockType(suggestion.type),
+        title: suggestion.title,
+        content: suggestion.content,
+        quoteText: suggestion.quote_text,
+        sourceTitle: suggestion.source_title,
+        sourceAuthor: suggestion.source_author,
+        sourceReference: suggestion.source_reference,
+        sourceUrl: suggestion.source_url,
+        isAiGenerated: true
+      }),
+    onSuccess: (_, suggestion) => {
+      setAiSuggestions((items) => items.map((item) => (item.localId === suggestion.localId ? { ...item, saved: true } : item)));
+      invalidate();
+    }
   });
 
   const exportMarkdown = () => {
@@ -171,15 +271,27 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
                 <h2 className="font-semibold">Bloques del estudio</h2>
                 <p className="mt-1 text-sm text-muted-foreground">Edita, guarda o elimina cualquier bloque.</p>
               </div>
-              <Button variant="outline" disabled={!workspaceId} onClick={() => setAiNotice(true)}>
+              <Button variant="outline" disabled={!workspaceId} onClick={() => setAiPanelOpen((value) => !value)}>
                 <Sparkles className="h-4 w-4" />
                 Anadir informacion con IA
               </Button>
             </div>
-            {aiNotice ? (
-              <p className="mt-3 rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
-                Esta funcion se activara en la siguiente fase.
-              </p>
+            {aiPanelOpen ? (
+              <AiSuggestionsPanel
+                form={aiForm}
+                suggestions={aiSuggestions}
+                warnings={aiWarnings}
+                status={aiStatus}
+                generating={generateAiSuggestions.isPending}
+                saving={saveAiSuggestion.isPending}
+                onFormChange={setAiForm}
+                onGenerate={() => generateAiSuggestions.mutate()}
+                onSuggestionChange={(localId, patch) =>
+                  setAiSuggestions((items) => items.map((item) => (item.localId === localId ? { ...item, ...patch } : item)))
+                }
+                onDiscard={(localId) => setAiSuggestions((items) => items.filter((item) => item.localId !== localId))}
+                onSave={(suggestion) => saveAiSuggestion.mutate(suggestion)}
+              />
             ) : null}
           </Card>
 
@@ -304,6 +416,149 @@ function EmptyStudyState() {
         </Button>
       </Link>
     </Card>
+  );
+}
+
+function AiSuggestionsPanel({
+  form,
+  suggestions,
+  warnings,
+  status,
+  generating,
+  saving,
+  onFormChange,
+  onGenerate,
+  onSuggestionChange,
+  onDiscard,
+  onSave
+}: {
+  form: AiFormState;
+  suggestions: EditableWorkspaceAiSuggestion[];
+  warnings: string[];
+  status: string | null;
+  generating: boolean;
+  saving: boolean;
+  onFormChange: (form: AiFormState) => void;
+  onGenerate: () => void;
+  onSuggestionChange: (localId: string, patch: Partial<EditableWorkspaceAiSuggestion>) => void;
+  onDiscard: (localId: string) => void;
+  onSave: (suggestion: EditableWorkspaceAiSuggestion) => void;
+}) {
+  return (
+    <div className="mt-4 rounded-lg border bg-muted/20 p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+        <div className="grid flex-1 gap-3 md:grid-cols-[180px_1fr_120px]">
+          <label className="text-sm">
+            <span className="mb-1 block font-medium">Modo</span>
+            <select
+              value={form.mode}
+              onChange={(event) => onFormChange({ ...form, mode: event.target.value as WorkspaceAiSuggestionMode })}
+              className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+            >
+              {Object.entries(aiModeLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block font-medium">Pedido opcional</span>
+            <Input
+              value={form.userPrompt}
+              onChange={(event) => onFormChange({ ...form, userPrompt: event.target.value })}
+              placeholder="Ej.: conecta este pasaje con Jesucristo y mi llamamiento"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block font-medium">Cantidad</span>
+            <Input
+              type="number"
+              min={1}
+              max={12}
+              value={form.maxSuggestions}
+              onChange={(event) =>
+                onFormChange({ ...form, maxSuggestions: Math.min(Math.max(Number(event.target.value) || 1, 1), 12) })
+              }
+            />
+          </label>
+        </div>
+        <Button disabled={generating} onClick={onGenerate}>
+          <Sparkles className="h-4 w-4" />
+          {generating ? "Generando..." : "Generar sugerencias"}
+        </Button>
+      </div>
+      <p className="mt-3 text-xs leading-5 text-muted-foreground">
+        La IA propone bloques editables. Nada se guarda en tu estudio hasta que presiones Guardar bloque.
+      </p>
+      {status ? <p className="mt-3 rounded-md bg-background p-2 text-sm text-muted-foreground">{status}</p> : null}
+      {warnings.length ? (
+        <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
+          {warnings.map((warning) => (
+            <p key={warning}>{warning}</p>
+          ))}
+        </div>
+      ) : null}
+      {suggestions.length ? (
+        <div className="mt-4 grid gap-3">
+          {suggestions.map((suggestion) => (
+            <Card key={suggestion.localId} className={cn("p-4", suggestion.saved && "border-primary/60 bg-primary/5")}>
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div className="flex flex-wrap gap-2">
+                  <Badge>{aiTypeLabels[suggestion.type]}</Badge>
+                  <Badge>{sourceStatusLabel(suggestion.source_status)}</Badge>
+                  <Badge>Confianza {confidenceLabels[suggestion.confidence]}</Badge>
+                  {suggestion.saved ? <Badge>Guardada</Badge> : null}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={saving || suggestion.saved}
+                    onClick={() => onSave(suggestion)}
+                  >
+                    <Save className="h-4 w-4" />
+                    Guardar bloque
+                  </Button>
+                  <Button size="sm" variant="ghost" disabled={saving} onClick={() => onDiscard(suggestion.localId)}>
+                    Descartar
+                  </Button>
+                </div>
+              </div>
+              <div className="mt-3 space-y-2">
+                <Input
+                  value={suggestion.title}
+                  onChange={(event) => onSuggestionChange(suggestion.localId, { title: event.target.value })}
+                  placeholder="Titulo del bloque"
+                />
+                <textarea
+                  value={suggestion.quote_text ?? ""}
+                  onChange={(event) => onSuggestionChange(suggestion.localId, { quote_text: event.target.value || null })}
+                  placeholder="Cita literal corta, solo si esta verificada"
+                  className="min-h-16 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                />
+                <textarea
+                  value={suggestion.content}
+                  onChange={(event) => onSuggestionChange(suggestion.localId, { content: event.target.value })}
+                  placeholder="Contenido editable"
+                  className="min-h-28 w-full rounded-md border bg-background px-3 py-2 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+              <SourceLine
+                title={suggestion.source_title}
+                author={suggestion.source_author}
+                reference={suggestion.source_reference}
+              />
+              {isSuggestedReference(suggestion.source_status) ? (
+                <p className="mt-3 text-xs text-amber-700 dark:text-amber-200">
+                  Referencia no verificada localmente. Revisala antes de usarla como cita o fuente exacta.
+                </p>
+              ) : null}
+            </Card>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
