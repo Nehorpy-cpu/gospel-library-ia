@@ -40,6 +40,9 @@ export function studyWorkspaceAiErrorMessage(status: number): string {
   if (status === 422) {
     return "Revisa los campos del pedido de IA.";
   }
+  if (status === 429) {
+    return "La IA alcanzo un limite temporal. Intenta nuevamente mas tarde.";
+  }
   if (status === 502) {
     return "La IA respondio con un formato inesperado o invalido.";
   }

@@ -195,6 +195,68 @@ class StudyAiServiceTests(unittest.TestCase):
         finally:
             study_ai.httpx.AsyncClient = original_async_client
 
+    def test_openai_401_and_403_raise_configuration_error(self):
+        original_async_client = study_ai.httpx.AsyncClient
+
+        class FakeAsyncClient:
+            status_code = 401
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return None
+
+            async def post(self, url, headers=None, json=None):
+                return httpx.Response(
+                    self.status_code,
+                    json={"error": {"message": "invalid api key", "type": "invalid_request_error"}},
+                    request=httpx.Request("POST", url),
+                )
+
+        study_ai.httpx.AsyncClient = FakeAsyncClient
+        try:
+            for status_code in (401, 403):
+                FakeAsyncClient.status_code = status_code
+                with self.assertRaises(study_ai.StudyAiConfigurationError) as context:
+                    asyncio.run(study_ai._post_openai_responses("sk-test", {"model": "gpt-4.1-mini"}))
+                self.assertEqual(getattr(context.exception, "stage"), "openai_request")
+                self.assertNotIn("sk-test", str(context.exception))
+        finally:
+            study_ai.httpx.AsyncClient = original_async_client
+
+    def test_openai_429_raises_rate_limit_error(self):
+        original_async_client = study_ai.httpx.AsyncClient
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return None
+
+            async def post(self, url, headers=None, json=None):
+                return httpx.Response(
+                    429,
+                    json={"error": {"message": "rate limit reached", "type": "rate_limit_error"}},
+                    request=httpx.Request("POST", url),
+                )
+
+        study_ai.httpx.AsyncClient = FakeAsyncClient
+        try:
+            with self.assertRaises(study_ai.StudyAiProviderRateLimitError) as context:
+                asyncio.run(study_ai._post_openai_responses("sk-test", {"model": "gpt-4.1-mini"}))
+            self.assertEqual(getattr(context.exception, "stage"), "openai_request")
+            self.assertNotIn("sk-test", str(context.exception))
+        finally:
+            study_ai.httpx.AsyncClient = original_async_client
+
     def test_workspace_generation_handles_null_settings_empty_blocks_and_no_local_context(self):
         original_async_client = study_ai.httpx.AsyncClient
         original_get_settings = study_ai.get_settings

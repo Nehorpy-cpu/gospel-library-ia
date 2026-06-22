@@ -19,6 +19,7 @@ from app.services.study_ai import (
     StudyAiGenerationError,
     StudyAiModelUnavailableError,
     StudyAiProviderInvalidRequestError,
+    StudyAiProviderRateLimitError,
     StudyAiTimeoutError,
     StudyAiUnexpectedFormatError,
     generate_workspace_suggestions,
@@ -55,6 +56,10 @@ def _log_ai_suggest_failure(
         error_message=_safe_error_message(exc),
         stage=stage,
     )
+
+
+def _ai_error_detail(message: str, stage: str | None = None) -> str:
+    return f"{message} Etapa: {stage}." if stage else message
 
 
 class WorkspacePayload(BaseModel):
@@ -1483,7 +1488,7 @@ async def ai_suggest_workspace(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="No se pudo generar informacion con IA.",
+            detail=_ai_error_detail("No se pudo generar informacion con IA.", stage),
         ) from exc
 
     try:
@@ -1520,16 +1525,30 @@ async def ai_suggest_workspace(
             detail="El modelo de IA configurado no esta disponible para esta cuenta.",
         ) from exc
     except StudyAiProviderInvalidRequestError as exc:
+        error_stage = getattr(exc, "stage", "openai_request")
         _log_ai_suggest_failure(
             workspace_id=workspace_id,
             user_id=resolved_user_id,
             payload=payload,
-            stage=getattr(exc, "stage", "openai_request"),
+            stage=error_stage,
             exc=exc,
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="La IA respondio con una solicitud invalida hacia el proveedor.",
+        ) from exc
+    except StudyAiProviderRateLimitError as exc:
+        error_stage = getattr(exc, "stage", "openai_request")
+        _log_ai_suggest_failure(
+            workspace_id=workspace_id,
+            user_id=resolved_user_id,
+            payload=payload,
+            stage=error_stage,
+            exc=exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="La IA alcanzo un limite temporal del proveedor. Intenta nuevamente mas tarde.",
         ) from exc
     except StudyAiUnexpectedFormatError as exc:
         _log_ai_suggest_failure(
@@ -1589,7 +1608,7 @@ async def ai_suggest_workspace(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="No se pudo generar informacion con IA.",
+            detail=_ai_error_detail("No se pudo generar informacion con IA.", stage),
         ) from exc
 
     response_payload = {"suggestions": suggestions, "sources_used": sources_used, "warnings": warnings}
@@ -1609,6 +1628,55 @@ async def ai_suggest_workspace(
         ) from exc
     log.info("study_workspace_ai_suggestions_generated", workspace_id=workspace_id, user_id=resolved_user_id, provider=provider)
     return response.model_dump()
+
+
+@router.get("/{workspace_id}/ai-suggest/health")
+def ai_suggest_workspace_health(
+    workspace_id: str,
+    user_id: str | None = Header(default=None, alias="X-User-Id"),
+):
+    resolved_user_id = current_user_id(user_id)
+    settings = get_settings()
+    result = {
+        "workspace_exists": False,
+        "user_authorized": True,
+        "openai_key_configured": bool(settings.openai_api_key),
+        "model_configured": bool((settings.openai_chat_model or "").strip()),
+        "local_context_available": False,
+    }
+    try:
+        with get_conn() as conn:
+            conn.row_factory = dict_row
+            try:
+                workspace = _require_workspace(conn, workspace_id, resolved_user_id)
+            except HTTPException as exc:
+                if exc.status_code == status.HTTP_404_NOT_FOUND:
+                    return result
+                raise
+            result["workspace_exists"] = True
+            try:
+                blocks = _workspace_blocks(conn, workspace_id, resolved_user_id)
+                load_workspace_local_context(conn, workspace, blocks, resolved_user_id)
+                result["local_context_available"] = True
+            except Exception as exc:
+                _log_ai_suggest_failure(
+                    workspace_id=workspace_id,
+                    user_id=resolved_user_id,
+                    payload=None,
+                    stage="local_context",
+                    exc=exc,
+                )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _log_ai_suggest_failure(
+            workspace_id=workspace_id,
+            user_id=resolved_user_id,
+            payload=None,
+            stage="load_workspace",
+            exc=exc,
+        )
+    return result
 
 
 @alias_router.get("/workspaces")
@@ -1821,6 +1889,14 @@ async def alias_ai_suggest_workspace(
     user_id: str | None = Header(default=None, alias="X-User-Id"),
 ):
     return await ai_suggest_workspace(workspace_id=workspace_id, payload=payload, request=request, user_id=user_id)
+
+
+@alias_router.get("/workspaces/{workspace_id}/ai-suggest/health")
+def alias_ai_suggest_workspace_health(
+    workspace_id: str,
+    user_id: str | None = Header(default=None, alias="X-User-Id"),
+):
+    return ai_suggest_workspace_health(workspace_id=workspace_id, user_id=user_id)
 
 
 def _update_json_resource(

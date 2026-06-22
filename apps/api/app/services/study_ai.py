@@ -133,6 +133,10 @@ class StudyAiModelUnavailableError(StudyAiGenerationError):
     pass
 
 
+class StudyAiProviderRateLimitError(StudyAiGenerationError):
+    pass
+
+
 class StudyAiUnexpectedFormatError(StudyAiGenerationError):
     pass
 
@@ -711,6 +715,11 @@ def openai_request_summary(request_body: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
+def _with_stage(exc: StudyAiGenerationError, stage: str) -> StudyAiGenerationError:
+    exc.stage = stage
+    return exc
+
+
 async def _post_openai_responses(api_key: str, request_body: dict[str, Any]) -> dict[str, Any]:
     try:
         async with httpx.AsyncClient(timeout=45) as client:
@@ -727,16 +736,27 @@ async def _post_openai_responses(api_key: str, request_body: dict[str, Any]) -> 
     except httpx.HTTPStatusError as exc:
         safe_error = _safe_openai_error(exc.response)
         message = safe_error.get("message") or str(exc)
+        status_code = exc.response.status_code
         if _is_model_unavailable(safe_error):
-            raise StudyAiModelUnavailableError(message) from exc
-        if exc.response.status_code == 400:
-            raise StudyAiProviderInvalidRequestError(json.dumps(safe_error, ensure_ascii=False)) from exc
-        raise StudyAiGenerationError(json.dumps(safe_error, ensure_ascii=False)) from exc
+            raise _with_stage(StudyAiModelUnavailableError(message), "openai_request") from exc
+        if status_code in {401, 403}:
+            raise _with_stage(StudyAiConfigurationError(message), "openai_request") from exc
+        if status_code == 429:
+            raise _with_stage(StudyAiProviderRateLimitError(json.dumps(safe_error, ensure_ascii=False)), "openai_request") from exc
+        if status_code == 400:
+            raise _with_stage(
+                StudyAiProviderInvalidRequestError(json.dumps(safe_error, ensure_ascii=False)),
+                "openai_request",
+            ) from exc
+        raise _with_stage(StudyAiGenerationError(json.dumps(safe_error, ensure_ascii=False)), "openai_request") from exc
     except httpx.TimeoutException as exc:
-        raise StudyAiTimeoutError("La IA tardo demasiado en responder.") from exc
+        raise _with_stage(StudyAiTimeoutError("La IA tardo demasiado en responder."), "openai_request") from exc
     except Exception as exc:
-        raise StudyAiGenerationError(
-            f"No se pudo generar informacion con IA. Detalle seguro: {sanitize_value(str(exc))}"
+        raise _with_stage(
+            StudyAiGenerationError(
+                f"No se pudo generar informacion con IA. Detalle seguro: {sanitize_value(str(exc))}"
+            ),
+            "openai_request",
         ) from exc
 
 

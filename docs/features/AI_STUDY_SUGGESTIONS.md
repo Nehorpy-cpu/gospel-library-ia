@@ -20,6 +20,18 @@ Alias compatible:
 POST /api/study/workspaces/{workspaceId}/ai-suggest
 ```
 
+Diagnostico seguro, sin llamar a OpenAI:
+
+```txt
+GET /api/study-workspaces/{workspaceId}/ai-suggest/health
+```
+
+Alias compatible:
+
+```txt
+GET /api/study/workspaces/{workspaceId}/ai-suggest/health
+```
+
 Payload:
 
 ```json
@@ -181,6 +193,7 @@ POST https://api.estudiopy.com/api/study-workspaces/{workspaceId}/ai-suggest
 Estados esperados:
 
 - `200`: sugerencias generadas.
+- `429`: limite temporal del proveedor de IA o de uso del endpoint.
 - `401`: falta sesion o usuario valido.
 - `404`: no existe el estudio solicitado o Render no tiene desplegado el endpoint.
 - `422`: payload invalido.
@@ -216,6 +229,7 @@ completo del estudio ni respuestas extensas de OpenAI.
 Significado de status:
 
 - `404`: no se encontro el estudio solicitado.
+- `429`: se alcanzo un limite temporal de OpenAI o de uso del endpoint.
 - `502`: OpenAI respondio con una solicitud invalida, JSON invalido, formato
   inesperado, respuesta vacia o una respuesta que no valida contra el contrato
   del frontend.
@@ -239,6 +253,33 @@ Para confirmar configuracion en Render sin imprimir secretos:
 3. Configurar `OPENAI_CHAT_MODEL=gpt-4.1-mini` si el modelo actual devuelve
    `model_not_found` o no esta disponible.
 4. Guardar cambios y redeployar el backend.
+
+Para revisar el diagnostico del workspace sin llamar OpenAI:
+
+```powershell
+$workspaceId = "WORKSPACE_ID_REAL"
+
+Invoke-RestMethod `
+  -Method Get `
+  -Uri "https://api.estudiopy.com/api/study-workspaces/$workspaceId/ai-suggest/health" `
+  -Headers @{ "X-User-Id" = "00000000-0000-4000-8000-000000000001" }
+```
+
+Respuesta esperada:
+
+```json
+{
+  "workspace_exists": true,
+  "user_authorized": true,
+  "openai_key_configured": true,
+  "model_configured": true,
+  "local_context_available": true
+}
+```
+
+`local_context_available=false` no bloquea la generacion: el endpoint puede
+continuar sin fuentes locales y devolver warnings. Si `workspace_exists=false`,
+probar con un `workspaceId` real del usuario actual.
 
 Prueba PowerShell de produccion, sin secretos:
 

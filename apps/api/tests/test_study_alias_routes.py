@@ -280,6 +280,7 @@ class StudyAliasRoutesTest(unittest.TestCase):
 class PersonalWorkspaceRoutesTest(unittest.TestCase):
     def setUp(self):
         self.original_get_conn = study.get_conn
+        self.original_get_settings = study.get_settings
         self.original_generate_workspace_suggestions = study.generate_workspace_suggestions
         self.original_load_workspace_local_context = study.load_workspace_local_context
         self.original_log_warning = study.log.warning
@@ -292,6 +293,7 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
 
     def tearDown(self):
         study.get_conn = self.original_get_conn
+        study.get_settings = self.original_get_settings
         study.generate_workspace_suggestions = self.original_generate_workspace_suggestions
         study.load_workspace_local_context = self.original_load_workspace_local_context
         study.log.warning = self.original_log_warning
@@ -407,6 +409,53 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["detail"], "No se encontro el estudio solicitado.")
 
+    def test_ai_suggest_health_returns_safe_status_for_existing_workspace(self):
+        study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
+
+        response = self.client.get(
+            f"/api/study-workspaces/{WORKSPACE_ID}/ai-suggest/health",
+            headers={"X-User-Id": USER_ID},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(
+            body,
+            {
+                "workspace_exists": True,
+                "user_authorized": True,
+                "openai_key_configured": bool(study.get_settings().openai_api_key),
+                "model_configured": True,
+                "local_context_available": True,
+            },
+        )
+
+    def test_ai_suggest_health_reports_missing_openai_key_without_secret(self):
+        study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
+        original_settings = study.get_settings()
+        study.get_settings = lambda: type(
+            "FakeSettings",
+            (),
+            {
+                **original_settings.model_dump(),
+                "openai_api_key": "",
+                "openai_chat_model": "gpt-4.1-mini",
+            },
+        )()
+
+        response = self.client.get(
+            f"/api/study-workspaces/{WORKSPACE_ID}/ai-suggest/health",
+            headers={"X-User-Id": USER_ID},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["workspace_exists"])
+        self.assertTrue(body["user_authorized"])
+        self.assertFalse(body["openai_key_configured"])
+        self.assertTrue(body["model_configured"])
+        self.assertNotIn("sk-", str(body))
+
     def test_ai_suggest_returns_controlled_error_without_openai_key(self):
         study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
 
@@ -457,6 +506,22 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["detail"], "El modelo de IA configurado no esta disponible para esta cuenta.")
+
+    def test_ai_suggest_returns_controlled_error_for_provider_rate_limit(self):
+        study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
+
+        async def fake_generate_workspace_suggestions(**kwargs):
+            raise study.StudyAiProviderRateLimitError("rate_limited")
+
+        study.generate_workspace_suggestions = fake_generate_workspace_suggestions
+        response = self.client.post(
+            f"/api/study-workspaces/{WORKSPACE_ID}/ai-suggest",
+            headers={"X-User-Id": USER_ID},
+            json={"mode": "rapido", "maxSuggestions": 3},
+        )
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response.json()["detail"], "La IA alcanzo un limite temporal del proveedor. Intenta nuevamente mas tarde.")
 
     def test_ai_suggest_returns_controlled_error_for_timeout(self):
         study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
@@ -579,7 +644,7 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 500)
-        self.assertEqual(response.json()["detail"], "No se pudo generar informacion con IA.")
+        self.assertEqual(response.json()["detail"], "No se pudo generar informacion con IA. Etapa: build_prompt.")
         self.assertEqual(captured_logs[-1][0], "study_workspace_ai_suggestions_failed")
         self.assertEqual(captured_logs[-1][1]["stage"], "build_prompt")
         self.assertEqual(captured_logs[-1][1]["mode"], "profundo")
