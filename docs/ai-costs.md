@@ -6,7 +6,7 @@ Fase 19 agrega controles para que Gospel Library IA pueda indexar con costo pred
 
 - `AI_COST_MODE=low|balanced|quality`: ajusta chunking, overlap y topK efectivo.
 - `OPENAI_EMBEDDING_MODEL=text-embedding-3-large`
-- `OPENAI_CHAT_MODEL=gpt-5.5`
+- `OPENAI_CHAT_MODEL=gpt-4.1-mini`
 - `RAG_TOP_K=12`: limite final de fuentes enviadas al chat.
 - `CHUNK_SIZE=650`: alias de `CHUNK_TARGET_TOKENS`.
 - `CHUNK_OVERLAP=120`: alias de `CHUNK_OVERLAP_TOKENS`.

@@ -182,12 +182,88 @@ Estados esperados:
 
 - `200`: sugerencias generadas.
 - `401`: falta sesion o usuario valido.
-- `404`: Render no tiene desplegado el endpoint.
+- `404`: no existe el estudio solicitado o Render no tiene desplegado el endpoint.
 - `422`: payload invalido.
 - `502`: OpenAI no devolvio una respuesta valida o fallo la llamada externa.
 - `503`: `OPENAI_API_KEY` no esta configurada en Render o el modelo no esta
   disponible para la cuenta.
 - `504`: OpenAI tardo demasiado en responder.
+
+## Solucion de errores 500 en ai-suggest
+
+El endpoint `ai-suggest` debe devolver errores controlados para fallas esperables
+y registrar el stage exacto en Render con el evento:
+
+```txt
+study_workspace_ai_suggestions_failed
+```
+
+Campos seguros esperados en el log:
+
+```txt
+workspace_id=...
+user_id=...
+mode=...
+max_suggestions=...
+error_type=...
+error_message=...
+stage=load_workspace|load_blocks|local_context|build_prompt|openai_request|parse_response|normalize_response|response_validation
+```
+
+No debe aparecer `OPENAI_API_KEY`, bearer tokens, prompts completos, contenido
+completo del estudio ni respuestas extensas de OpenAI.
+
+Significado de status:
+
+- `404`: no se encontro el estudio solicitado.
+- `502`: OpenAI respondio con una solicitud invalida, JSON invalido, formato
+  inesperado, respuesta vacia o una respuesta que no valida contra el contrato
+  del frontend.
+- `503`: falta `OPENAI_API_KEY` en Render o `OPENAI_CHAT_MODEL` apunta a un
+  modelo no disponible para la cuenta.
+- `504`: OpenAI tardo demasiado en responder.
+- `500`: error interno inesperado fuera de las fallas controladas; revisar
+  `stage`, `error_type` y `error_message` en Render.
+
+Para revisar logs en Render:
+
+1. Abrir el servicio backend en Render.
+2. Ir a `Logs`.
+3. Filtrar por `study_workspace_ai_suggestions_failed`.
+4. Revisar `stage` y `error_type`.
+
+Para confirmar configuracion en Render sin imprimir secretos:
+
+1. Ir a `Environment`.
+2. Verificar que `OPENAI_API_KEY` exista y no este vacia.
+3. Configurar `OPENAI_CHAT_MODEL=gpt-4.1-mini` si el modelo actual devuelve
+   `model_not_found` o no esta disponible.
+4. Guardar cambios y redeployar el backend.
+
+Prueba PowerShell de produccion, sin secretos:
+
+```powershell
+$workspaceId = "WORKSPACE_ID_REAL"
+$body = @{
+  mode = "rapido"
+  userPrompt = "Dame una conexion con Jesucristo y una pregunta de reflexion"
+  maxSuggestions = 3
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "https://api.estudiopy.com/api/study-workspaces/$workspaceId/ai-suggest" `
+  -ContentType "application/json" `
+  -Headers @{ "X-User-Id" = "00000000-0000-4000-8000-000000000001" } `
+  -Body $body
+```
+
+El endpoint no guarda sugerencias automaticamente. Para guardar una sugerencia,
+el frontend llama despues a:
+
+```txt
+POST /api/study-workspaces/{workspaceId}/blocks
+```
 
 ## Troubleshooting: OpenAI 400 Bad Request
 

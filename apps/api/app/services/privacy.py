@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import re
 from typing import Any
 
 SENSITIVE_KEYS = {
@@ -42,7 +43,7 @@ def _is_sensitive_key(key: str) -> bool:
 
 def _redact_inline_secret(value: str) -> str:
     lowered = value.lower()
-    if "sk-" in value and "openai" in lowered:
+    if re.search(r"\bsk-[A-Za-z0-9_-]+", value):
         return "[REDACTED]"
     if any(marker in lowered for marker in ["authorization:", "bearer ", "api_key=", "password=", "secret="]):
         return "[REDACTED]"

@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     rag_top_k: int = 12
     openai_api_key: str = ""
     openai_embedding_model: str = "text-embedding-3-large"
-    openai_chat_model: str = "gpt-5.5"
+    openai_chat_model: str = "gpt-4.1-mini"
     env: str = "development"
     auth_provider: str = "clerk"
     allow_dev_auth_headers: bool = True

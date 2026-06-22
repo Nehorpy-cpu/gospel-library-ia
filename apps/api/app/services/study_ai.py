@@ -137,6 +137,10 @@ class StudyAiUnexpectedFormatError(StudyAiGenerationError):
     pass
 
 
+class StudyAiEmptyResponseError(StudyAiGenerationError):
+    pass
+
+
 class StudyAiTimeoutError(StudyAiGenerationError):
     pass
 
@@ -302,7 +306,8 @@ def load_workspace_local_context(
     user_id: str,
     limit: int = 8,
 ) -> list[dict[str, Any]]:
-    settings = workspace.get("settings") or {}
+    settings_value = workspace.get("settings")
+    settings = settings_value if isinstance(settings_value, dict) else {}
     query_seed = " ".join(
         str(value or "")
         for value in (
@@ -398,12 +403,13 @@ async def generate_workspace_suggestions(
     warnings: list[str] = []
     sources_used = _sources_used(local_context)
     if not local_context:
-        warnings.append("No se encontraron suficientes fuentes locales; las referencias no verificadas se marcaran como sugeridas.")
+        warnings.append("No se encontraron suficientes fuentes locales; algunas ideas se presentan como referencias sugeridas.")
     if not settings.openai_api_key:
         raise StudyAiConfigurationError("La funcion de IA todavia no esta configurada en el servidor.")
 
     model = _openai_chat_model(settings.openai_chat_model)
-    workspace_settings = workspace.get("settings") or {}
+    workspace_settings_value = workspace.get("settings")
+    workspace_settings = workspace_settings_value if isinstance(workspace_settings_value, dict) else {}
     title = workspace_settings.get("title") or workspace.get("name")
     scripture_reference = (
         workspace_settings.get("scriptureReference")
@@ -466,7 +472,7 @@ async def generate_workspace_suggestions(
     log.info("study_workspace_ai_openai_request", **openai_request_summary(request_body))
     try:
         data = await _post_openai_responses(settings.openai_api_key, request_body)
-        parsed = _extract_response_json(data)
+        parsed = _extract_workspace_response_json(data)
         provider = "openai_responses_json_object"
     except StudyAiProviderInvalidRequestError as exc:
         fallback_body = build_workspace_responses_request(
@@ -480,21 +486,31 @@ async def generate_workspace_suggestions(
         log.info("study_workspace_ai_openai_request", **openai_request_summary(fallback_body))
         try:
             data = await _post_openai_responses(settings.openai_api_key, fallback_body)
-            parsed = _extract_response_json(data)
+            parsed = _extract_workspace_response_json(data)
             provider = "openai_responses_plain_json_fallback"
         except StudyAiProviderInvalidRequestError as fallback_exc:
             log.warning("study_workspace_ai_openai_plain_request_invalid", error=str(fallback_exc), **openai_request_summary(fallback_body))
-            raise StudyAiUnexpectedFormatError("La IA respondio con un formato inesperado.") from fallback_exc
+            exc_to_raise = StudyAiProviderInvalidRequestError(
+                "La IA respondio con una solicitud invalida hacia el proveedor."
+            )
+            exc_to_raise.stage = "openai_request"
+            raise exc_to_raise from fallback_exc
     except json.JSONDecodeError as exc:
-        raise StudyAiUnexpectedFormatError("La IA respondio con un formato inesperado.") from exc
+        exc_to_raise = StudyAiUnexpectedFormatError("La IA respondio con un formato inesperado.")
+        exc_to_raise.stage = "parse_response"
+        raise exc_to_raise from exc
 
     try:
         normalized, normalized_sources, parsed_warnings = normalize_ai_suggestions(parsed, max_suggestions)
     except Exception as exc:
-        raise StudyAiUnexpectedFormatError("La IA respondio con un formato inesperado.") from exc
+        exc_to_raise = StudyAiUnexpectedFormatError("La IA respondio con un formato inesperado.")
+        exc_to_raise.stage = "normalize_response"
+        raise exc_to_raise from exc
     warnings.extend(parsed_warnings)
     if not normalized:
-        warnings.append("La IA no devolvio sugerencias utiles para este estudio.")
+        exc_to_raise = StudyAiEmptyResponseError("La IA no devolvio sugerencias validas.")
+        exc_to_raise.stage = "normalize_response"
+        raise exc_to_raise
     normalized_sources = normalized_sources or sources_used
     return normalized, normalized_sources or sources_used, warnings, provider
 
@@ -775,6 +791,25 @@ def _extract_response_json(data: dict[str, Any]) -> dict[str, Any]:
     return extract_json_object(text)
 
 
+def _extract_workspace_response_json(data: dict[str, Any]) -> dict[str, Any]:
+    text = extract_response_text(data).strip()
+    if not text:
+        exc_to_raise = StudyAiEmptyResponseError("La IA no devolvio sugerencias validas.")
+        exc_to_raise.stage = "parse_response"
+        raise exc_to_raise
+    try:
+        parsed = extract_json_object(text)
+    except json.JSONDecodeError as exc:
+        exc_to_raise = StudyAiUnexpectedFormatError("La IA respondio con un formato inesperado.")
+        exc_to_raise.stage = "parse_response"
+        raise exc_to_raise from exc
+    if not parsed:
+        exc_to_raise = StudyAiEmptyResponseError("La IA no devolvio sugerencias validas.")
+        exc_to_raise.stage = "parse_response"
+        raise exc_to_raise
+    return parsed
+
+
 def extract_json_object(text: str) -> dict[str, Any]:
     clean = text.strip()
     if clean.startswith("```"):
@@ -852,13 +887,15 @@ def normalize_ai_suggestions(raw: Any, max_suggestions: int) -> tuple[list[dict[
     raw_suggestions = raw.get("suggestions")
     raw_sources = raw.get("sources_used")
     raw_warnings = raw.get("warnings")
+    warnings = [str(item) for item in (raw_warnings if isinstance(raw_warnings, list) else []) if item]
+    if raw_suggestions is not None and not isinstance(raw_suggestions, list):
+        warnings.append("La IA no devolvio una lista de sugerencias valida.")
     suggestions = [
         _normalize_workspace_suggestion(item)
         for item in (raw_suggestions if isinstance(raw_suggestions, list) else [])
         if isinstance(item, dict)
     ][:max_suggestions]
     sources = _normalize_workspace_sources(raw_sources if isinstance(raw_sources, list) else [])
-    warnings = [str(item) for item in (raw_warnings if isinstance(raw_warnings, list) else []) if item]
     return suggestions, sources, warnings
 
 

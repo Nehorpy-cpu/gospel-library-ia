@@ -137,6 +137,28 @@ class StudyAiServiceTests(unittest.TestCase):
         self.assertEqual(sources[0]["title"], "Fuente")
         self.assertEqual(warnings, ["revisar"])
 
+    def test_normalize_ai_suggestions_warns_when_suggestions_is_not_array(self):
+        suggestions, sources, warnings = normalize_ai_suggestions(
+            {"suggestions": {"title": "Incorrecto"}, "sources_used": [], "warnings": []},
+            3,
+        )
+
+        self.assertEqual(suggestions, [])
+        self.assertEqual(sources, [])
+        self.assertIn("La IA no devolvio una lista de sugerencias valida.", warnings)
+
+    def test_workspace_response_json_empty_text_raises_controlled_error(self):
+        with self.assertRaises(study_ai.StudyAiEmptyResponseError) as context:
+            study_ai._extract_workspace_response_json({"output": []})
+
+        self.assertEqual(getattr(context.exception, "stage"), "parse_response")
+
+    def test_workspace_response_json_invalid_text_raises_unexpected_format(self):
+        with self.assertRaises(study_ai.StudyAiUnexpectedFormatError) as context:
+            study_ai._extract_workspace_response_json({"output_text": "no hay json"})
+
+        self.assertEqual(getattr(context.exception, "stage"), "parse_response")
+
     def test_openai_400_raises_controlled_invalid_request(self):
         original_async_client = study_ai.httpx.AsyncClient
 
@@ -172,6 +194,143 @@ class StudyAiServiceTests(unittest.TestCase):
             self.assertNotIn("sk-test", str(context.exception))
         finally:
             study_ai.httpx.AsyncClient = original_async_client
+
+    def test_workspace_generation_handles_null_settings_empty_blocks_and_no_local_context(self):
+        original_async_client = study_ai.httpx.AsyncClient
+        original_get_settings = study_ai.get_settings
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return None
+
+            async def post(self, url, headers=None, json=None):
+                return httpx.Response(
+                    200,
+                    json={
+                        "output_text": (
+                            '{"suggestions":[{"type":"doctrinal_analysis","title":"Idea","content":"Contenido"}],'
+                            '"sources_used":[],"warnings":[]}'
+                        )
+                    },
+                    request=httpx.Request("POST", url),
+                )
+
+        study_ai.httpx.AsyncClient = FakeAsyncClient
+        study_ai.get_settings = lambda: SimpleNamespace(
+            openai_api_key="sk-test",
+            openai_chat_model="",
+            study_ai_max_suggestions=12,
+        )
+        try:
+            suggestions, sources_used, warnings, provider = asyncio.run(
+                study_ai.generate_workspace_suggestions(
+                    workspace={"id": "w1", "name": "Estudio", "settings": None},
+                    blocks=[],
+                    user_id="u1",
+                    payload={"mode": "rapido", "maxSuggestions": 2},
+                    local_context=[],
+                )
+            )
+
+            self.assertEqual(provider, "openai_responses_json_object")
+            self.assertEqual(suggestions[0]["type"], "doctrinal_analysis")
+            self.assertEqual(suggestions[0]["source_status"], "none")
+            self.assertEqual(sources_used, [])
+            self.assertIn("No se encontraron suficientes fuentes locales", warnings[0])
+        finally:
+            study_ai.httpx.AsyncClient = original_async_client
+            study_ai.get_settings = original_get_settings
+
+    def test_workspace_generation_empty_suggestions_raises_controlled_error(self):
+        original_async_client = study_ai.httpx.AsyncClient
+        original_get_settings = study_ai.get_settings
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return None
+
+            async def post(self, url, headers=None, json=None):
+                return httpx.Response(
+                    200,
+                    json={"output_text": '{"suggestions":[],"sources_used":[],"warnings":[]}'},
+                    request=httpx.Request("POST", url),
+                )
+
+        study_ai.httpx.AsyncClient = FakeAsyncClient
+        study_ai.get_settings = lambda: SimpleNamespace(
+            openai_api_key="sk-test",
+            openai_chat_model="gpt-4.1-mini",
+            study_ai_max_suggestions=12,
+        )
+        try:
+            with self.assertRaises(study_ai.StudyAiEmptyResponseError) as context:
+                asyncio.run(
+                    study_ai.generate_workspace_suggestions(
+                        workspace={"id": "w1", "name": "Estudio", "settings": {"title": "Estudio"}},
+                        blocks=[],
+                        user_id="u1",
+                        payload={"mode": "rapido", "maxSuggestions": 1},
+                        local_context=[],
+                    )
+                )
+            self.assertEqual(getattr(context.exception, "stage"), "normalize_response")
+        finally:
+            study_ai.httpx.AsyncClient = original_async_client
+            study_ai.get_settings = original_get_settings
+
+    def test_workspace_generation_suggestions_not_array_raises_controlled_error(self):
+        original_async_client = study_ai.httpx.AsyncClient
+        original_get_settings = study_ai.get_settings
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return None
+
+            async def post(self, url, headers=None, json=None):
+                return httpx.Response(
+                    200,
+                    json={"output_text": '{"suggestions":{"title":"Incorrecto"},"sources_used":[],"warnings":[]}'},
+                    request=httpx.Request("POST", url),
+                )
+
+        study_ai.httpx.AsyncClient = FakeAsyncClient
+        study_ai.get_settings = lambda: SimpleNamespace(
+            openai_api_key="sk-test",
+            openai_chat_model="gpt-4.1-mini",
+            study_ai_max_suggestions=12,
+        )
+        try:
+            with self.assertRaises(study_ai.StudyAiEmptyResponseError):
+                asyncio.run(
+                    study_ai.generate_workspace_suggestions(
+                        workspace={"id": "w1", "name": "Estudio", "settings": {"title": "Estudio"}},
+                        blocks=[],
+                        user_id="u1",
+                        payload={"mode": "rapido", "maxSuggestions": 1},
+                        local_context=[],
+                    )
+                )
+        finally:
+            study_ai.httpx.AsyncClient = original_async_client
+            study_ai.get_settings = original_get_settings
 
     def test_workspace_generation_falls_back_to_plain_response_after_json_object_400(self):
         original_async_client = study_ai.httpx.AsyncClient
@@ -236,7 +395,7 @@ class StudyAiServiceTests(unittest.TestCase):
             study_ai.httpx.AsyncClient = original_async_client
             study_ai.get_settings = original_get_settings
 
-    def test_workspace_generation_raises_unexpected_format_after_final_400(self):
+    def test_workspace_generation_raises_provider_invalid_after_final_400(self):
         original_async_client = study_ai.httpx.AsyncClient
         original_get_settings = study_ai.get_settings
 
@@ -264,7 +423,7 @@ class StudyAiServiceTests(unittest.TestCase):
             study_ai_max_suggestions=12,
         )
         try:
-            with self.assertRaises(study_ai.StudyAiUnexpectedFormatError):
+            with self.assertRaises(study_ai.StudyAiProviderInvalidRequestError) as context:
                 asyncio.run(
                     study_ai.generate_workspace_suggestions(
                         workspace={"id": "w1", "name": "Estudio", "settings": {"title": "Estudio"}},
@@ -274,6 +433,7 @@ class StudyAiServiceTests(unittest.TestCase):
                         local_context=[],
                     )
                 )
+            self.assertEqual(getattr(context.exception, "stage"), "openai_request")
         finally:
             study_ai.httpx.AsyncClient = original_async_client
             study_ai.get_settings = original_get_settings

@@ -2,7 +2,7 @@ from typing import Any, Literal
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
@@ -15,6 +15,7 @@ from app.services.rate_limit import RateLimiter
 from app.services.source_filters import normalize_source_type, source_type_aliases
 from app.services.study_ai import (
     StudyAiConfigurationError,
+    StudyAiEmptyResponseError,
     StudyAiGenerationError,
     StudyAiModelUnavailableError,
     StudyAiProviderInvalidRequestError,
@@ -23,11 +24,37 @@ from app.services.study_ai import (
     generate_workspace_suggestions,
     load_workspace_local_context,
 )
+from app.services.privacy import sanitize_value
 
 router = APIRouter(prefix="/api/study-workspaces", tags=["study"], dependencies=[Depends(require_study_user)])
 alias_router = APIRouter(prefix="/api/study", tags=["study"], dependencies=[Depends(require_study_user)])
 log = logger(__name__)
 limiter = RateLimiter()
+
+
+def _safe_error_message(exc: Exception) -> str:
+    message = sanitize_value(str(exc))
+    return str(message)[:500]
+
+
+def _log_ai_suggest_failure(
+    *,
+    workspace_id: str,
+    user_id: str | None,
+    payload: "WorkspaceAiSuggestPayload | None",
+    stage: str,
+    exc: Exception,
+) -> None:
+    log.warning(
+        "study_workspace_ai_suggestions_failed",
+        workspace_id=workspace_id,
+        user_id=user_id,
+        mode=payload.mode if payload else None,
+        max_suggestions=payload.maxSuggestions if payload else None,
+        error_type=type(exc).__name__,
+        error_message=_safe_error_message(exc),
+        stage=stage,
+    )
 
 
 class WorkspacePayload(BaseModel):
@@ -1397,60 +1424,191 @@ async def ai_suggest_workspace(
     request: Request,
     user_id: str | None = Header(default=None, alias="X-User-Id"),
 ):
-    user_id = current_user_id(user_id)
+    resolved_user_id: str | None = None
+    stage = "load_workspace"
+    try:
+        resolved_user_id = current_user_id(user_id)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+            _log_ai_suggest_failure(workspace_id=workspace_id, user_id=None, payload=payload, stage="load_workspace", exc=exc)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Debes iniciar sesion para usar la IA.",
+            ) from exc
+        raise
+
     settings = get_settings()
     await limiter.check(request, settings.chat_rate_limit_per_minute, scope="study-ai")
     await limiter.check_daily(request, settings.max_user_study_ai_per_day, "study-ai")
-    with get_conn() as conn:
-        conn.row_factory = dict_row
-        workspace = _require_workspace(conn, workspace_id, user_id)
-        blocks = _workspace_blocks(conn, workspace_id, user_id)
-        local_context = load_workspace_local_context(conn, workspace, blocks, user_id)
     try:
+        with get_conn() as conn:
+            conn.row_factory = dict_row
+            stage = "load_workspace"
+            workspace = _require_workspace(conn, workspace_id, resolved_user_id)
+            stage = "load_blocks"
+            blocks = _workspace_blocks(conn, workspace_id, resolved_user_id)
+            stage = "local_context"
+            try:
+                local_context = load_workspace_local_context(conn, workspace, blocks, resolved_user_id)
+            except Exception as exc:
+                _log_ai_suggest_failure(
+                    workspace_id=workspace_id,
+                    user_id=resolved_user_id,
+                    payload=payload,
+                    stage="local_context",
+                    exc=exc,
+                )
+                local_context = []
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_404_NOT_FOUND and stage == "load_workspace":
+            _log_ai_suggest_failure(
+                workspace_id=workspace_id,
+                user_id=resolved_user_id,
+                payload=payload,
+                stage=stage,
+                exc=exc,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No se encontro el estudio solicitado.",
+            ) from exc
+        raise
+    except Exception as exc:
+        _log_ai_suggest_failure(
+            workspace_id=workspace_id,
+            user_id=resolved_user_id,
+            payload=payload,
+            stage=stage,
+            exc=exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No se pudo generar informacion con IA.",
+        ) from exc
+
+    try:
+        stage = "build_prompt"
         suggestions, sources_used, warnings, provider = await generate_workspace_suggestions(
             workspace=workspace,
             blocks=blocks,
-            user_id=user_id,
+            user_id=resolved_user_id,
             payload=payload.model_dump(mode="json"),
             local_context=local_context,
         )
     except StudyAiConfigurationError as exc:
+        _log_ai_suggest_failure(
+            workspace_id=workspace_id,
+            user_id=resolved_user_id,
+            payload=payload,
+            stage=getattr(exc, "stage", "openai_request"),
+            exc=exc,
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="La funcion de IA todavia no esta configurada en el servidor.",
         ) from exc
     except StudyAiModelUnavailableError as exc:
-        log.warning("study_workspace_ai_model_unavailable", workspace_id=workspace_id, error=str(exc))
+        _log_ai_suggest_failure(
+            workspace_id=workspace_id,
+            user_id=resolved_user_id,
+            payload=payload,
+            stage=getattr(exc, "stage", "openai_request"),
+            exc=exc,
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="El modelo de IA configurado no esta disponible para esta cuenta.",
         ) from exc
     except StudyAiProviderInvalidRequestError as exc:
-        log.warning("study_workspace_ai_provider_invalid_request", workspace_id=workspace_id, error=str(exc))
+        _log_ai_suggest_failure(
+            workspace_id=workspace_id,
+            user_id=resolved_user_id,
+            payload=payload,
+            stage=getattr(exc, "stage", "openai_request"),
+            exc=exc,
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="La IA respondio con un formato inesperado.",
+            detail="La IA respondio con una solicitud invalida hacia el proveedor.",
         ) from exc
     except StudyAiUnexpectedFormatError as exc:
-        log.warning("study_workspace_ai_unexpected_format", workspace_id=workspace_id, error=str(exc))
+        _log_ai_suggest_failure(
+            workspace_id=workspace_id,
+            user_id=resolved_user_id,
+            payload=payload,
+            stage=getattr(exc, "stage", "parse_response"),
+            exc=exc,
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="La IA respondio con un formato inesperado.",
         ) from exc
-    except StudyAiTimeoutError as exc:
-        log.warning("study_workspace_ai_timeout", workspace_id=workspace_id, error=str(exc))
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="La IA tardo demasiado en responder. Intenta nuevamente mas tarde.",
-        ) from exc
-    except StudyAiGenerationError as exc:
-        log.warning("study_workspace_ai_suggestions_failed", workspace_id=workspace_id, error=str(exc))
+    except StudyAiEmptyResponseError as exc:
+        _log_ai_suggest_failure(
+            workspace_id=workspace_id,
+            user_id=resolved_user_id,
+            payload=payload,
+            stage=getattr(exc, "stage", "normalize_response"),
+            exc=exc,
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="No se pudo generar informacion con IA. Intenta nuevamente mas tarde.",
+            detail="La IA no devolvio sugerencias validas.",
         ) from exc
-    log.info("study_workspace_ai_suggestions_generated", workspace_id=workspace_id, user_id=user_id, provider=provider)
-    return {"suggestions": suggestions, "sources_used": sources_used, "warnings": warnings}
+    except StudyAiTimeoutError as exc:
+        _log_ai_suggest_failure(
+            workspace_id=workspace_id,
+            user_id=resolved_user_id,
+            payload=payload,
+            stage=getattr(exc, "stage", "openai_request"),
+            exc=exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="La IA tardo demasiado en responder. Intenta nuevamente.",
+        ) from exc
+    except StudyAiGenerationError as exc:
+        _log_ai_suggest_failure(
+            workspace_id=workspace_id,
+            user_id=resolved_user_id,
+            payload=payload,
+            stage=getattr(exc, "stage", "openai_request"),
+            exc=exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="No se pudo generar informacion con IA.",
+        ) from exc
+    except Exception as exc:
+        _log_ai_suggest_failure(
+            workspace_id=workspace_id,
+            user_id=resolved_user_id,
+            payload=payload,
+            stage=stage,
+            exc=exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No se pudo generar informacion con IA.",
+        ) from exc
+
+    response_payload = {"suggestions": suggestions, "sources_used": sources_used, "warnings": warnings}
+    try:
+        response = WorkspaceAiSuggestResponse.model_validate(response_payload)
+    except ValidationError as exc:
+        _log_ai_suggest_failure(
+            workspace_id=workspace_id,
+            user_id=resolved_user_id,
+            payload=payload,
+            stage="response_validation",
+            exc=exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="La IA respondio con un formato inesperado.",
+        ) from exc
+    log.info("study_workspace_ai_suggestions_generated", workspace_id=workspace_id, user_id=resolved_user_id, provider=provider)
+    return response.model_dump()
 
 
 @alias_router.get("/workspaces")

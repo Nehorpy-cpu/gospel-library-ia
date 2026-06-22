@@ -68,7 +68,7 @@ Configurar solamente en backend:
 
 ```txt
 OPENAI_API_KEY=
-OPENAI_CHAT_MODEL=gpt-5.5
+OPENAI_CHAT_MODEL=gpt-4.1-mini
 MAX_USER_STUDY_AI_PER_DAY=20
 STUDY_AI_MAX_SUGGESTIONS=10
 ```

@@ -35,22 +35,22 @@ export function studyWorkspaceAiErrorMessage(status: number): string {
     return "Debes iniciar sesion para usar la IA del estudio.";
   }
   if (status === 404) {
-    return "El endpoint de IA de estudios no esta disponible en la API desplegada.";
+    return "No se encontro el estudio.";
   }
   if (status === 422) {
     return "Revisa los campos del pedido de IA.";
   }
   if (status === 502) {
-    return "La IA respondio con un formato inesperado.";
+    return "La IA respondio con un formato inesperado o invalido.";
   }
   if (status === 503) {
     return "La funcion de IA todavia no esta configurada en el servidor.";
   }
   if (status === 504) {
-    return "La IA tardo demasiado en responder. Intenta nuevamente mas tarde.";
+    return "La IA tardo demasiado en responder.";
   }
   if (status >= 500) {
-    return "La API tuvo un error al generar informacion con IA.";
+    return "No se pudo generar informacion con IA.";
   }
   return apiErrorMessage(status);
 }

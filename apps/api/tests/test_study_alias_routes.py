@@ -281,6 +281,8 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
     def setUp(self):
         self.original_get_conn = study.get_conn
         self.original_generate_workspace_suggestions = study.generate_workspace_suggestions
+        self.original_load_workspace_local_context = study.load_workspace_local_context
+        self.original_log_warning = study.log.warning
         study.get_conn = personal_workspace_get_conn
         self.client = TestClient(app)
         PersonalWorkspaceFakeConnection.workspaces = {}
@@ -291,6 +293,8 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
     def tearDown(self):
         study.get_conn = self.original_get_conn
         study.generate_workspace_suggestions = self.original_generate_workspace_suggestions
+        study.load_workspace_local_context = self.original_load_workspace_local_context
+        study.log.warning = self.original_log_warning
 
     def test_create_list_and_read_personal_workspace(self):
         response = study.create_workspace(
@@ -401,6 +405,7 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "No se encontro el estudio solicitado.")
 
     def test_ai_suggest_returns_controlled_error_without_openai_key(self):
         study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
@@ -434,7 +439,7 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
         self.assertEqual(response.status_code, 502)
         self.assertEqual(
             response.json()["detail"],
-            "La IA respondio con un formato inesperado.",
+            "La IA respondio con una solicitud invalida hacia el proveedor.",
         )
 
     def test_ai_suggest_returns_controlled_error_for_unavailable_model(self):
@@ -467,7 +472,119 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 504)
-        self.assertEqual(response.json()["detail"], "La IA tardo demasiado en responder. Intenta nuevamente mas tarde.")
+        self.assertEqual(response.json()["detail"], "La IA tardo demasiado en responder. Intenta nuevamente.")
+
+    def test_ai_suggest_returns_controlled_error_for_empty_ai_response(self):
+        study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
+
+        async def fake_generate_workspace_suggestions(**kwargs):
+            raise study.StudyAiEmptyResponseError("empty")
+
+        study.generate_workspace_suggestions = fake_generate_workspace_suggestions
+        response = self.client.post(
+            f"/api/study-workspaces/{WORKSPACE_ID}/ai-suggest",
+            headers={"X-User-Id": USER_ID},
+            json={"mode": "rapido", "maxSuggestions": 3},
+        )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json()["detail"], "La IA no devolvio sugerencias validas.")
+
+    def test_ai_suggest_returns_controlled_error_for_response_validation(self):
+        study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
+
+        async def fake_generate_workspace_suggestions(**kwargs):
+            return (
+                [
+                    {
+                        "type": "tipo_invalido",
+                        "title": "Sugerencia",
+                        "content": "Contenido",
+                        "is_ai_generated": True,
+                        "confidence": "medium",
+                        "source_status": "none",
+                    }
+                ],
+                [],
+                [],
+                "test",
+            )
+
+        study.generate_workspace_suggestions = fake_generate_workspace_suggestions
+        response = self.client.post(
+            f"/api/study-workspaces/{WORKSPACE_ID}/ai-suggest",
+            headers={"X-User-Id": USER_ID},
+            json={"mode": "rapido", "maxSuggestions": 3},
+        )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json()["detail"], "La IA respondio con un formato inesperado.")
+
+    def test_ai_suggest_continues_when_local_context_fails(self):
+        study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
+
+        def fake_load_workspace_local_context(*args, **kwargs):
+            raise RuntimeError("documents table unavailable")
+
+        async def fake_generate_workspace_suggestions(**kwargs):
+            self.assertEqual(kwargs["local_context"], [])
+            return (
+                [
+                    {
+                        "type": "reflection_question",
+                        "title": "Pregunta",
+                        "content": "Que debo aplicar?",
+                        "source_title": "",
+                        "source_author": "",
+                        "source_reference": "",
+                        "source_url": "",
+                        "quote_text": "",
+                        "is_ai_generated": True,
+                        "confidence": "medium",
+                        "source_status": "none",
+                    }
+                ],
+                [],
+                ["No se encontraron suficientes fuentes locales; algunas ideas se presentan como referencias sugeridas."],
+                "test",
+            )
+
+        study.load_workspace_local_context = fake_load_workspace_local_context
+        study.generate_workspace_suggestions = fake_generate_workspace_suggestions
+        response = self.client.post(
+            f"/api/study-workspaces/{WORKSPACE_ID}/ai-suggest",
+            headers={"X-User-Id": USER_ID},
+            json={"mode": "rapido", "maxSuggestions": 1},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["warnings"][0], "No se encontraron suficientes fuentes locales; algunas ideas se presentan como referencias sugeridas.")
+
+    def test_ai_suggest_unexpected_error_returns_controlled_500_and_safe_log(self):
+        study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
+        captured_logs = []
+
+        async def fake_generate_workspace_suggestions(**kwargs):
+            raise RuntimeError("boom sk-test-secret")
+
+        def fake_warning(event, **kwargs):
+            captured_logs.append((event, kwargs))
+
+        study.generate_workspace_suggestions = fake_generate_workspace_suggestions
+        study.log.warning = fake_warning
+        response = self.client.post(
+            f"/api/study-workspaces/{WORKSPACE_ID}/ai-suggest",
+            headers={"X-User-Id": USER_ID},
+            json={"mode": "profundo", "maxSuggestions": 2},
+        )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["detail"], "No se pudo generar informacion con IA.")
+        self.assertEqual(captured_logs[-1][0], "study_workspace_ai_suggestions_failed")
+        self.assertEqual(captured_logs[-1][1]["stage"], "build_prompt")
+        self.assertEqual(captured_logs[-1][1]["mode"], "profundo")
+        self.assertEqual(captured_logs[-1][1]["max_suggestions"], 2)
+        self.assertNotIn("sk-test-secret", str(captured_logs))
 
     def test_ai_suggest_respects_max_suggestions_and_does_not_save_blocks(self):
         study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
