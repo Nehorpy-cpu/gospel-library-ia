@@ -7,6 +7,8 @@ Este documento describe como resolver los avisos de Supabase Security Advisor:
 
 La migracion propuesta no se aplica automaticamente desde el repositorio. Debe revisarse y ejecutarse manualmente en Supabase SQL Editor.
 
+Importante: en Supabase SQL Editor se pega SQL, no rutas de archivo. No pegar textos como `apps/api/migrations/20260623_enable_rls_policies.sql`, bloques markdown ni explicaciones sin `--`.
+
 ## Por que activar RLS
 
 Supabase recomienda activar Row Level Security en tablas del schema `public` expuestas por su API. Al activar RLS, los clientes `anon` y `authenticated` solo pueden leer o escribir lo permitido por politicas explicitas. La API FastAPI sigue siendo la capa segura principal de Gospel Library IA.
@@ -24,6 +26,9 @@ apps/api/migrations/20260623_enable_rls_policies.sql
 La migracion:
 
 - habilita RLS con `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`
+- revoca permisos amplios heredados en tablas y secuencias para `anon` y `authenticated`
+- revoca explicitamente `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `REFERENCES` y `TRIGGER`
+- vuelve a conceder solo `SELECT` en tablas de lectura publica controlada
 - crea politicas idempotentes con `DROP POLICY IF EXISTS` + `CREATE POLICY`
 - no borra tablas
 - no borra datos
@@ -46,6 +51,8 @@ Estas tablas pueden leerse desde clientes Supabase anonimos o autenticados, pero
 
 No se conceden escrituras anonimas a estas tablas.
 
+Si la app decide usar exclusivamente FastAPI tambien para lectura de biblioteca, se puede endurecer aun mas revocando `SELECT` de estas tablas para `anon` y `authenticated`. La migracion actual conserva `SELECT` minimo porque es una lectura publica controlada por RLS y mantiene compatibilidad con una posible lectura directa futura.
+
 ### Privadas por usuario
 
 Estas tablas quedan visibles/escribibles solo para `authenticated` cuando `user_id = auth.uid()`:
@@ -63,6 +70,8 @@ Estas tablas quedan visibles/escribibles solo para `authenticated` cuando `user_
 - `user_preferences`
 - `beta_feedback`
 - `beta_activity_events`
+
+Nota operativa: la migracion define politicas por `auth.uid()`, pero no concede grants directos a `authenticated` para estas tablas privadas. Hoy el acceso debe pasar por FastAPI. Si mas adelante se habilita un cliente Supabase directo autenticado, se debe crear una migracion separada con grants minimos y pruebas de producto.
 
 ### Privadas por relacion padre
 
@@ -88,14 +97,19 @@ El acceso debe mantenerse por FastAPI, jobs internos o service role. No deben co
 
 1. Abrir Supabase Dashboard.
 2. Ir a SQL Editor.
-3. Copiar el contenido de:
+3. En el editor local, abrir:
 
 ```text
 apps/api/migrations/20260623_enable_rls_policies.sql
 ```
 
-4. Ejecutarlo una vez.
-5. Volver a ejecutarlo si hace falta: es idempotente.
+4. Copiar el contenido completo del archivo, desde la primera linea `-- Supabase RLS...` hasta `commit;`.
+5. Pegar ese contenido en Supabase SQL Editor.
+6. No pegar la ruta del archivo.
+7. No pegar markdown fences como ```sql.
+8. No pegar explicaciones sueltas sin comentario SQL.
+9. Ejecutarlo una vez.
+10. Volver a ejecutarlo si hace falta: es idempotente.
 
 ## Como verificar
 
@@ -105,13 +119,32 @@ En Supabase SQL Editor, ejecutar:
 scripts/check_supabase_rls.sql
 ```
 
+Igual que con la migracion: abrir el archivo local, copiar su contenido completo y pegarlo en SQL Editor. No pegar solo la ruta.
+
 Confirmar:
 
 - `rls_enabled = true` para todas las tablas esperadas.
 - `force_rls_enabled = false`.
 - tablas publicas con politicas `SELECT`.
-- tablas privadas con politicas `authenticated`.
+- tablas privadas con politicas `authenticated`, pero sin grants directos.
 - tablas internas sin grants para `anon` ni `authenticated`.
+- la ultima consulta no devuelve filas con `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `REFERENCES` o `TRIGGER`.
+
+Para ver exactamente todos los grants visibles de `anon` y `authenticated`, ejecutar tambien:
+
+```text
+scripts/check_public_grants.sql
+```
+
+El resultado esperado despues de la migracion es que `anon` y `authenticated` conserven como maximo `SELECT` sobre:
+
+- `sources`
+- `documents`
+- `document_chunks`
+- `authors`
+- `tags`
+
+No debe quedar `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `REFERENCES` ni `TRIGGER`.
 
 ## Pruebas de API despues de aplicar
 
@@ -170,6 +203,26 @@ Para tablas publicas, confirmar que:
 ### Una tabla ya tenia politica previa
 
 La migracion recrea solo las politicas con los nombres definidos en el archivo. Si existen politicas manuales adicionales, revisarlas antes de aplicar para evitar reglas contradictorias.
+
+## Como revertir si algo falla
+
+La forma preferida de revertir es volver a pasar el acceso por FastAPI y ajustar grants/politicas puntuales, no desactivar seguridad globalmente. Si se necesita rollback inmediato:
+
+1. Guardar el error exacto y los logs.
+2. Confirmar si el problema viene de grants directos a Supabase o de FastAPI.
+3. Si el problema es solo lectura publica directa, conceder temporalmente `SELECT` a las tablas publicas necesarias.
+4. No conceder `INSERT`, `UPDATE` ni `DELETE` a `anon`.
+5. No usar `FORCE ROW LEVEL SECURITY`.
+6. Evitar `DISABLE ROW LEVEL SECURITY` salvo emergencia y solo tabla por tabla.
+
+Ejemplo de concesion temporal de lectura publica:
+
+```sql
+grant select on public.sources, public.documents, public.document_chunks, public.authors, public.tags
+  to anon, authenticated;
+```
+
+Luego volver a ejecutar `scripts/check_supabase_rls.sql`.
 
 ## Riesgos controlados
 

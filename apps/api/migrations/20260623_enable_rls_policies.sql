@@ -3,9 +3,15 @@
 -- Safe to run multiple times:
 -- - Enables RLS on public tables.
 -- - Recreates policies with DROP POLICY IF EXISTS + CREATE POLICY.
+-- - Revokes broad Supabase Data API grants from anon/authenticated roles.
 -- - Does not delete, truncate, or update application data.
 -- - Does not enable FORCE ROW LEVEL SECURITY, so backend/service-role access
 --   used by FastAPI remains compatible.
+--
+-- Supabase SQL Editor usage:
+-- - Open this .sql file and copy its complete contents.
+-- - Do not paste the file path.
+-- - Do not paste markdown fences or prose that is not commented with --.
 --
 -- Rollback approach:
 -- - Remove policies with DROP POLICY IF EXISTS.
@@ -16,6 +22,16 @@ begin;
 
 grant usage on schema public to anon, authenticated;
 
+-- Close broad table access inherited by Supabase anon/authenticated roles.
+-- FastAPI uses the backend database role and is not expected to depend on
+-- browser-facing anon/authenticated table grants.
+revoke all privileges on all tables in schema public from anon, authenticated;
+revoke insert, update, delete, truncate, references, trigger on all tables in schema public from anon, authenticated;
+revoke all privileges on all sequences in schema public from anon, authenticated;
+
+alter default privileges in schema public revoke all privileges on tables from anon, authenticated;
+alter default privileges in schema public revoke all privileges on sequences from anon, authenticated;
+
 -- Public controlled read tables.
 alter table if exists public.sources enable row level security;
 alter table if exists public.documents enable row level security;
@@ -25,9 +41,6 @@ alter table if exists public.tags enable row level security;
 
 grant select on public.sources, public.documents, public.document_chunks, public.authors, public.tags
   to anon, authenticated;
-
-revoke insert, update, delete on public.sources, public.documents, public.document_chunks, public.authors, public.tags
-  from anon, authenticated;
 
 drop policy if exists sources_public_read_enabled on public.sources;
 create policy sources_public_read_enabled
@@ -87,22 +100,6 @@ alter table if exists public.user_preferences enable row level security;
 alter table if exists public.beta_feedback enable row level security;
 alter table if exists public.beta_activity_events enable row level security;
 
-grant select, insert, update, delete on
-  public.study_workspaces,
-  public.study_workspace_sources,
-  public.study_notes,
-  public.study_highlights,
-  public.saved_citations,
-  public.post_its,
-  public.chat_sessions,
-  public.study_projects,
-  public.user_private_sources,
-  public.study_ai_suggestion_cache,
-  public.user_preferences,
-  public.beta_feedback,
-  public.beta_activity_events
-  to authenticated;
-
 revoke all on
   public.study_workspaces,
   public.study_workspace_sources,
@@ -117,7 +114,7 @@ revoke all on
   public.user_preferences,
   public.beta_feedback,
   public.beta_activity_events
-  from anon;
+  from anon, authenticated;
 
 drop policy if exists study_workspaces_owner_access on public.study_workspaces;
 create policy study_workspaces_owner_access
@@ -228,11 +225,8 @@ alter table if exists public.chat_messages enable row level security;
 alter table if exists public.study_blocks enable row level security;
 alter table if exists public.study_sources enable row level security;
 
-grant select, insert, update, delete on public.chat_messages, public.study_blocks, public.study_sources
-  to authenticated;
-
 revoke all on public.chat_messages, public.study_blocks, public.study_sources
-  from anon;
+  from anon, authenticated;
 
 drop policy if exists chat_messages_owner_access on public.chat_messages;
 create policy chat_messages_owner_access

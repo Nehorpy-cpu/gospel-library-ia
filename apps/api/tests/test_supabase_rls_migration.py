@@ -6,6 +6,7 @@ from unittest import TestCase
 ROOT = Path(__file__).resolve().parents[3]
 MIGRATION_PATH = ROOT / "apps" / "api" / "migrations" / "20260623_enable_rls_policies.sql"
 CHECK_SCRIPT_PATH = ROOT / "scripts" / "check_supabase_rls.sql"
+PUBLIC_GRANTS_CHECK_PATH = ROOT / "scripts" / "check_public_grants.sql"
 
 
 PUBLIC_READ_TABLES = {
@@ -46,6 +47,30 @@ INTERNAL_TABLES = {
     "beta_access",
 }
 
+SQL_STARTERS = (
+    "alter ",
+    "and ",
+    "begin",
+    "commit",
+    "create ",
+    "drop ",
+    "exists ",
+    "for ",
+    "from ",
+    "grant ",
+    "on ",
+    "public.",
+    "(select ",
+    "('",
+    "revoke ",
+    "select",
+    "to ",
+    "using ",
+    "values",
+    "where ",
+    "with ",
+)
+
 
 def migration_sql() -> str:
     return MIGRATION_PATH.read_text(encoding="utf-8")
@@ -56,11 +81,37 @@ def executable_sql(sql: str) -> str:
 
 
 class SupabaseRlsMigrationTests(TestCase):
+    def assert_sql_file_has_no_markdown_or_free_text(self, path: Path):
+        text = path.read_text(encoding="utf-8")
+        self.assertNotIn("```", text)
+
+        first_non_empty = next(line.strip() for line in text.splitlines() if line.strip())
+        self.assertTrue(
+            first_non_empty.startswith("--")
+            or first_non_empty.startswith("/*")
+            or first_non_empty.lower().startswith(SQL_STARTERS),
+            f"{path} starts with non-SQL text: {first_non_empty}",
+        )
+
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            stripped = line.strip()
+            if stripped.startswith(("--", "/*", "*", "*/")):
+                continue
+            self.assertFalse(
+                stripped.startswith(("Supabase RLS hardening plan", "apps/api/", "scripts/")),
+                f"{path}:{line_number} contains un-commented prose or a pasted path: {stripped}",
+            )
+
+    def test_sql_files_are_pure_sql_or_comments(self):
+        self.assert_sql_file_has_no_markdown_or_free_text(MIGRATION_PATH)
+        self.assert_sql_file_has_no_markdown_or_free_text(CHECK_SCRIPT_PATH)
+        self.assert_sql_file_has_no_markdown_or_free_text(PUBLIC_GRANTS_CHECK_PATH)
+
     def test_migration_is_non_destructive(self):
         sql = executable_sql(migration_sql()).upper()
 
         self.assertNotIn("DROP TABLE", sql)
-        self.assertNotIn("TRUNCATE", sql)
+        self.assertNotRegex(sql, r"(^|\n)\s*TRUNCATE\s+")
         self.assertNotIn("DELETE FROM", sql)
         self.assertNotIn("FORCE ROW LEVEL SECURITY", sql)
 
@@ -81,7 +132,18 @@ class SupabaseRlsMigrationTests(TestCase):
         self.assertIn("where d.id = document_chunks.document_id", sql)
         self.assertIn("and d.status = 'ready'", sql)
         self.assertIn("and d.deleted_at is null", sql)
-        self.assertIn("revoke insert, update, delete on public.sources", sql)
+        self.assertIn("grant select on public.sources, public.documents, public.document_chunks, public.authors, public.tags", sql)
+
+    def test_migration_revokes_dangerous_anon_authenticated_grants(self):
+        sql = migration_sql().lower()
+
+        self.assertIn("revoke all privileges on all tables in schema public from anon, authenticated", sql)
+        self.assertIn(
+            "revoke insert, update, delete, truncate, references, trigger on all tables in schema public from anon, authenticated",
+            sql,
+        )
+        self.assertIn("revoke all privileges on all sequences in schema public from anon, authenticated", sql)
+        self.assertIn("alter default privileges in schema public revoke all privileges on tables from anon, authenticated", sql)
 
     def test_private_policies_use_authenticated_uid_checks(self):
         sql = migration_sql().lower()
@@ -111,6 +173,21 @@ class SupabaseRlsMigrationTests(TestCase):
         self.assertIn("revoke all on", sql)
         self.assertIn("from anon, authenticated", sql)
 
+    def test_private_tables_keep_no_direct_authenticated_grants(self):
+        sql = migration_sql().lower()
+        grant_statements = [
+            statement.strip()
+            for statement in executable_sql(sql).lower().split(";")
+            if statement.strip().startswith("grant ")
+        ]
+
+        self.assertNotIn("grant select, insert, update, delete on", sql)
+        for table in sorted(PRIVATE_USER_TABLES | PRIVATE_CHILD_TABLES | INTERNAL_TABLES):
+            self.assertFalse(
+                any(f"public.{table}" in statement and "to authenticated" in statement for statement in grant_statements),
+                f"Unexpected authenticated grant for private/internal table: {table}",
+            )
+
     def test_verification_script_checks_catalog_metadata(self):
         sql = CHECK_SCRIPT_PATH.read_text(encoding="utf-8").lower()
 
@@ -118,4 +195,13 @@ class SupabaseRlsMigrationTests(TestCase):
         self.assertIn("relrowsecurity", sql)
         self.assertIn("relforcerowsecurity", sql)
         self.assertIn("information_schema.role_table_grants", sql)
-        self.assertNotRegex(sql, re.compile(r"\b(update|insert|delete|truncate|drop)\b"))
+        self.assertIn("'insert', 'update', 'delete', 'truncate', 'references', 'trigger'", sql)
+        self.assertNotRegex(executable_sql(sql), re.compile(r"(^|\n)\s*(update|insert|delete|truncate|drop)\b"))
+
+    def test_public_grants_check_lists_expected_columns(self):
+        sql = PUBLIC_GRANTS_CHECK_PATH.read_text(encoding="utf-8").lower()
+
+        self.assertIn("grantee", sql)
+        self.assertIn("table_name", sql)
+        self.assertIn("privilege_type", sql)
+        self.assertIn("information_schema.role_table_grants", sql)

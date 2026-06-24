@@ -108,3 +108,43 @@ where table_schema = 'public'
     'beta_access'
   )
 order by table_name, grantee, privilege_type;
+
+with project_tables(table_name) as (
+  values
+    ('sources'),
+    ('documents'),
+    ('document_chunks'),
+    ('authors'),
+    ('tags'),
+    ('study_workspaces'),
+    ('study_workspace_sources'),
+    ('study_notes'),
+    ('study_highlights'),
+    ('saved_citations'),
+    ('post_its'),
+    ('chat_sessions'),
+    ('chat_messages'),
+    ('study_projects'),
+    ('study_blocks'),
+    ('study_sources'),
+    ('user_private_sources'),
+    ('study_ai_suggestion_cache'),
+    ('user_preferences'),
+    ('beta_feedback'),
+    ('beta_activity_events'),
+    ('crawl_urls'),
+    ('document_assets'),
+    ('ingestion_jobs'),
+    ('document_duplicate_relations'),
+    ('beta_access')
+)
+select
+  grantee,
+  table_name,
+  privilege_type
+from information_schema.role_table_grants
+where table_schema = 'public'
+  and grantee in ('anon', 'authenticated')
+  and privilege_type in ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER')
+  and table_name in (select table_name from project_tables)
+order by grantee, table_name, privilege_type;
