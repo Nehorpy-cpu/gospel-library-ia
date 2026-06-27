@@ -46,6 +46,28 @@ GET /health
 GET /ready
 ```
 
+## Render API build
+
+Para el servicio API de Render, usar `apps/api` como root/build context.
+
+Comando de build:
+
+```txt
+pip install --upgrade pip && pip install .
+```
+
+Comando de start:
+
+```txt
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
+
+`apps/api/pyproject.toml` configura setuptools para empaquetar solo `app`.
+Esto evita que carpetas top-level como `migrations`, `scripts` o `tests` sean
+detectadas como paquetes Python durante `pip install .`. La carpeta
+`migrations` debe permanecer como migraciones SQL/seguridad, no como paquete
+instalable.
+
 ## Release order
 
 1. Provision PostgreSQL, Redis, Qdrant Cloud, and R2.

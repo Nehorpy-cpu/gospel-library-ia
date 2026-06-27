@@ -23,11 +23,22 @@ python -m compileall app scripts
 python -m unittest discover -s tests
 ```
 
+Validacion equivalente al build de Render para la API:
+
+```powershell
+cd F:\Proyectos\gospel-library-ia-clean\apps\api
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install .
+```
+
 Notas:
 
 - Desde `apps/api`, las rutas correctas son `app`, `scripts` y `tests`.
 - No usar `apps/api/app` desde esta carpeta.
 - No ejecutar `cd apps/api` si ya estas dentro de `apps/api`.
+- `pyproject.toml` empaqueta solo `app`; `migrations`, `scripts` y `tests` no
+  son paquetes instalables para evitar fallos de autodiscovery en Render.
 
 ## B. Validacion backend desde la raiz
 
