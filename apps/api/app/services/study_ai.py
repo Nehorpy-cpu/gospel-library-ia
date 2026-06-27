@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 import hashlib
 import json
 from typing import Any
@@ -57,6 +60,13 @@ WORKSPACE_DEFAULT_TYPES = [
 FALLBACK_OPENAI_CHAT_MODEL = "gpt-4.1-mini"
 WORKSPACE_SCHEMA_NAME = "study_ai_suggestions"
 PROJECT_SCHEMA_NAME = "study_project_suggestions"
+WORKSPACE_DEFAULT_MAX_SUGGESTIONS = 2
+WORKSPACE_MAX_SUGGESTIONS = 6
+WORKSPACE_DEFAULT_MAX_OUTPUT_TOKENS = 1200
+WORKSPACE_LOCAL_CONTEXT_LIMIT = 3
+OPENAI_RATE_LIMIT_MAX_RETRIES = 2
+OPENAI_RATE_LIMIT_FALLBACK_DELAYS = (2.0, 5.0)
+_OPENAI_RETRY_SLEEP = asyncio.sleep
 
 WORKSPACE_SUGGESTION_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -65,7 +75,7 @@ WORKSPACE_SUGGESTION_SCHEMA: dict[str, Any] = {
     "properties": {
         "suggestions": {
             "type": "array",
-            "maxItems": 12,
+            "maxItems": WORKSPACE_MAX_SUGGESTIONS,
             "items": {
                 "type": "object",
                 "additionalProperties": False,
@@ -134,7 +144,16 @@ class StudyAiModelUnavailableError(StudyAiGenerationError):
 
 
 class StudyAiProviderRateLimitError(StudyAiGenerationError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        retry_after_seconds: int | None = None,
+        attempt: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+        self.attempt = attempt
 
 
 class StudyAiUnexpectedFormatError(StudyAiGenerationError):
@@ -308,7 +327,7 @@ def load_workspace_local_context(
     workspace: dict[str, Any],
     blocks: list[dict[str, Any]],
     user_id: str,
-    limit: int = 8,
+    limit: int = WORKSPACE_LOCAL_CONTEXT_LIMIT,
 ) -> list[dict[str, Any]]:
     settings_value = workspace.get("settings")
     settings = settings_value if isinstance(settings_value, dict) else {}
@@ -319,7 +338,7 @@ def load_workspace_local_context(
             settings.get("scriptureReference") or settings.get("mainReference") or workspace.get("description"),
             settings.get("personalThought"),
             settings.get("topic"),
-            " ".join(str(block.get("title") or "") for block in blocks[:5]),
+            " ".join(str(block.get("title") or "") for block in blocks[:3]),
             "Jesucristo",
             "nombres" if _looks_like_name_study(settings.get("title") or workspace.get("name")) else "",
         )
@@ -331,7 +350,7 @@ def load_workspace_local_context(
         rows = conn.execute(
             """
             SELECT d.id::text, d.title, d.author, d.canonical_url, s.name AS source_name,
-                   left(coalesce(dc.text, d.text, ''), 900) AS excerpt
+                   left(coalesce(dc.text, d.text, ''), 450) AS excerpt
             FROM documents d
             JOIN sources s ON s.id = d.source_id
             LEFT JOIN LATERAL (
@@ -370,7 +389,7 @@ def load_workspace_local_context(
             FROM user_private_sources
             WHERE user_id = %(user_id)s
             ORDER BY updated_at DESC
-            LIMIT 4
+            LIMIT 2
             """,
             {"user_id": user_id},
         ).fetchall()
@@ -383,8 +402,8 @@ def load_workspace_local_context(
             "title": row["title"],
             "author": row["author"],
             "source_type": row["source_type"],
-            "citation_text": row["citation_text"],
-            "personal_note": row["personal_note"],
+            "citation_text": _limit_text(str(row["citation_text"] or ""), 350),
+            "personal_note": _limit_text(str(row["personal_note"] or ""), 250),
             "tags": row["tags"] or [],
         }
         for row in private_rows
@@ -401,7 +420,10 @@ async def generate_workspace_suggestions(
     local_context: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str], str]:
     settings = get_settings()
-    max_suggestions = min(max(int(payload.get("maxSuggestions") or 8), 1), 12)
+    max_suggestions = min(
+        max(int(payload.get("maxSuggestions") or WORKSPACE_DEFAULT_MAX_SUGGESTIONS), 1),
+        WORKSPACE_MAX_SUGGESTIONS,
+    )
     if settings.study_ai_max_suggestions:
         max_suggestions = min(max_suggestions, settings.study_ai_max_suggestions)
     warnings: list[str] = []
@@ -421,8 +443,8 @@ async def generate_workspace_suggestions(
         or workspace.get("description")
     )
     mode = payload.get("mode") or "rapido"
-    user_prompt = _limit_text(str(payload.get("userPrompt") or payload.get("prompt") or ""), 1200)
-    preferred_sources = payload.get("preferredSources") or []
+    user_prompt = _limit_text(str(payload.get("userPrompt") or payload.get("prompt") or ""), 700)
+    preferred_sources = (payload.get("preferredSources") or [])[:4]
     system_prompt = (
         "Eres un asistente de estudio doctrinal para uso personal de miembros de La Iglesia de Jesucristo "
         "de los Santos de los Ultimos Dias. Responde unicamente con JSON valido. No uses Markdown. No uses ```."
@@ -450,14 +472,14 @@ async def generate_workspace_suggestions(
             {
                 "type": block.get("type"),
                 "title": block.get("title"),
-                "content": _limit_text(str(block.get("content") or ""), 500),
+                "content": _limit_text(str(block.get("content") or ""), 250),
             }
-            for block in blocks[:8]
+            for block in blocks[:4]
         ],
         "mode": mode,
         "preferredSources": preferred_sources,
         "userPrompt": user_prompt,
-        "localContext": local_context[:10],
+        "localContext": local_context[:WORKSPACE_LOCAL_CONTEXT_LIMIT],
         "maxSuggestions": max_suggestions,
         "allowedTypes": WORKSPACE_SUGGESTION_TYPES,
         "requiredJsonShape": {
@@ -470,12 +492,22 @@ async def generate_workspace_suggestions(
         model=model,
         system_prompt=system_prompt,
         user_payload=user_payload,
-        max_output_tokens=2400,
+        max_output_tokens=WORKSPACE_DEFAULT_MAX_OUTPUT_TOKENS,
         json_mode=True,
     )
     log.info("study_workspace_ai_openai_request", **openai_request_summary(request_body))
     try:
-        data = await _post_openai_responses(settings.openai_api_key, request_body)
+        rate_limit_log_context = {
+            "workspace_id": workspace.get("id"),
+            "user_id": user_id,
+            "model": model,
+            "max_suggestions": max_suggestions,
+        }
+        data = await _post_openai_responses(
+            settings.openai_api_key,
+            request_body,
+            rate_limit_log_context=rate_limit_log_context,
+        )
         parsed = _extract_workspace_response_json(data)
         provider = "openai_responses_json_object"
     except StudyAiProviderInvalidRequestError as exc:
@@ -483,13 +515,17 @@ async def generate_workspace_suggestions(
             model=model,
             system_prompt=system_prompt,
             user_payload=user_payload,
-            max_output_tokens=2400,
+            max_output_tokens=WORKSPACE_DEFAULT_MAX_OUTPUT_TOKENS,
             json_mode=False,
         )
         log.warning("study_workspace_ai_openai_json_object_request_invalid", error=str(exc), **openai_request_summary(request_body))
         log.info("study_workspace_ai_openai_request", **openai_request_summary(fallback_body))
         try:
-            data = await _post_openai_responses(settings.openai_api_key, fallback_body)
+            data = await _post_openai_responses(
+                settings.openai_api_key,
+                fallback_body,
+                rate_limit_log_context=rate_limit_log_context,
+            )
             parsed = _extract_workspace_response_json(data)
             provider = "openai_responses_plain_json_fallback"
         except StudyAiProviderInvalidRequestError as fallback_exc:
@@ -595,7 +631,16 @@ async def generate_suggestions(
         "max_output_tokens": 2200,
     }
     try:
-        data = await _post_openai_responses(settings.openai_api_key, request_body)
+        data = await _post_openai_responses(
+            settings.openai_api_key,
+            request_body,
+            rate_limit_log_context={
+                "workspace_id": workspace.get("id"),
+                "user_id": user_id,
+                "model": model,
+                "max_suggestions": max_suggestions,
+            },
+        )
     except StudyAiGenerationError as exc:
         warnings.append(f"No se pudo generar con OpenAI; se uso respaldo local. Detalle seguro: {sanitize_value(str(exc))}")
         return _fallback_suggestions(project, block_types, local_context, max_suggestions), warnings, "fallback_openai_error"
@@ -720,19 +765,49 @@ def _with_stage(exc: StudyAiGenerationError, stage: str) -> StudyAiGenerationErr
     return exc
 
 
-async def _post_openai_responses(api_key: str, request_body: dict[str, Any]) -> dict[str, Any]:
+async def _post_openai_responses(
+    api_key: str,
+    request_body: dict[str, Any],
+    *,
+    rate_limit_log_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     try:
         async with httpx.AsyncClient(timeout=45) as client:
-            response = await client.post(
-                "https://api.openai.com/v1/responses",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=request_body,
-            )
-            response.raise_for_status()
-            return response.json()
+            for attempt in range(1, OPENAI_RATE_LIMIT_MAX_RETRIES + 2):
+                response = await client.post(
+                    "https://api.openai.com/v1/responses",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=request_body,
+                )
+                if response.status_code == 429:
+                    retry_after_seconds = _retry_after_seconds(response)
+                    safe_error = _safe_openai_error(response)
+                    if attempt <= OPENAI_RATE_LIMIT_MAX_RETRIES:
+                        delay = retry_after_seconds or int(OPENAI_RATE_LIMIT_FALLBACK_DELAYS[attempt - 1])
+                        log.warning(
+                            "study_ai_rate_limited",
+                            source="openai_rate_limit",
+                            attempt=attempt,
+                            retry_after_seconds=retry_after_seconds,
+                            retry_delay_seconds=delay,
+                            **(rate_limit_log_context or {}),
+                        )
+                        await _OPENAI_RETRY_SLEEP(delay)
+                        continue
+                    exc_to_raise = StudyAiProviderRateLimitError(
+                        json.dumps(safe_error, ensure_ascii=False),
+                        retry_after_seconds=retry_after_seconds,
+                        attempt=attempt,
+                    )
+                    raise _with_stage(exc_to_raise, "openai_request")
+
+                response.raise_for_status()
+                return response.json()
+    except StudyAiProviderRateLimitError:
+        raise
     except httpx.HTTPStatusError as exc:
         safe_error = _safe_openai_error(exc.response)
         message = safe_error.get("message") or str(exc)
@@ -741,8 +816,6 @@ async def _post_openai_responses(api_key: str, request_body: dict[str, Any]) -> 
             raise _with_stage(StudyAiModelUnavailableError(message), "openai_request") from exc
         if status_code in {401, 403}:
             raise _with_stage(StudyAiConfigurationError(message), "openai_request") from exc
-        if status_code == 429:
-            raise _with_stage(StudyAiProviderRateLimitError(json.dumps(safe_error, ensure_ascii=False)), "openai_request") from exc
         if status_code == 400:
             raise _with_stage(
                 StudyAiProviderInvalidRequestError(json.dumps(safe_error, ensure_ascii=False)),
@@ -775,6 +848,25 @@ def _safe_openai_error(response: httpx.Response) -> dict[str, Any]:
     else:
         safe["message"] = sanitize_value(str(body)[:500])
     return safe
+
+
+def _retry_after_seconds(response: httpx.Response) -> int | None:
+    value = response.headers.get("retry-after") or response.headers.get("Retry-After")
+    if not value:
+        return None
+    try:
+        seconds = int(float(value))
+        return max(seconds, 0)
+    except ValueError:
+        pass
+    try:
+        retry_at = parsedate_to_datetime(value)
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=UTC)
+        seconds = int((retry_at - datetime.now(UTC)).total_seconds())
+        return max(seconds, 0)
+    except Exception:
+        return None
 
 
 def _is_model_unavailable(error: dict[str, Any]) -> bool:

@@ -284,7 +284,10 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
         self.original_generate_workspace_suggestions = study.generate_workspace_suggestions
         self.original_load_workspace_local_context = study.load_workspace_local_context
         self.original_log_warning = study.log.warning
+        self.original_limiter = study.limiter
         study.get_conn = personal_workspace_get_conn
+        study._AI_SUGGESTION_CACHE.clear()
+        study._AI_SUGGESTION_INFLIGHT.clear()
         self.client = TestClient(app)
         PersonalWorkspaceFakeConnection.workspaces = {}
         PersonalWorkspaceFakeConnection.notes = {}
@@ -297,6 +300,9 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
         study.generate_workspace_suggestions = self.original_generate_workspace_suggestions
         study.load_workspace_local_context = self.original_load_workspace_local_context
         study.log.warning = self.original_log_warning
+        study.limiter = self.original_limiter
+        study._AI_SUGGESTION_CACHE.clear()
+        study._AI_SUGGESTION_INFLIGHT.clear()
 
     def test_create_list_and_read_personal_workspace(self):
         response = study.create_workspace(
@@ -420,15 +426,17 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(
-            body,
-            {
-                "workspace_exists": True,
-                "user_authorized": True,
-                "openai_key_configured": bool(study.get_settings().openai_api_key),
-                "model_configured": True,
-                "local_context_available": True,
-            },
+            body["workspace_exists"],
+            True,
         )
+        self.assertTrue(body["user_authorized"])
+        self.assertEqual(body["openai_key_configured"], bool(study.get_settings().openai_api_key))
+        self.assertTrue(body["model_configured"])
+        self.assertTrue(body["local_context_available"])
+        self.assertTrue(body["cache_enabled"])
+        self.assertEqual(body["max_suggestions_limit"], 6)
+        self.assertEqual(body["default_max_suggestions"], 2)
+        self.assertIn("rate_limit_status", body)
 
     def test_ai_suggest_health_reports_missing_openai_key_without_secret(self):
         study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
@@ -521,7 +529,34 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 429)
-        self.assertEqual(response.json()["detail"], "La IA alcanzo un limite temporal del proveedor. Intenta nuevamente mas tarde.")
+        body = response.json()
+        self.assertEqual(body["detail"], "OpenAI alcanzo un limite temporal. Espera unos segundos e intenta de nuevo.")
+        self.assertEqual(body["source"], "openai_rate_limit")
+
+    def test_ai_suggest_returns_source_for_internal_rate_limit(self):
+        study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
+
+        class FakeLimiter:
+            async def check(self, *args, **kwargs):
+                raise study.HTTPException(status_code=429, detail="Rate limit exceeded")
+
+            async def check_daily(self, *args, **kwargs):
+                return None
+
+        study.limiter = FakeLimiter()
+        response = self.client.post(
+            f"/api/study-workspaces/{WORKSPACE_ID}/ai-suggest",
+            headers={"X-User-Id": USER_ID},
+            json={"mode": "rapido", "maxSuggestions": 3},
+        )
+
+        self.assertEqual(response.status_code, 429)
+        body = response.json()
+        self.assertEqual(body["source"], "internal_rate_limit")
+        self.assertEqual(
+            body["detail"],
+            "Alcanzaste el limite temporal de solicitudes. Espera unos segundos e intenta de nuevo.",
+        )
 
     def test_ai_suggest_returns_controlled_error_for_timeout(self):
         study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
@@ -689,6 +724,73 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["suggestions"]), 4)
         self.assertEqual(len(PersonalWorkspaceFakeConnection.notes), before_notes)
+
+    def test_ai_suggest_caps_max_suggestions_to_six(self):
+        payload = study.WorkspaceAiSuggestPayload.model_validate({"mode": "rapido", "maxSuggestions": 12})
+
+        self.assertEqual(payload.maxSuggestions, 6)
+
+    def test_ai_suggest_cache_avoids_second_generation_call(self):
+        study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
+        calls = 0
+
+        async def fake_generate_workspace_suggestions(**kwargs):
+            nonlocal calls
+            calls += 1
+            return (
+                [
+                    {
+                        "type": "reflection_question",
+                        "title": "Pregunta",
+                        "content": "Que debo aplicar?",
+                        "source_title": "",
+                        "source_author": "",
+                        "source_reference": "",
+                        "source_url": "",
+                        "quote_text": "",
+                        "is_ai_generated": True,
+                        "confidence": "medium",
+                        "source_status": "none",
+                    }
+                ],
+                [],
+                [],
+                "test",
+            )
+
+        study.generate_workspace_suggestions = fake_generate_workspace_suggestions
+        payload = {"mode": "rapido", "maxSuggestions": 1, "userPrompt": "Pregunta"}
+        first = self.client.post(
+            f"/api/study-workspaces/{WORKSPACE_ID}/ai-suggest",
+            headers={"X-User-Id": USER_ID},
+            json=payload,
+        )
+        second = self.client.post(
+            f"/api/study-workspaces/{WORKSPACE_ID}/ai-suggest",
+            headers={"X-User-Id": USER_ID},
+            json=payload,
+        )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertFalse(first.json()["cached"])
+        self.assertTrue(second.json()["cached"])
+        self.assertEqual(calls, 1)
+
+    def test_ai_suggest_lock_prevents_duplicate_generation(self):
+        study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
+        study._AI_SUGGESTION_INFLIGHT[study._ai_lock_key(USER_ID, WORKSPACE_ID)] = study.time.monotonic() + 30
+
+        response = self.client.post(
+            f"/api/study-workspaces/{WORKSPACE_ID}/ai-suggest",
+            headers={"X-User-Id": USER_ID},
+            json={"mode": "rapido", "maxSuggestions": 1},
+        )
+
+        self.assertEqual(response.status_code, 409)
+        body = response.json()
+        self.assertEqual(body["source"], "inflight_generation")
+        self.assertEqual(body["retry_after_seconds"], 10)
 
     def test_ai_suggest_alias_route_works(self):
         study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)

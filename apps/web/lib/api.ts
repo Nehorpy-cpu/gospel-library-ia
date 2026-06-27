@@ -40,7 +40,10 @@ type DocumentListResponse = {
 export class ApiHttpError extends Error {
   constructor(
     message: string,
-    public readonly status: number
+    public readonly status: number,
+    public readonly body?: unknown,
+    public readonly source?: string,
+    public readonly retryAfterSeconds?: number
   ) {
     super(message);
     this.name = "ApiHttpError";
@@ -87,7 +90,26 @@ function detailToText(value: unknown): string | undefined {
       .filter(Boolean)
       .join(" ");
   }
+  if (value && typeof value === "object") {
+    const detail = (value as { detail?: unknown; message?: unknown }).detail;
+    const message = (value as { detail?: unknown; message?: unknown }).message;
+    return detailToText(detail) || detailToText(message);
+  }
   return undefined;
+}
+
+function detailSource(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const source = (value as { source?: unknown }).source;
+  return typeof source === "string" ? source : undefined;
+}
+
+function detailRetryAfterSeconds(value: unknown): number | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const retryAfter = (value as { retry_after_seconds?: unknown; retryAfterSeconds?: unknown }).retry_after_seconds
+    ?? (value as { retryAfterSeconds?: unknown }).retryAfterSeconds;
+  const numeric = typeof retryAfter === "number" ? retryAfter : Number(retryAfter);
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : undefined;
 }
 
 function normalizeSearchResponse(value: unknown): SearchResponse {
@@ -135,19 +157,25 @@ async function request<T>(
   if (!response.ok) {
     const detail = await response.text();
     let parsedDetail: string | undefined;
+    let parsedBody: unknown;
+    let source: string | undefined;
+    let retryAfterSeconds: number | undefined;
     try {
       const parsed = JSON.parse(detail) as { status?: string; detail?: unknown; message?: unknown };
+      parsedBody = parsed;
       if (parsed.status === "missing_api_key") {
         throw new Error(MISSING_OPENAI_MESSAGE);
       }
       parsedDetail = detailToText(parsed.detail) || detailToText(parsed.message);
+      source = detailSource(parsed) || detailSource(parsed.detail);
+      retryAfterSeconds = detailRetryAfterSeconds(parsed) || detailRetryAfterSeconds(parsed.detail);
     } catch (error) {
       if (error instanceof Error && error.message === MISSING_OPENAI_MESSAGE) {
         throw error;
       }
     }
     const message = apiErrorMessage(response.status, parsedDetail || detail);
-    throw new ApiHttpError(message, response.status);
+    throw new ApiHttpError(message, response.status, parsedBody || detail, source, retryAfterSeconds);
   }
   return response.json() as Promise<T>;
 }
@@ -567,7 +595,7 @@ export const studyApi = {
       body: JSON.stringify(payload)
     }).catch((error) => {
       if (error instanceof ApiHttpError) {
-        throw new ApiHttpError(studyWorkspaceCreateErrorMessage(error.status), error.status);
+        throw new ApiHttpError(studyWorkspaceCreateErrorMessage(error.status), error.status, error.body, error.source, error.retryAfterSeconds);
       }
       throw error;
     });
@@ -661,7 +689,13 @@ export const studyApi = {
       body: JSON.stringify(payload)
     }).catch((error) => {
       if (error instanceof ApiHttpError) {
-        throw new ApiHttpError(studyWorkspaceAiErrorMessage(error.status), error.status);
+        throw new ApiHttpError(
+          studyWorkspaceAiErrorMessage(error.status, error.source, error.retryAfterSeconds),
+          error.status,
+          error.body,
+          error.source,
+          error.retryAfterSeconds
+        );
       }
       throw error;
     });

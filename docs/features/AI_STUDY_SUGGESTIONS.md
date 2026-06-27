@@ -39,7 +39,7 @@ Payload:
   "mode": "rapido",
   "userPrompt": "Conecta este pasaje con Jesucristo y mi llamamiento",
   "preferredSources": ["biblioteca", "manuales", "discursos"],
-  "maxSuggestions": 8
+  "maxSuggestions": 2
 }
 ```
 
@@ -63,7 +63,8 @@ Respuesta:
     }
   ],
   "sources_used": [],
-  "warnings": []
+  "warnings": [],
+  "cached": false
 }
 ```
 
@@ -74,7 +75,7 @@ Backend Render:
 ```txt
 OPENAI_API_KEY=...
 OPENAI_CHAT_MODEL=gpt-4.1-mini
-STUDY_AI_MAX_SUGGESTIONS=12
+STUDY_AI_MAX_SUGGESTIONS=6
 ```
 
 Si `OPENAI_CHAT_MODEL` esta vacio, el backend usa el fallback seguro
@@ -114,7 +115,7 @@ El backend usa Responses API con `json_object` por estabilidad:
       "type": "json_object"
     }
   },
-  "max_output_tokens": 2400
+  "max_output_tokens": 1200
 }
 ```
 
@@ -133,7 +134,7 @@ controlado sin `text.format`:
     { "role": "system", "content": "..." },
     { "role": "user", "content": "{...}" }
   ],
-  "max_output_tokens": 2400
+  "max_output_tokens": 1200
 }
 ```
 
@@ -166,7 +167,7 @@ $body = @{
   mode = "rapido"
   userPrompt = "Dame una conexion con Jesucristo y una pregunta de reflexion"
   preferredSources = @("biblioteca", "manuales", "discursos")
-  maxSuggestions = 4
+  maxSuggestions = 2
 } | ConvertTo-Json
 
 Invoke-RestMethod `
@@ -193,6 +194,7 @@ POST https://api.estudiopy.com/api/study-workspaces/{workspaceId}/ai-suggest
 Estados esperados:
 
 - `200`: sugerencias generadas.
+- `409`: ya hay una generacion de IA en curso para ese estudio.
 - `429`: limite temporal del proveedor de IA o de uso del endpoint.
 - `401`: falta sesion o usuario valido.
 - `404`: no existe el estudio solicitado o Render no tiene desplegado el endpoint.
@@ -201,6 +203,67 @@ Estados esperados:
 - `503`: `OPENAI_API_KEY` no esta configurada en Render o el modelo no esta
   disponible para la cuenta.
 - `504`: OpenAI tardo demasiado en responder.
+
+## Manejo de 429 y cache
+
+OpenAI puede devolver `429` aunque la cuenta tenga facturacion activa. La
+facturacion habilita uso pago, pero cada organizacion, proyecto y modelo sigue
+teniendo limites de requests por minuto y tokens por minuto.
+
+El backend diferencia la fuente del limite con el campo `source`:
+
+```json
+{
+  "detail": "Alcanzaste el limite temporal de solicitudes. Espera unos segundos e intenta de nuevo.",
+  "source": "internal_rate_limit"
+}
+```
+
+```json
+{
+  "detail": "OpenAI alcanzo un limite temporal. Espera unos segundos e intenta de nuevo.",
+  "source": "openai_rate_limit",
+  "retry_after_seconds": 10
+}
+```
+
+Cuando OpenAI devuelve `429`, FastAPI reintenta como maximo 2 veces. Si OpenAI
+envia `Retry-After`, se respeta ese valor; si no lo envia, se usan esperas
+cortas de 2 y 5 segundos. Cada intento registra un log seguro con:
+
+```txt
+event=study_ai_rate_limited
+source=openai_rate_limit
+attempt=...
+retry_after_seconds=...
+workspace_id=...
+user_id=...
+```
+
+Para evitar solicitudes duplicadas por doble click o pestañas simultaneas, el
+backend usa un bloqueo temporal por usuario y workspace. Si ya hay una
+generacion en curso, responde:
+
+```json
+{
+  "detail": "Ya hay una generacion de IA en curso para este estudio. Espera a que termine.",
+  "source": "inflight_generation",
+  "retry_after_seconds": 10
+}
+```
+
+Las respuestas exitosas se guardan en cache por 10 minutos usando usuario,
+workspace, modo, prompt y cantidad de sugerencias. Si se reutiliza cache, la
+respuesta incluye:
+
+```json
+{
+  "cached": true
+}
+```
+
+Este cache es intencionalmente simple y vive en memoria del proceso de Render.
+No guarda secretos, no crea tablas y se pierde al reiniciar el servicio.
 
 ## Solucion de errores 500 en ai-suggest
 
@@ -273,7 +336,15 @@ Respuesta esperada:
   "user_authorized": true,
   "openai_key_configured": true,
   "model_configured": true,
-  "local_context_available": true
+  "local_context_available": true,
+  "rate_limit_status": {
+    "per_minute": 10,
+    "daily": 50
+  },
+  "cache_enabled": true,
+  "cache_ttl_seconds": 600,
+  "max_suggestions_limit": 6,
+  "default_max_suggestions": 2
 }
 ```
 
@@ -288,7 +359,7 @@ $workspaceId = "WORKSPACE_ID_REAL"
 $body = @{
   mode = "rapido"
   userPrompt = "Dame una conexion con Jesucristo y una pregunta de reflexion"
-  maxSuggestions = 3
+  maxSuggestions = 2
 } | ConvertTo-Json
 
 Invoke-RestMethod `
@@ -325,7 +396,7 @@ model=...
 has_text_format=true
 schema_name=null
 input_type=array
-max_output_tokens=2400
+max_output_tokens=1200
 ```
 
 El log no debe incluir `OPENAI_API_KEY`, prompt completo ni contenido completo
@@ -334,14 +405,17 @@ seguros como `error.message`, `error.type`, `error.param` y `error.code`.
 
 ## Costos y limites
 
-- `maxSuggestions` acepta de 1 a 12.
-- `STUDY_AI_MAX_SUGGESTIONS` permite bajar el limite desde Render.
-- El prompt envia solo contexto resumido del estudio y de fuentes locales.
+- `maxSuggestions` acepta de 1 a 6 en el backend actual.
+- El valor por defecto del frontend es 2 sugerencias.
+- `STUDY_AI_MAX_SUGGESTIONS` permite bajar el limite desde Render sin superar 6.
+- El prompt envia solo contexto resumido del estudio y hasta 3 fuentes locales.
+- La llamada usa `max_output_tokens=1200` para reducir presion de tokens/minuto.
 - La llamada usa `store=false` para no pedir almacenamiento del request.
 
 ## Limitaciones actuales
 
-- Las sugerencias no se cachean todavia para workspaces.
+- El cache de sugerencias es en memoria del proceso de Render y se pierde al
+  reiniciar o redeployar el servicio.
 - Las fuentes privadas se leen si la tabla existe, pero la experiencia visual
   todavia no incluye un gestor dedicado de fuentes privadas para este flujo.
 - Qdrant puede seguir en `error` en `/health`; este flujo usa contexto SQL local

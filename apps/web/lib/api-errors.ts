@@ -30,7 +30,8 @@ export function studyWorkspaceCreateErrorMessage(status: number): string {
   return apiErrorMessage(status);
 }
 
-export function studyWorkspaceAiErrorMessage(status: number): string {
+export function studyWorkspaceAiErrorMessage(status: number, source?: string, retryAfterSeconds?: number): string {
+  const waitText = retryAfterSeconds ? ` Espera ${retryAfterSeconds} segundos.` : "";
   if (status === 401) {
     return "Debes iniciar sesion para usar la IA del estudio.";
   }
@@ -41,7 +42,16 @@ export function studyWorkspaceAiErrorMessage(status: number): string {
     return "Revisa los campos del pedido de IA.";
   }
   if (status === 429) {
-    return "La IA alcanzo un limite temporal. Intenta nuevamente mas tarde.";
+    if (source === "openai_rate_limit") {
+      return `OpenAI alcanzo un limite temporal.${waitText || " Espera unos segundos."}`;
+    }
+    if (source === "internal_rate_limit") {
+      return `Alcanzaste un limite temporal.${waitText || " Espera unos segundos y volve a intentar."}`;
+    }
+    return `Alcanzaste un limite temporal.${waitText || " Intenta nuevamente mas tarde."}`;
+  }
+  if (status === 409) {
+    return "Ya hay una generacion de IA en curso para este estudio. Espera a que termine.";
   }
   if (status === 502) {
     return "La IA respondio con un formato inesperado o invalido.";

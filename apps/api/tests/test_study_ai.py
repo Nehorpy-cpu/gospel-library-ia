@@ -230,8 +230,12 @@ class StudyAiServiceTests(unittest.TestCase):
 
     def test_openai_429_raises_rate_limit_error(self):
         original_async_client = study_ai.httpx.AsyncClient
+        original_sleep = study_ai._OPENAI_RETRY_SLEEP
+        sleeps: list[float] = []
 
         class FakeAsyncClient:
+            calls = 0
+
             def __init__(self, *args, **kwargs):
                 pass
 
@@ -242,20 +246,70 @@ class StudyAiServiceTests(unittest.TestCase):
                 return None
 
             async def post(self, url, headers=None, json=None):
+                self.__class__.calls += 1
+                return httpx.Response(
+                    429,
+                    json={"error": {"message": "rate limit reached", "type": "rate_limit_error"}},
+                    headers={"Retry-After": "1"},
+                    request=httpx.Request("POST", url),
+                )
+
+        async def fake_sleep(seconds):
+            sleeps.append(seconds)
+
+        study_ai.httpx.AsyncClient = FakeAsyncClient
+        study_ai._OPENAI_RETRY_SLEEP = fake_sleep
+        try:
+            with self.assertRaises(study_ai.StudyAiProviderRateLimitError) as context:
+                asyncio.run(study_ai._post_openai_responses("sk-test", {"model": "gpt-4.1-mini"}))
+            self.assertEqual(getattr(context.exception, "stage"), "openai_request")
+            self.assertEqual(context.exception.retry_after_seconds, 1)
+            self.assertEqual(FakeAsyncClient.calls, 3)
+            self.assertEqual(sleeps, [1, 1])
+            self.assertNotIn("sk-test", str(context.exception))
+        finally:
+            study_ai.httpx.AsyncClient = original_async_client
+            study_ai._OPENAI_RETRY_SLEEP = original_sleep
+
+    def test_openai_429_without_retry_after_uses_short_backoff(self):
+        original_async_client = study_ai.httpx.AsyncClient
+        original_sleep = study_ai._OPENAI_RETRY_SLEEP
+        sleeps: list[float] = []
+
+        class FakeAsyncClient:
+            calls = 0
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return None
+
+            async def post(self, url, headers=None, json=None):
+                self.__class__.calls += 1
                 return httpx.Response(
                     429,
                     json={"error": {"message": "rate limit reached", "type": "rate_limit_error"}},
                     request=httpx.Request("POST", url),
                 )
 
+        async def fake_sleep(seconds):
+            sleeps.append(seconds)
+
         study_ai.httpx.AsyncClient = FakeAsyncClient
+        study_ai._OPENAI_RETRY_SLEEP = fake_sleep
         try:
             with self.assertRaises(study_ai.StudyAiProviderRateLimitError) as context:
                 asyncio.run(study_ai._post_openai_responses("sk-test", {"model": "gpt-4.1-mini"}))
-            self.assertEqual(getattr(context.exception, "stage"), "openai_request")
-            self.assertNotIn("sk-test", str(context.exception))
+            self.assertIsNone(context.exception.retry_after_seconds)
+            self.assertEqual(FakeAsyncClient.calls, 3)
+            self.assertEqual(sleeps, [2, 5])
         finally:
             study_ai.httpx.AsyncClient = original_async_client
+            study_ai._OPENAI_RETRY_SLEEP = original_sleep
 
     def test_workspace_generation_handles_null_settings_empty_blocks_and_no_local_context(self):
         original_async_client = study_ai.httpx.AsyncClient
@@ -452,6 +506,7 @@ class StudyAiServiceTests(unittest.TestCase):
             self.assertEqual(requests[0]["text"]["format"]["type"], "json_object")
             self.assertNotIn("text", requests[1])
             self.assertEqual(requests[0]["model"], "gpt-4.1-mini")
+            self.assertEqual(requests[0]["max_output_tokens"], 1200)
             self.assertIn("No se encontraron suficientes fuentes locales", warnings[0])
         finally:
             study_ai.httpx.AsyncClient = original_async_client

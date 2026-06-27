@@ -263,4 +263,5 @@ export type WorkspaceAiSuggestResponse = {
   suggestions: WorkspaceAiSuggestion[];
   sources_used: Array<Record<string, unknown>>;
   warnings: string[];
+  cached: boolean;
 };

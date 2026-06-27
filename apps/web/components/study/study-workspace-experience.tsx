@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookOpen, Download, Plus, Save, Sparkles, StickyNote, Trash2 } from "lucide-react";
 
@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { studyApi } from "@/lib/api";
+import { ApiHttpError, studyApi } from "@/lib/api";
 import {
   type EditableWorkspaceAiSuggestion,
   isSuggestedReference,
@@ -80,11 +80,13 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
   const [aiForm, setAiForm] = useState<AiFormState>({
     mode: "rapido" as WorkspaceAiSuggestionMode,
     userPrompt: "",
-    maxSuggestions: 8
+    maxSuggestions: 2
   });
   const [aiSuggestions, setAiSuggestions] = useState<EditableWorkspaceAiSuggestion[]>([]);
   const [aiWarnings, setAiWarnings] = useState<string[]>([]);
   const [aiStatus, setAiStatus] = useState<string | null>(null);
+  const [aiRetryUntil, setAiRetryUntil] = useState<number | null>(null);
+  const [aiNow, setAiNow] = useState(() => Date.now());
 
   const workspaces = useQuery({
     queryKey: ["study-workspaces", userId],
@@ -100,6 +102,19 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
 
   const activeWorkspace = workspace.data;
   const blocks = useMemo(() => activeWorkspace?.blocks ?? [], [activeWorkspace?.blocks]);
+  const aiRetrySecondsRemaining = aiRetryUntil ? Math.max(0, Math.ceil((aiRetryUntil - aiNow) / 1000)) : 0;
+
+  useEffect(() => {
+    if (!aiRetryUntil) return;
+    const id = window.setInterval(() => {
+      const now = Date.now();
+      setAiNow(now);
+      if (now >= aiRetryUntil) {
+        setAiRetryUntil(null);
+      }
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [aiRetryUntil]);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["study-workspaces"] });
@@ -156,6 +171,7 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
     onMutate: () => {
       setAiStatus("Generando sugerencias...");
       setAiWarnings([]);
+      setAiRetryUntil(null);
     },
     onSuccess: (response) => {
       setAiSuggestions(
@@ -165,9 +181,16 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
         }))
       );
       setAiWarnings(response.warnings);
-      setAiStatus(response.suggestions.length ? "Sugerencias generadas" : "No se encontraron suficientes fuentes locales");
+      if (response.cached) {
+        setAiStatus("Resultado recuperado de cache reciente.");
+      } else {
+        setAiStatus(response.suggestions.length ? "Sugerencias generadas" : "No se encontraron suficientes fuentes locales");
+      }
     },
     onError: (error) => {
+      if (error instanceof ApiHttpError && error.retryAfterSeconds) {
+        setAiRetryUntil(Date.now() + error.retryAfterSeconds * 1000);
+      }
       setAiStatus(error instanceof Error ? error.message : "No se pudo generar informacion con IA");
     }
   });
@@ -283,9 +306,13 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
                 warnings={aiWarnings}
                 status={aiStatus}
                 generating={generateAiSuggestions.isPending}
+                retrySecondsRemaining={aiRetrySecondsRemaining}
                 saving={saveAiSuggestion.isPending}
                 onFormChange={setAiForm}
-                onGenerate={() => generateAiSuggestions.mutate()}
+                onGenerate={() => {
+                  if (generateAiSuggestions.isPending || aiRetrySecondsRemaining > 0) return;
+                  generateAiSuggestions.mutate();
+                }}
                 onSuggestionChange={(localId, patch) =>
                   setAiSuggestions((items) => items.map((item) => (item.localId === localId ? { ...item, ...patch } : item)))
                 }
@@ -425,6 +452,7 @@ function AiSuggestionsPanel({
   warnings,
   status,
   generating,
+  retrySecondsRemaining,
   saving,
   onFormChange,
   onGenerate,
@@ -437,6 +465,7 @@ function AiSuggestionsPanel({
   warnings: string[];
   status: string | null;
   generating: boolean;
+  retrySecondsRemaining: number;
   saving: boolean;
   onFormChange: (form: AiFormState) => void;
   onGenerate: () => void;
@@ -475,23 +504,28 @@ function AiSuggestionsPanel({
             <Input
               type="number"
               min={1}
-              max={12}
+              max={6}
               value={form.maxSuggestions}
               onChange={(event) =>
-                onFormChange({ ...form, maxSuggestions: Math.min(Math.max(Number(event.target.value) || 1, 1), 12) })
+                onFormChange({ ...form, maxSuggestions: Math.min(Math.max(Number(event.target.value) || 1, 1), 6) })
               }
             />
           </label>
         </div>
-        <Button disabled={generating} onClick={onGenerate}>
+        <Button disabled={generating || retrySecondsRemaining > 0} onClick={onGenerate}>
           <Sparkles className="h-4 w-4" />
-          {generating ? "Generando..." : "Generar sugerencias"}
+          {generating ? "Generando..." : retrySecondsRemaining > 0 ? `Espera ${retrySecondsRemaining}s` : "Generar sugerencias"}
         </Button>
       </div>
       <p className="mt-3 text-xs leading-5 text-muted-foreground">
         La IA propone bloques editables. Nada se guarda en tu estudio hasta que presiones Guardar bloque.
       </p>
       {status ? <p className="mt-3 rounded-md bg-background p-2 text-sm text-muted-foreground">{status}</p> : null}
+      {retrySecondsRemaining > 0 ? (
+        <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
+          Alcanzaste un limite temporal. Espera {retrySecondsRemaining} segundos y volve a intentar.
+        </p>
+      ) : null}
       {warnings.length ? (
         <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
           {warnings.map((warning) => (
