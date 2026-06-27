@@ -204,6 +204,22 @@ Para tablas publicas, confirmar que:
 
 La migracion recrea solo las politicas con los nombres definidos en el archivo. Si existen politicas manuales adicionales, revisarlas antes de aplicar para evitar reglas contradictorias.
 
+### Si aparece ERROR 42P01 relation does not exist
+
+`ERROR 42P01` significa que PostgreSQL intento ejecutar una sentencia contra una relacion que no existe, por ejemplo una tabla opcional o futura como `study_projects`, `study_blocks`, `study_sources`, `user_private_sources` o `study_ai_suggestion_cache`.
+
+No significa perdida de datos. Normalmente indica que se ejecuto una version anterior del check o de la migracion que referenciaba tablas opcionales de forma directa.
+
+Que hacer:
+
+1. No crear tablas vacias solo para que pase el check.
+2. Abrir la version corregida de `scripts/check_supabase_rls.sql`.
+3. Copiar el contenido completo del archivo, no la ruta.
+4. Ejecutarlo nuevamente en Supabase SQL Editor.
+5. Si la migracion principal tambien fallo por una tabla opcional, volver a ejecutar la version corregida de `apps/api/migrations/20260623_enable_rls_policies.sql`.
+
+La version corregida usa catalogos (`pg_class`, `pg_namespace`, `information_schema.tables`) y `to_regclass(...)` para detectar tablas existentes antes de revisar o aplicar RLS.
+
 ## Como revertir si algo falla
 
 La forma preferida de revertir es volver a pasar el acceso por FastAPI y ajustar grants/politicas puntuales, no desactivar seguridad globalmente. Si se necesita rollback inmediato:

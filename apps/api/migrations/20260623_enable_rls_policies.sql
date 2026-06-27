@@ -1,10 +1,12 @@
 -- Supabase RLS hardening plan for Gospel Library IA.
 --
 -- Safe to run multiple times:
--- - Enables RLS on public tables.
--- - Recreates policies with DROP POLICY IF EXISTS + CREATE POLICY.
+-- - Enables RLS on existing public tables only.
+-- - Recreates policies only when the target table exists.
+-- - Skips optional/future tables that are not present in the database.
 -- - Revokes broad Supabase Data API grants from anon/authenticated roles.
 -- - Does not delete, truncate, or update application data.
+-- - Does not create missing tables.
 -- - Does not enable FORCE ROW LEVEL SECURITY, so backend/service-role access
 --   used by FastAPI remains compatible.
 --
@@ -12,19 +14,13 @@
 -- - Open this .sql file and copy its complete contents.
 -- - Do not paste the file path.
 -- - Do not paste markdown fences or prose that is not commented with --.
---
--- Rollback approach:
--- - Remove policies with DROP POLICY IF EXISTS.
--- - Disable RLS only after confirming the affected table is not exposed through
---   Supabase anon/authenticated clients.
 
 begin;
 
 grant usage on schema public to anon, authenticated;
 
 -- Close broad table access inherited by Supabase anon/authenticated roles.
--- FastAPI uses the backend database role and is not expected to depend on
--- browser-facing anon/authenticated table grants.
+-- These schema-wide statements only affect relations that already exist.
 revoke all privileges on all tables in schema public from anon, authenticated;
 revoke insert, update, delete, truncate, references, trigger on all tables in schema public from anon, authenticated;
 revoke all privileges on all sequences in schema public from anon, authenticated;
@@ -32,289 +28,342 @@ revoke all privileges on all sequences in schema public from anon, authenticated
 alter default privileges in schema public revoke all privileges on tables from anon, authenticated;
 alter default privileges in schema public revoke all privileges on sequences from anon, authenticated;
 
--- Public controlled read tables.
-alter table if exists public.sources enable row level security;
-alter table if exists public.documents enable row level security;
-alter table if exists public.document_chunks enable row level security;
-alter table if exists public.authors enable row level security;
-alter table if exists public.tags enable row level security;
+-- Helper functions live only for this session through pg_temp. They make the
+-- migration safe when optional tables are not present in the current database.
+create or replace function pg_temp.relation_exists(relation_name text)
+returns boolean
+language plpgsql
+as $$
+begin
+  return to_regclass(format('public.%I', relation_name)) is not null;
+end;
+$$;
 
-grant select on public.sources, public.documents, public.document_chunks, public.authors, public.tags
-  to anon, authenticated;
+create or replace function pg_temp.all_relations_exist(relation_names text[])
+returns boolean
+language plpgsql
+as $$
+declare
+  relation_name text;
+begin
+  foreach relation_name in array relation_names loop
+    if not pg_temp.relation_exists(relation_name) then
+      return false;
+    end if;
+  end loop;
 
-drop policy if exists sources_public_read_enabled on public.sources;
-create policy sources_public_read_enabled
-  on public.sources
-  for select
-  to anon, authenticated
-  using (enabled = true);
+  return true;
+end;
+$$;
 
-drop policy if exists documents_public_read_ready on public.documents;
-create policy documents_public_read_ready
-  on public.documents
-  for select
-  to anon, authenticated
-  using (status = 'READY' and deleted_at is null);
+create or replace function pg_temp.enable_rls_if_exists(relation_name text)
+returns void
+language plpgsql
+as $$
+begin
+  if pg_temp.relation_exists(relation_name) then
+    execute format('alter table public.%I enable row level security', relation_name);
+  end if;
+end;
+$$;
 
-drop policy if exists document_chunks_public_read_ready_documents on public.document_chunks;
-create policy document_chunks_public_read_ready_documents
-  on public.document_chunks
-  for select
-  to anon, authenticated
-  using (
-    exists (
-      select 1
-      from public.documents d
-      where d.id = document_chunks.document_id
-        and d.status = 'READY'
-        and d.deleted_at is null
+create or replace function pg_temp.revoke_all_if_exists(relation_names text[])
+returns void
+language plpgsql
+as $$
+declare
+  relation_name text;
+begin
+  foreach relation_name in array relation_names loop
+    if pg_temp.relation_exists(relation_name) then
+      execute format('revoke all on table public.%I from anon, authenticated', relation_name);
+    end if;
+  end loop;
+end;
+$$;
+
+create or replace function pg_temp.grant_public_select_if_exists(relation_name text)
+returns void
+language plpgsql
+as $$
+begin
+  if pg_temp.relation_exists(relation_name) then
+    execute format('grant select on table public.%I to anon, authenticated', relation_name);
+  end if;
+end;
+$$;
+
+create or replace function pg_temp.replace_policy_if_exists(
+  relation_name text,
+  policy_name text,
+  policy_sql text,
+  required_relations text[] default array[]::text[]
+)
+returns void
+language plpgsql
+as $$
+begin
+  if pg_temp.relation_exists(relation_name)
+     and pg_temp.all_relations_exist(required_relations) then
+    execute format('drop policy if exists %I on public.%I', policy_name, relation_name);
+    execute format('create policy %I on public.%I %s', policy_name, relation_name, policy_sql);
+  end if;
+end;
+$$;
+
+-- Public controlled read tables. These are optional-safe: if any table is not
+-- present yet, its RLS/grants/policy statements are skipped.
+select pg_temp.enable_rls_if_exists(table_name)
+from unnest(array[
+  'sources',
+  'documents',
+  'document_chunks',
+  'authors',
+  'tags'
+]) as t(table_name);
+
+select pg_temp.grant_public_select_if_exists(table_name)
+from unnest(array[
+  'sources',
+  'documents',
+  'document_chunks',
+  'authors',
+  'tags'
+]) as t(table_name);
+
+select pg_temp.replace_policy_if_exists(
+  'sources',
+  'sources_public_read_enabled',
+  $policy$
+    for select
+    to anon, authenticated
+    using (enabled = true)
+  $policy$
+);
+
+select pg_temp.replace_policy_if_exists(
+  'documents',
+  'documents_public_read_ready',
+  $policy$
+    for select
+    to anon, authenticated
+    using (status = 'READY' and deleted_at is null)
+  $policy$
+);
+
+select pg_temp.replace_policy_if_exists(
+  'document_chunks',
+  'document_chunks_public_read_ready_documents',
+  $policy$
+    for select
+    to anon, authenticated
+    using (
+      exists (
+        select 1
+        from public.documents d
+        where d.id = document_chunks.document_id
+          and d.status = 'READY'
+          and d.deleted_at is null
+      )
     )
-  );
+  $policy$,
+  array['documents']
+);
 
-drop policy if exists authors_public_read on public.authors;
-create policy authors_public_read
-  on public.authors
-  for select
-  to anon, authenticated
-  using (true);
+select pg_temp.replace_policy_if_exists(
+  'authors',
+  'authors_public_read',
+  $policy$
+    for select
+    to anon, authenticated
+    using (true)
+  $policy$
+);
 
-drop policy if exists tags_public_read on public.tags;
-create policy tags_public_read
-  on public.tags
-  for select
-  to anon, authenticated
-  using (true);
+select pg_temp.replace_policy_if_exists(
+  'tags',
+  'tags_public_read',
+  $policy$
+    for select
+    to anon, authenticated
+    using (true)
+  $policy$
+);
 
--- Private user-owned tables with a direct user_id column.
-alter table if exists public.study_workspaces enable row level security;
-alter table if exists public.study_workspace_sources enable row level security;
-alter table if exists public.study_notes enable row level security;
-alter table if exists public.study_highlights enable row level security;
-alter table if exists public.saved_citations enable row level security;
-alter table if exists public.post_its enable row level security;
-alter table if exists public.chat_sessions enable row level security;
-alter table if exists public.study_projects enable row level security;
-alter table if exists public.user_private_sources enable row level security;
-alter table if exists public.study_ai_suggestion_cache enable row level security;
-alter table if exists public.user_preferences enable row level security;
-alter table if exists public.beta_feedback enable row level security;
-alter table if exists public.beta_activity_events enable row level security;
+-- Private user-owned tables with a direct user_id column. RLS policies are
+-- defined for future direct Supabase authenticated access, but grants remain
+-- closed so FastAPI stays the active access layer.
+select pg_temp.enable_rls_if_exists(table_name)
+from unnest(array[
+  'study_workspaces',
+  'study_workspace_sources',
+  'study_notes',
+  'study_highlights',
+  'saved_citations',
+  'post_its',
+  'chat_sessions',
+  'study_projects',
+  'user_private_sources',
+  'study_ai_suggestion_cache',
+  'user_preferences',
+  'beta_feedback',
+  'beta_activity_events'
+]) as t(table_name);
 
-revoke all on
-  public.study_workspaces,
-  public.study_workspace_sources,
-  public.study_notes,
-  public.study_highlights,
-  public.saved_citations,
-  public.post_its,
-  public.chat_sessions,
-  public.study_projects,
-  public.user_private_sources,
-  public.study_ai_suggestion_cache,
-  public.user_preferences,
-  public.beta_feedback,
-  public.beta_activity_events
-  from anon, authenticated;
+select pg_temp.revoke_all_if_exists(array[
+  'study_workspaces',
+  'study_workspace_sources',
+  'study_notes',
+  'study_highlights',
+  'saved_citations',
+  'post_its',
+  'chat_sessions',
+  'study_projects',
+  'user_private_sources',
+  'study_ai_suggestion_cache',
+  'user_preferences',
+  'beta_feedback',
+  'beta_activity_events'
+]);
 
-drop policy if exists study_workspaces_owner_access on public.study_workspaces;
-create policy study_workspaces_owner_access
-  on public.study_workspaces
-  for all
-  to authenticated
-  using ((select auth.uid()) is not null and user_id = (select auth.uid()))
-  with check ((select auth.uid()) is not null and user_id = (select auth.uid()));
-
-drop policy if exists study_workspace_sources_owner_access on public.study_workspace_sources;
-create policy study_workspace_sources_owner_access
-  on public.study_workspace_sources
-  for all
-  to authenticated
-  using ((select auth.uid()) is not null and user_id = (select auth.uid()))
-  with check ((select auth.uid()) is not null and user_id = (select auth.uid()));
-
-drop policy if exists study_notes_owner_access on public.study_notes;
-create policy study_notes_owner_access
-  on public.study_notes
-  for all
-  to authenticated
-  using ((select auth.uid()) is not null and user_id = (select auth.uid()))
-  with check ((select auth.uid()) is not null and user_id = (select auth.uid()));
-
-drop policy if exists study_highlights_owner_access on public.study_highlights;
-create policy study_highlights_owner_access
-  on public.study_highlights
-  for all
-  to authenticated
-  using ((select auth.uid()) is not null and user_id = (select auth.uid()))
-  with check ((select auth.uid()) is not null and user_id = (select auth.uid()));
-
-drop policy if exists saved_citations_owner_access on public.saved_citations;
-create policy saved_citations_owner_access
-  on public.saved_citations
-  for all
-  to authenticated
-  using ((select auth.uid()) is not null and user_id = (select auth.uid()))
-  with check ((select auth.uid()) is not null and user_id = (select auth.uid()));
-
-drop policy if exists post_its_owner_access on public.post_its;
-create policy post_its_owner_access
-  on public.post_its
-  for all
-  to authenticated
-  using ((select auth.uid()) is not null and user_id = (select auth.uid()))
-  with check ((select auth.uid()) is not null and user_id = (select auth.uid()));
-
-drop policy if exists chat_sessions_owner_access on public.chat_sessions;
-create policy chat_sessions_owner_access
-  on public.chat_sessions
-  for all
-  to authenticated
-  using ((select auth.uid()) is not null and user_id = (select auth.uid()))
-  with check ((select auth.uid()) is not null and user_id = (select auth.uid()));
-
-drop policy if exists study_projects_owner_access on public.study_projects;
-create policy study_projects_owner_access
-  on public.study_projects
-  for all
-  to authenticated
-  using ((select auth.uid()) is not null and user_id = (select auth.uid()))
-  with check ((select auth.uid()) is not null and user_id = (select auth.uid()));
-
-drop policy if exists user_private_sources_owner_access on public.user_private_sources;
-create policy user_private_sources_owner_access
-  on public.user_private_sources
-  for all
-  to authenticated
-  using ((select auth.uid()) is not null and user_id = (select auth.uid()))
-  with check ((select auth.uid()) is not null and user_id = (select auth.uid()));
-
-drop policy if exists study_ai_suggestion_cache_owner_access on public.study_ai_suggestion_cache;
-create policy study_ai_suggestion_cache_owner_access
-  on public.study_ai_suggestion_cache
-  for all
-  to authenticated
-  using ((select auth.uid()) is not null and user_id = (select auth.uid()))
-  with check ((select auth.uid()) is not null and user_id = (select auth.uid()));
-
-drop policy if exists user_preferences_owner_access on public.user_preferences;
-create policy user_preferences_owner_access
-  on public.user_preferences
-  for all
-  to authenticated
-  using ((select auth.uid()) is not null and user_id = (select auth.uid()))
-  with check ((select auth.uid()) is not null and user_id = (select auth.uid()));
-
-drop policy if exists beta_feedback_owner_access on public.beta_feedback;
-create policy beta_feedback_owner_access
-  on public.beta_feedback
-  for all
-  to authenticated
-  using ((select auth.uid()) is not null and user_id = (select auth.uid()))
-  with check ((select auth.uid()) is not null and user_id = (select auth.uid()));
-
-drop policy if exists beta_activity_events_owner_access on public.beta_activity_events;
-create policy beta_activity_events_owner_access
-  on public.beta_activity_events
-  for all
-  to authenticated
-  using ((select auth.uid()) is not null and user_id = (select auth.uid()))
-  with check ((select auth.uid()) is not null and user_id = (select auth.uid()));
+select pg_temp.replace_policy_if_exists(table_name, table_name || '_owner_access', $policy$
+    for all
+    to authenticated
+    using ((select auth.uid()) is not null and user_id = (select auth.uid()))
+    with check ((select auth.uid()) is not null and user_id = (select auth.uid()))
+  $policy$)
+from unnest(array[
+  'study_workspaces',
+  'study_workspace_sources',
+  'study_notes',
+  'study_highlights',
+  'saved_citations',
+  'post_its',
+  'chat_sessions',
+  'study_projects',
+  'user_private_sources',
+  'study_ai_suggestion_cache',
+  'user_preferences',
+  'beta_feedback',
+  'beta_activity_events'
+]) as t(table_name);
 
 -- Private child tables authorized through their parent owner row.
-alter table if exists public.chat_messages enable row level security;
-alter table if exists public.study_blocks enable row level security;
-alter table if exists public.study_sources enable row level security;
+select pg_temp.enable_rls_if_exists(table_name)
+from unnest(array[
+  'chat_messages',
+  'study_blocks',
+  'study_sources'
+]) as t(table_name);
 
-revoke all on public.chat_messages, public.study_blocks, public.study_sources
-  from anon, authenticated;
+select pg_temp.revoke_all_if_exists(array[
+  'chat_messages',
+  'study_blocks',
+  'study_sources'
+]);
 
-drop policy if exists chat_messages_owner_access on public.chat_messages;
-create policy chat_messages_owner_access
-  on public.chat_messages
-  for all
-  to authenticated
-  using (
-    (select auth.uid()) is not null
-    and exists (
-      select 1
-      from public.chat_sessions s
-      where s.id = chat_messages.session_id
-        and s.user_id = (select auth.uid())
+select pg_temp.replace_policy_if_exists(
+  'chat_messages',
+  'chat_messages_owner_access',
+  $policy$
+    for all
+    to authenticated
+    using (
+      (select auth.uid()) is not null
+      and exists (
+        select 1
+        from public.chat_sessions s
+        where s.id = chat_messages.session_id
+          and s.user_id = (select auth.uid())
+      )
     )
-  )
-  with check (
-    (select auth.uid()) is not null
-    and exists (
-      select 1
-      from public.chat_sessions s
-      where s.id = chat_messages.session_id
-        and s.user_id = (select auth.uid())
+    with check (
+      (select auth.uid()) is not null
+      and exists (
+        select 1
+        from public.chat_sessions s
+        where s.id = chat_messages.session_id
+          and s.user_id = (select auth.uid())
+      )
     )
-  );
+  $policy$,
+  array['chat_sessions']
+);
 
-drop policy if exists study_blocks_owner_access on public.study_blocks;
-create policy study_blocks_owner_access
-  on public.study_blocks
-  for all
-  to authenticated
-  using (
-    (select auth.uid()) is not null
-    and exists (
-      select 1
-      from public.study_projects p
-      where p.id = study_blocks.project_id
-        and p.user_id = (select auth.uid())
+select pg_temp.replace_policy_if_exists(
+  'study_blocks',
+  'study_blocks_owner_access',
+  $policy$
+    for all
+    to authenticated
+    using (
+      (select auth.uid()) is not null
+      and exists (
+        select 1
+        from public.study_projects p
+        where p.id = study_blocks.project_id
+          and p.user_id = (select auth.uid())
+      )
     )
-  )
-  with check (
-    (select auth.uid()) is not null
-    and exists (
-      select 1
-      from public.study_projects p
-      where p.id = study_blocks.project_id
-        and p.user_id = (select auth.uid())
+    with check (
+      (select auth.uid()) is not null
+      and exists (
+        select 1
+        from public.study_projects p
+        where p.id = study_blocks.project_id
+          and p.user_id = (select auth.uid())
+      )
     )
-  );
+  $policy$,
+  array['study_projects']
+);
 
-drop policy if exists study_sources_owner_access on public.study_sources;
-create policy study_sources_owner_access
-  on public.study_sources
-  for all
-  to authenticated
-  using (
-    (select auth.uid()) is not null
-    and exists (
-      select 1
-      from public.study_projects p
-      where p.id = study_sources.project_id
-        and p.user_id = (select auth.uid())
+select pg_temp.replace_policy_if_exists(
+  'study_sources',
+  'study_sources_owner_access',
+  $policy$
+    for all
+    to authenticated
+    using (
+      (select auth.uid()) is not null
+      and exists (
+        select 1
+        from public.study_projects p
+        where p.id = study_sources.project_id
+          and p.user_id = (select auth.uid())
+      )
     )
-  )
-  with check (
-    (select auth.uid()) is not null
-    and exists (
-      select 1
-      from public.study_projects p
-      where p.id = study_sources.project_id
-        and p.user_id = (select auth.uid())
+    with check (
+      (select auth.uid()) is not null
+      and exists (
+        select 1
+        from public.study_projects p
+        where p.id = study_sources.project_id
+          and p.user_id = (select auth.uid())
+      )
     )
-  );
+  $policy$,
+  array['study_projects']
+);
 
 -- Internal/admin/ingestion tables. RLS is enabled, but no anon/authenticated
 -- policies are granted. FastAPI and trusted jobs should continue through the
 -- backend database role/service role, not through browser Supabase clients.
-alter table if exists public.crawl_urls enable row level security;
-alter table if exists public.document_assets enable row level security;
-alter table if exists public.ingestion_jobs enable row level security;
-alter table if exists public.document_duplicate_relations enable row level security;
-alter table if exists public.beta_access enable row level security;
+select pg_temp.enable_rls_if_exists(table_name)
+from unnest(array[
+  'crawl_urls',
+  'document_assets',
+  'ingestion_jobs',
+  'document_duplicate_relations',
+  'beta_access'
+]) as t(table_name);
 
-revoke all on
-  public.crawl_urls,
-  public.document_assets,
-  public.ingestion_jobs,
-  public.document_duplicate_relations,
-  public.beta_access
-  from anon, authenticated;
+select pg_temp.revoke_all_if_exists(array[
+  'crawl_urls',
+  'document_assets',
+  'ingestion_jobs',
+  'document_duplicate_relations',
+  'beta_access'
+]);
 
 commit;
