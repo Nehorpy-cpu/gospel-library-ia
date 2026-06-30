@@ -15,6 +15,13 @@ USER_ID = "00000000-0000-0000-0000-000000000001"
 WORKSPACE_ID = "00000000-0000-0000-0000-000000000010"
 
 
+def mojibake(value: str, rounds: int = 2) -> str:
+    damaged = value
+    for _ in range(rounds):
+        damaged = damaged.encode("utf-8").decode("latin1")
+    return damaged
+
+
 class FakeResult:
     def __init__(self, rows):
         self.rows = rows
@@ -346,6 +353,35 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
 
         deleted = study.delete_block(workspace_id=WORKSPACE_ID, block_id=block["id"], user_id=USER_ID)
         self.assertTrue(deleted["deleted"])
+
+    def test_create_workspace_and_block_repair_spanish_mojibake(self):
+        response = self.client.post(
+            "/api/study-workspaces",
+            headers={"X-User-Id": USER_ID},
+            json={
+                "title": mojibake("Restauración"),
+                "scriptureReference": mojibake("Últimos Días"),
+                "personalThought": mojibake("¿Cómo siento más el Espíritu?"),
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["title"], "Restauración")
+        self.assertEqual(response.json()["scriptureReference"], "Últimos Días")
+
+        block = self.client.post(
+            f"/api/study-workspaces/{WORKSPACE_ID}/blocks",
+            headers={"X-User-Id": USER_ID},
+            json={
+                "type": "reflection",
+                "title": mojibake("reflexión"),
+                "content": mojibake("El Señor da enseñanzas."),
+            },
+        )
+
+        self.assertEqual(block.status_code, 201)
+        body = block.json()
+        self.assertEqual(body["title"], "reflexión")
+        self.assertEqual(body["content"], "El Señor da enseñanzas.")
 
     def test_http_post_canonical_route_creates_workspace_from_camel_case(self):
         response = self.client.post(

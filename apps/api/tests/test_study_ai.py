@@ -16,6 +16,13 @@ from app.services.study_ai import (
 )
 
 
+def mojibake(value: str, rounds: int = 2) -> str:
+    damaged = value
+    for _ in range(rounds):
+        damaged = damaged.encode("utf-8").decode("latin1")
+    return damaged
+
+
 class StudyAiServiceTests(unittest.TestCase):
     def test_prompt_hash_is_stable_for_sorted_payloads(self):
         left = {"mode": "rapido", "blockTypes": ["ai_reference"], "prompt": "Helaman 5:6"}
@@ -136,6 +143,37 @@ class StudyAiServiceTests(unittest.TestCase):
         self.assertEqual(suggestions[0]["source_status"], "none")
         self.assertEqual(sources[0]["title"], "Fuente")
         self.assertEqual(warnings, ["revisar"])
+
+    def test_normalize_ai_suggestions_repairs_spanish_mojibake(self):
+        suggestions, sources, warnings = normalize_ai_suggestions(
+            {
+                "suggestions": [
+                    {
+                        "type": "reflection_question",
+                        "title": mojibake("reflexión"),
+                        "content": mojibake("¿Cómo siento más el Espíritu?"),
+                        "source_title": mojibake("Restauración"),
+                        "source_author": mojibake("élder"),
+                        "source_reference": mojibake("Últimos Días"),
+                        "source_status": "local",
+                        "quote_text": mojibake("El Señor enseña."),
+                    }
+                ],
+                "sources_used": [{"title": mojibake("Espíritu"), "reference": mojibake("Señor")}],
+                "warnings": [mojibake("Revisar enseñanza.")],
+            },
+            1,
+        )
+
+        self.assertEqual(suggestions[0]["title"], "reflexión")
+        self.assertEqual(suggestions[0]["content"], "¿Cómo siento más el Espíritu?")
+        self.assertEqual(suggestions[0]["source_title"], "Restauración")
+        self.assertEqual(suggestions[0]["source_author"], "élder")
+        self.assertEqual(suggestions[0]["source_reference"], "Últimos Días")
+        self.assertEqual(suggestions[0]["quote_text"], "El Señor enseña.")
+        self.assertEqual(sources[0]["title"], "Espíritu")
+        self.assertEqual(sources[0]["reference"], "Señor")
+        self.assertEqual(warnings, ["Revisar enseñanza."])
 
     def test_normalize_ai_suggestions_warns_when_suggestions_is_not_array(self):
         suggestions, sources, warnings = normalize_ai_suggestions(

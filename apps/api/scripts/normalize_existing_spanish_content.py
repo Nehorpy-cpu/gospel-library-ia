@@ -1,46 +1,141 @@
 from __future__ import annotations
 
-import hashlib
+import argparse
 import json
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import psycopg
+from psycopg import sql
+from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.n8n_ingestion import normalized_name, slugify
-from app.services.spanish_text import normalize_tag_es, normalize_text_es, normalize_visible_metadata
+from app.services.spanish_text import normalize_json_text_fields, normalize_tag_es, normalize_text_es
+
+
+TEXT_LIMIT = 120
+
+
+@dataclass(frozen=True)
+class ColumnSpec:
+    name: str
+    kind: str = "text"
+    preserve_newlines: bool = False
+
+
+@dataclass(frozen=True)
+class TableSpec:
+    name: str
+    columns: tuple[ColumnSpec, ...]
 
 
 @dataclass
-class Summary:
-    documents: int = 0
-    chunks: int = 0
-    authors: int = 0
-    tags: int = 0
-    sources: int = 0
+class ColumnReport:
+    detected: int = 0
+    modified: int = 0
+    examples: list[tuple[str, str]] = field(default_factory=list)
 
 
-def sha256_text(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+@dataclass
+class TableReport:
+    columns: dict[str, ColumnReport] = field(default_factory=dict)
+
+    @property
+    def detected(self) -> int:
+        return sum(column.detected for column in self.columns.values())
+
+    @property
+    def modified(self) -> int:
+        return sum(column.modified for column in self.columns.values())
 
 
-def table_columns(conn, table: str) -> set[str]:
-    return {
-        row[0]
-        for row in conn.execute(
-            """
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = %s
-            """,
-            (table,),
-        ).fetchall()
-    }
+TABLE_SPECS: tuple[TableSpec, ...] = (
+    TableSpec(
+        "documents",
+        (
+            ColumnSpec("title"),
+            ColumnSpec("author"),
+            ColumnSpec("summary", preserve_newlines=True),
+            ColumnSpec("description", preserve_newlines=True),
+            ColumnSpec("text", preserve_newlines=True),
+            ColumnSpec("content", preserve_newlines=True),
+            ColumnSpec("content_text", preserve_newlines=True),
+            ColumnSpec("tags", "json"),
+            ColumnSpec("scripture_refs", "json"),
+            ColumnSpec("metadata", "json"),
+            ColumnSpec("raw_metadata", "json"),
+        ),
+    ),
+    TableSpec(
+        "document_chunks",
+        (
+            ColumnSpec("title"),
+            ColumnSpec("section_title"),
+            ColumnSpec("text", preserve_newlines=True),
+            ColumnSpec("content", preserve_newlines=True),
+            ColumnSpec("metadata", "json"),
+        ),
+    ),
+    TableSpec("sources", (ColumnSpec("name"), ColumnSpec("title"), ColumnSpec("description", preserve_newlines=True), ColumnSpec("config", "json"))),
+    TableSpec("authors", (ColumnSpec("name"), ColumnSpec("display_name"), ColumnSpec("sort_name"), ColumnSpec("metadata", "json"))),
+    TableSpec("tags", (ColumnSpec("name"), ColumnSpec("description", preserve_newlines=True), ColumnSpec("metadata", "json"))),
+    TableSpec("study_workspaces", (ColumnSpec("name"), ColumnSpec("description", preserve_newlines=True), ColumnSpec("source_filters", "json"), ColumnSpec("settings", "json"))),
+    TableSpec("study_notes", (ColumnSpec("title"), ColumnSpec("content", preserve_newlines=True), ColumnSpec("selected_text", preserve_newlines=True), ColumnSpec("selection_range", "json"), ColumnSpec("scripture_refs", "json"), ColumnSpec("position", "json"))),
+    TableSpec("study_highlights", (ColumnSpec("selected_text", preserve_newlines=True), ColumnSpec("scripture_refs", "json"), ColumnSpec("metadata", "json"))),
+    TableSpec("saved_citations", (ColumnSpec("quote", preserve_newlines=True), ColumnSpec("quote_text", preserve_newlines=True), ColumnSpec("selected_text", preserve_newlines=True), ColumnSpec("source_title"), ColumnSpec("source_author"), ColumnSpec("source_reference"), ColumnSpec("notes", preserve_newlines=True), ColumnSpec("location", "json"), ColumnSpec("scripture_refs", "json"), ColumnSpec("metadata", "json"))),
+    TableSpec("post_its", (ColumnSpec("title"), ColumnSpec("content", preserve_newlines=True), ColumnSpec("position", "json"), ColumnSpec("source_filters", "json"))),
+    TableSpec("chat_sessions", (ColumnSpec("title"), ColumnSpec("metadata", "json"))),
+    TableSpec("chat_messages", (ColumnSpec("content", preserve_newlines=True), ColumnSpec("metadata", "json"))),
+    TableSpec("ingestion_jobs", (ColumnSpec("payload", "json"), ColumnSpec("errors", "json"))),
+    TableSpec("study_ai_suggestion_cache", (ColumnSpec("request", "json"), ColumnSpec("response", "json"), ColumnSpec("local_context", "json"), ColumnSpec("metadata", "json"))),
+)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Repara mojibake UTF-8 en contenido espanol existente.")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true", help="Detecta cambios sin modificar la base.")
+    mode.add_argument("--apply", action="store_true", help="Aplica cambios idempotentes sin borrar datos.")
+    return parser.parse_args()
+
+
+def table_columns(conn, table: str) -> dict[str, str]:
+    rows = conn.execute(
+        """
+        SELECT column_name, data_type
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = %s
+        """,
+        (table,),
+    ).fetchall()
+    return {row["column_name"]: row["data_type"] for row in rows}
+
+
+def table_exists(conn, table: str) -> bool:
+    row = conn.execute(
+        """
+        SELECT EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = %s
+        ) AS exists
+        """,
+        (table,),
+    ).fetchone()
+    return bool(row and row["exists"])
+
+
+def normalize_value(value: Any, spec: ColumnSpec) -> Any:
+    if value is None:
+        return None
+    if spec.kind == "json":
+        return normalize_json_text_fields(json_value(value))
+    return normalize_text_es(str(value), preserve_newlines=spec.preserve_newlines)
 
 
 def json_value(value: Any) -> Any:
@@ -52,171 +147,152 @@ def json_value(value: Any) -> Any:
     return value
 
 
-def normalize_tags(value: Any) -> list[str]:
+def comparable(value: Any) -> Any:
     parsed = json_value(value)
-    if not isinstance(parsed, list):
-        return []
-    return list(dict.fromkeys(normalize_tag_es(str(item)) for item in parsed if normalize_tag_es(str(item))))
+    if isinstance(parsed, (dict, list)):
+        return json.dumps(parsed, ensure_ascii=False, sort_keys=True)
+    return parsed
 
 
-def normalize_documents(conn, summary: Summary) -> None:
-    columns = table_columns(conn, "documents")
-    if not columns:
-        return
-    metadata_column = "raw_metadata" if "raw_metadata" in columns else "metadata"
-    text_column = "text" if "text" in columns else "content_text"
-    selected = ["id", "title"]
-    for column in ("author", text_column, "tags", metadata_column, "content_hash"):
-        if column in columns and column not in selected:
-            selected.append(column)
-    rows = conn.execute(f"SELECT {', '.join(selected)} FROM documents").fetchall()
+def preview(value: Any) -> str:
+    if isinstance(value, (dict, list)):
+        text = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    else:
+        text = str(value)
+    text = " ".join(text.split())
+    return text[:TEXT_LIMIT] + ("..." if len(text) > TEXT_LIMIT else "")
+
+
+def scan_table(conn, spec: TableSpec, *, apply: bool) -> TableReport:
+    report = TableReport()
+    columns = table_columns(conn, spec.name)
+    existing_specs = [column for column in spec.columns if column.name in columns]
+    if not existing_specs or "id" not in columns:
+        return report
+
+    selected = [sql.Identifier("id"), *(sql.Identifier(column.name) for column in existing_specs)]
+    query = sql.SQL("SELECT {} FROM {}").format(
+        sql.SQL(", ").join(selected),
+        sql.Identifier(spec.name),
+    )
+    rows = conn.execute(query).fetchall()
     for row in rows:
-        current = dict(zip(selected, row))
-        updates: dict[str, Any] = {"title": normalize_text_es(current["title"])}
-        if "author" in current:
-            updates["author"] = normalize_text_es(current["author"]) if current["author"] else None
-        if text_column in current:
-            updates[text_column] = (
-                normalize_text_es(current[text_column], preserve_newlines=True) if current[text_column] else None
+        updates: dict[str, Any] = {}
+        for column in existing_specs:
+            current = row[column.name]
+            normalized = normalize_value(current, column)
+            if comparable(current) == comparable(normalized):
+                continue
+            column_report = report.columns.setdefault(column.name, ColumnReport())
+            column_report.detected += 1
+            if len(column_report.examples) < 3:
+                column_report.examples.append((preview(current), preview(normalized)))
+            updates[column.name] = normalized
+
+        if apply and updates:
+            assignments = []
+            params: dict[str, Any] = {"id": row["id"]}
+            for name, value in updates.items():
+                assignments.append(sql.SQL("{} = {}").format(sql.Identifier(name), sql.Placeholder(name)))
+                params[name] = Jsonb(value) if columns[name] in {"json", "jsonb"} else value
+            if "updated_at" in columns:
+                assignments.append(sql.SQL("updated_at = now()"))
+            update_query = sql.SQL("UPDATE {} SET {} WHERE id = %(id)s").format(
+                sql.Identifier(spec.name),
+                sql.SQL(", ").join(assignments),
             )
-        if "tags" in current:
-            updates["tags"] = json.dumps(normalize_tags(current["tags"]), ensure_ascii=False)
-        if metadata_column in current:
-            updates[metadata_column] = json.dumps(
-                normalize_visible_metadata(json_value(current[metadata_column]) or {}),
-                ensure_ascii=False,
-            )
-        if "content_hash" in current and updates.get(text_column):
-            updates["content_hash"] = sha256_text(updates[text_column])
-        changed = {
-            key: value
-            for key, value in updates.items()
-            if json_value(current.get(key)) != json_value(value)
-        }
-        if not changed:
-            continue
-        assignments = ", ".join(f"{key} = %({key})s" + ("::jsonb" if key in {"tags", metadata_column} else "") for key in changed)
-        conn.execute(
-            f"UPDATE documents SET {assignments}, updated_at = now() WHERE id = %(id)s",
-            {**changed, "id": current["id"]},
-        )
-        summary.documents += 1
+            conn.execute(update_query, params)
+            for name in updates:
+                report.columns[name].modified += 1
+    return report
 
 
-def normalize_chunks(conn, summary: Summary) -> None:
-    columns = table_columns(conn, "document_chunks")
-    if not columns:
+def maintain_derived_names(conn, *, apply: bool) -> None:
+    if not apply:
         return
-    text_column = "text" if "text" in columns else "content"
-    selected = ["id", text_column]
-    for column in ("title", "section_title", "metadata", "text_hash"):
-        if column in columns:
-            selected.append(column)
-    for row in conn.execute(f"SELECT {', '.join(selected)} FROM document_chunks").fetchall():
-        current = dict(zip(selected, row))
-        text = normalize_text_es(current[text_column], preserve_newlines=True)
-        updates: dict[str, Any] = {text_column: text}
-        if "title" in current:
-            updates["title"] = normalize_text_es(current["title"]) if current["title"] else None
-        if "section_title" in current:
-            updates["section_title"] = normalize_text_es(current["section_title"]) if current["section_title"] else None
-        if "metadata" in current:
-            updates["metadata"] = json.dumps(
-                normalize_visible_metadata(json_value(current["metadata"]) or {}),
-                ensure_ascii=False,
-            )
-        if "text_hash" in current:
-            updates["text_hash"] = sha256_text(text)
-        changed = {
-            key: value
-            for key, value in updates.items()
-            if json_value(current.get(key)) != json_value(value)
-        }
-        if not changed:
-            continue
-        assignments = ", ".join(f"{key} = %({key})s" + ("::jsonb" if key == "metadata" else "") for key in changed)
-        updated_at = ", updated_at = now()" if "updated_at" in columns else ""
-        conn.execute(
-            f"UPDATE document_chunks SET {assignments}{updated_at} WHERE id = %(id)s",
-            {**changed, "id": current["id"]},
-        )
-        summary.chunks += 1
-
-
-def normalize_named_tables(conn, summary: Summary) -> None:
-    author_columns = table_columns(conn, "authors")
-    if {"id", "display_name"} <= author_columns:
-        for row in conn.execute("SELECT id, display_name FROM authors").fetchall():
-            display_name = normalize_text_es(row[1])
-            values = {
-                "id": row[0],
-                "display_name": display_name,
-                "sort_name": display_name,
-                "normalized_name": normalized_name(display_name),
-            }
-            result = conn.execute(
+    author_columns = table_columns(conn, "authors") if table_exists(conn, "authors") else {}
+    if {"id", "display_name", "sort_name", "normalized_name"} <= set(author_columns):
+        rows = conn.execute("SELECT id, display_name FROM authors WHERE display_name IS NOT NULL").fetchall()
+        for row in rows:
+            display_name = normalize_text_es(row["display_name"])
+            conn.execute(
                 """
                 UPDATE authors
                 SET display_name = %(display_name)s,
-                    sort_name = %(sort_name)s,
+                    sort_name = %(display_name)s,
                     normalized_name = %(normalized_name)s,
                     updated_at = now()
                 WHERE id = %(id)s
-                  AND (display_name, coalesce(sort_name, ''), normalized_name)
-                      IS DISTINCT FROM (%(display_name)s, %(sort_name)s, %(normalized_name)s)
                 """,
-                values,
+                {
+                    "id": row["id"],
+                    "display_name": display_name,
+                    "normalized_name": normalized_name(display_name),
+                },
             )
-            summary.authors += result.rowcount
-
-    tag_columns = table_columns(conn, "tags")
-    if {"id", "name", "slug", "normalized_name"} <= tag_columns:
-        for row in conn.execute("SELECT id, name, slug, normalized_name FROM tags").fetchall():
-            name = normalize_tag_es(row[1])
-            slug = slugify(name)
-            slug_in_use = conn.execute("SELECT 1 FROM tags WHERE slug = %s AND id <> %s", (slug, row[0])).fetchone()
-            new_slug = row[2] if slug_in_use else slug
-            result = conn.execute(
+    tag_columns = table_columns(conn, "tags") if table_exists(conn, "tags") else {}
+    if {"id", "name", "slug", "normalized_name"} <= set(tag_columns):
+        rows = conn.execute("SELECT id, name FROM tags").fetchall()
+        for row in rows:
+            name = normalize_tag_es(row["name"])
+            conn.execute(
                 """
                 UPDATE tags
-                SET name = %s, slug = %s, normalized_name = %s, language = 'es'
-                WHERE id = %s
-                  AND (name, slug, normalized_name, language)
-                      IS DISTINCT FROM (%s, %s, %s, 'es')
+                SET name = %(name)s,
+                    slug = %(slug)s,
+                    normalized_name = %(normalized_name)s,
+                    language = 'es'
+                WHERE id = %(id)s
                 """,
-                (name, new_slug, normalized_name(name), row[0], name, new_slug, normalized_name(name)),
+                {
+                    "id": row["id"],
+                    "name": name,
+                    "slug": slugify(name),
+                    "normalized_name": normalized_name(name),
+                },
             )
-            summary.tags += result.rowcount
 
-    source_columns = table_columns(conn, "sources")
-    if {"id", "name"} <= source_columns:
-        for row in conn.execute("SELECT id, name FROM sources").fetchall():
-            name = normalize_text_es(row[1])
-            result = conn.execute(
-                "UPDATE sources SET name = %s, updated_at = now() WHERE id = %s AND name IS DISTINCT FROM %s",
-                (name, row[0], name),
+
+def print_report(reports: dict[str, TableReport], *, apply: bool) -> None:
+    mode = "apply" if apply else "dry-run"
+    print(f"Modo: {mode}")
+    for table, report in reports.items():
+        print(f"\nTabla: {table}")
+        if not report.columns:
+            print("  Sin cambios detectados.")
+            continue
+        for column, column_report in sorted(report.columns.items()):
+            print(
+                f"  Columna: {column} | filas detectadas: {column_report.detected} | "
+                f"filas modificadas: {column_report.modified if apply else 0}"
             )
-            summary.sources += result.rowcount
+            for before, after in column_report.examples:
+                print(f"    antes: {before}")
+                print(f"    despues: {after}")
 
 
 def main() -> int:
+    args = parse_args()
+    apply = bool(args.apply)
     database_url = os.getenv("DATABASE_URL", "").strip()
     if not database_url:
-        print("ERROR: DATABASE_URL no está configurada.", file=sys.stderr)
+        print("ERROR: DATABASE_URL no esta configurada.", file=sys.stderr)
         return 1
-    summary = Summary()
+
     connection_url = database_url.replace("postgresql+psycopg://", "postgresql://")
-    with psycopg.connect(connection_url) as conn:
-        normalize_documents(conn, summary)
-        normalize_chunks(conn, summary)
-        normalize_named_tables(conn, summary)
-        conn.commit()
-    print("Normalización completada sin borrar documentos ni chunks.")
-    print(f"Documentos actualizados: {summary.documents}")
-    print(f"Chunks actualizados: {summary.chunks}")
-    print(f"Autores actualizados: {summary.authors}")
-    print(f"Etiquetas actualizadas: {summary.tags}")
-    print(f"Fuentes actualizadas: {summary.sources}")
+    reports: dict[str, TableReport] = {}
+    with psycopg.connect(connection_url, row_factory=dict_row) as conn:
+        for spec in TABLE_SPECS:
+            if not table_exists(conn, spec.name):
+                continue
+            reports[spec.name] = scan_table(conn, spec, apply=apply)
+        maintain_derived_names(conn, apply=apply)
+        if apply:
+            conn.commit()
+        else:
+            conn.rollback()
+    print_report(reports, apply=apply)
+    print("\nNormalizacion finalizada. No se borraron ni truncaron tablas.")
     return 0
 
 

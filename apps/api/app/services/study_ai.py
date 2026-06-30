@@ -13,6 +13,7 @@ from psycopg.rows import dict_row
 from app.core.config import get_settings
 from app.core.logging import logger
 from app.services.privacy import sanitize_value
+from app.services.spanish_text import normalize_json_text_fields, normalize_text_es
 
 log = logger(__name__)
 
@@ -374,11 +375,11 @@ def load_workspace_local_context(
             {
                 "kind": "library_document",
                 "document_id": row["id"],
-                "title": row["title"],
-                "author": row["author"],
+                "title": normalize_text_es(row["title"] or ""),
+                "author": normalize_text_es(row["author"] or ""),
                 "url": row["canonical_url"],
-                "source": row["source_name"],
-                "excerpt": row["excerpt"],
+                "source": normalize_text_es(row["source_name"] or ""),
+                "excerpt": normalize_text_es(row["excerpt"] or "", preserve_newlines=True),
             }
             for row in rows
         )
@@ -399,12 +400,12 @@ def load_workspace_local_context(
         {
             "kind": "user_private_note",
             "source_id": row["id"],
-            "title": row["title"],
-            "author": row["author"],
-            "source_type": row["source_type"],
-            "citation_text": _limit_text(str(row["citation_text"] or ""), 350),
-            "personal_note": _limit_text(str(row["personal_note"] or ""), 250),
-            "tags": row["tags"] or [],
+            "title": normalize_text_es(row["title"] or ""),
+            "author": normalize_text_es(row["author"] or ""),
+            "source_type": normalize_text_es(row["source_type"] or ""),
+            "citation_text": _limit_text(normalize_text_es(str(row["citation_text"] or ""), preserve_newlines=True), 350),
+            "personal_note": _limit_text(normalize_text_es(str(row["personal_note"] or ""), preserve_newlines=True), 250),
+            "tags": normalize_json_text_fields(row["tags"] or []),
         }
         for row in private_rows
     )
@@ -419,6 +420,10 @@ async def generate_workspace_suggestions(
     payload: dict[str, Any],
     local_context: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str], str]:
+    workspace = normalize_json_text_fields(workspace)
+    blocks = normalize_json_text_fields(blocks)
+    payload = normalize_json_text_fields(payload)
+    local_context = normalize_json_text_fields(local_context)
     settings = get_settings()
     max_suggestions = min(
         max(int(payload.get("maxSuggestions") or WORKSPACE_DEFAULT_MAX_SUGGESTIONS), 1),
@@ -966,6 +971,7 @@ def extract_json_object(text: str) -> dict[str, Any]:
 
 
 def _normalize_workspace_suggestion(item: dict[str, Any]) -> dict[str, Any]:
+    item = normalize_json_text_fields(item)
     suggestion_type = str(item.get("type") or "doctrinal_analysis")
     if suggestion_type not in WORKSPACE_SUGGESTION_TYPES:
         suggestion_type = "doctrinal_analysis"
@@ -980,13 +986,13 @@ def _normalize_workspace_suggestion(item: dict[str, Any]) -> dict[str, Any]:
         quote_text = ""
     return {
         "type": suggestion_type,
-        "title": str(item.get("title") or "Sugerencia doctrinal")[:240],
-        "content": str(item.get("content") or ""),
-        "source_title": str(item.get("source_title") or ""),
-        "source_author": str(item.get("source_author") or ""),
-        "source_reference": str(item.get("source_reference") or ""),
+        "title": normalize_text_es(str(item.get("title") or "Sugerencia doctrinal"))[:240],
+        "content": normalize_text_es(str(item.get("content") or ""), preserve_newlines=True),
+        "source_title": normalize_text_es(str(item.get("source_title") or "")),
+        "source_author": normalize_text_es(str(item.get("source_author") or "")),
+        "source_reference": normalize_text_es(str(item.get("source_reference") or "")),
         "source_url": str(item.get("source_url") or ""),
-        "quote_text": str(quote_text or ""),
+        "quote_text": normalize_text_es(str(quote_text or ""), preserve_newlines=True),
         "is_ai_generated": True,
         "confidence": confidence,
         "source_status": source_status,
@@ -994,12 +1000,13 @@ def _normalize_workspace_suggestion(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def normalize_ai_suggestions(raw: Any, max_suggestions: int) -> tuple[list[dict[str, Any]], list[dict[str, str]], list[str]]:
+    raw = normalize_json_text_fields(raw)
     if not isinstance(raw, dict):
         return [], [], ["La IA devolvio una respuesta vacia o invalida."]
     raw_suggestions = raw.get("suggestions")
     raw_sources = raw.get("sources_used")
     raw_warnings = raw.get("warnings")
-    warnings = [str(item) for item in (raw_warnings if isinstance(raw_warnings, list) else []) if item]
+    warnings = [normalize_text_es(str(item)) for item in (raw_warnings if isinstance(raw_warnings, list) else []) if item]
     if raw_suggestions is not None and not isinstance(raw_suggestions, list):
         warnings.append("La IA no devolvio una lista de sugerencias valida.")
     suggestions = [
@@ -1021,10 +1028,10 @@ def _normalize_workspace_sources(items: list[Any]) -> list[dict[str, str]]:
             source_status = "none"
         normalized.append(
             {
-                "title": str(item.get("title") or ""),
-                "author": str(item.get("author") or ""),
+                "title": normalize_text_es(str(item.get("title") or "")),
+                "author": normalize_text_es(str(item.get("author") or "")),
                 "url": str(item.get("url") or ""),
-                "reference": str(item.get("reference") or item.get("source") or item.get("kind") or ""),
+                "reference": normalize_text_es(str(item.get("reference") or item.get("source") or item.get("kind") or "")),
                 "source_status": source_status,
             }
         )
@@ -1036,10 +1043,10 @@ def _sources_used(local_context: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for item in local_context[:10]:
         sources.append(
             {
-                "title": str(item.get("title") or ""),
-                "author": str(item.get("author") or ""),
+                "title": normalize_text_es(str(item.get("title") or "")),
+                "author": normalize_text_es(str(item.get("author") or "")),
                 "url": str(item.get("url") or ""),
-                "reference": str(item.get("source") or item.get("source_type") or item.get("kind") or ""),
+                "reference": normalize_text_es(str(item.get("source") or item.get("source_type") or item.get("kind") or "")),
                 "source_status": "user_private" if item.get("kind") == "user_private_note" else "local",
             }
         )

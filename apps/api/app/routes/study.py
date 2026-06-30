@@ -17,6 +17,7 @@ from app.services.db import get_conn
 from app.services.qdrant_admin import QdrantAdmin
 from app.services.rate_limit import RateLimiter
 from app.services.source_filters import normalize_source_type, source_type_aliases
+from app.services.spanish_text import normalize_json_text_fields, normalize_text_es
 from app.services.study_ai import (
     StudyAiConfigurationError,
     StudyAiEmptyResponseError,
@@ -134,6 +135,18 @@ def _rate_limit_response(
         content["retry_after_seconds"] = retry_after_seconds
     headers = {"Retry-After": str(retry_after_seconds)} if retry_after_seconds is not None else None
     return JSONResponse(status_code=status_code, content=content, headers=headers)
+
+
+def _text(value: str | None, *, preserve_newlines: bool = False) -> str | None:
+    return normalize_text_es(value, preserve_newlines=preserve_newlines) if value is not None else None
+
+
+def _json_text(value: Any) -> Any:
+    return normalize_json_text_fields(value)
+
+
+def _jsonb_text(value: Any) -> Jsonb:
+    return Jsonb(_json_text(value))
 
 
 class WorkspacePayload(BaseModel):
@@ -510,21 +523,21 @@ def _workspace_related_query(workspace: dict) -> tuple[str, list[str], list[str]
 
 
 def _workspace_settings_from_payload(payload: WorkspacePayload) -> dict[str, Any]:
-    settings = dict(payload.settings or {})
+    settings = _json_text(dict(payload.settings or {}))
     if payload.title is not None:
-        settings["title"] = payload.title
+        settings["title"] = _text(payload.title)
     if payload.scriptureReference is not None:
-        settings["scriptureReference"] = payload.scriptureReference
-        settings["mainReference"] = payload.scriptureReference
+        settings["scriptureReference"] = _text(payload.scriptureReference)
+        settings["mainReference"] = _text(payload.scriptureReference)
         settings["referenceType"] = "scripture"
     if payload.scriptureText is not None:
-        settings["scriptureText"] = payload.scriptureText
+        settings["scriptureText"] = _text(payload.scriptureText, preserve_newlines=True)
     if payload.personalThought is not None:
-        settings["personalThought"] = payload.personalThought
+        settings["personalThought"] = _text(payload.personalThought, preserve_newlines=True)
     if payload.topic is not None:
-        settings["topic"] = payload.topic
+        settings["topic"] = _text(payload.topic)
     if payload.callingContext is not None:
-        settings["callingContext"] = payload.callingContext
+        settings["callingContext"] = _text(payload.callingContext, preserve_newlines=True)
     return settings
 
 
@@ -541,21 +554,21 @@ def _workspace_update_settings(payload: WorkspaceUpdatePayload) -> dict[str, Any
         )
     ):
         return None
-    settings = dict(payload.settings or {})
+    settings = _json_text(dict(payload.settings or {}))
     if payload.title is not None:
-        settings["title"] = payload.title
+        settings["title"] = _text(payload.title)
     if payload.scriptureReference is not None:
-        settings["scriptureReference"] = payload.scriptureReference
-        settings["mainReference"] = payload.scriptureReference
+        settings["scriptureReference"] = _text(payload.scriptureReference)
+        settings["mainReference"] = _text(payload.scriptureReference)
         settings["referenceType"] = "scripture"
     if payload.scriptureText is not None:
-        settings["scriptureText"] = payload.scriptureText
+        settings["scriptureText"] = _text(payload.scriptureText, preserve_newlines=True)
     if payload.personalThought is not None:
-        settings["personalThought"] = payload.personalThought
+        settings["personalThought"] = _text(payload.personalThought, preserve_newlines=True)
     if payload.topic is not None:
-        settings["topic"] = payload.topic
+        settings["topic"] = _text(payload.topic)
     if payload.callingContext is not None:
-        settings["callingContext"] = payload.callingContext
+        settings["callingContext"] = _text(payload.callingContext, preserve_newlines=True)
     return settings
 
 
@@ -585,12 +598,12 @@ def _semantic_related(workspace: dict, limit: int) -> dict | None:
         {
             "id": item.get("document_id") or item.get("chunk_id"),
             "chunkId": item.get("chunk_id"),
-            "title": item.get("title"),
-            "author": item.get("author"),
+            "title": _text(item.get("title")),
+            "author": _text(item.get("author")),
             "sourceType": item.get("source_key"),
             "sourceUrl": item.get("canonical_url"),
             "language": item.get("language"),
-            "excerpt": item.get("snippet"),
+            "excerpt": _text(item.get("snippet"), preserve_newlines=True),
             "relevanceScore": item.get("score"),
         }
         for item in data.get("results", [])
@@ -671,14 +684,14 @@ def _textual_related(workspace: dict, limit: int) -> dict:
         "results": [
             {
                 "id": row["id"],
-                "title": row["title"],
-                "author": row["author"],
-                "source": row["source"],
+                "title": _text(row["title"]),
+                "author": _text(row["author"]),
+                "source": _text(row["source"]),
                 "sourceType": normalize_source_type(row["source_type"]) or row["source_type"],
                 "language": row["language"],
                 "url": row["canonical_url"],
                 "sourceUrl": row["source_url"],
-                "excerpt": row["excerpt"],
+                "excerpt": _text(row["excerpt"], preserve_newlines=True),
                 "relevanceScore": row["relevance_score"],
             }
             for row in rows
@@ -726,8 +739,11 @@ def create_workspace(payload: WorkspacePayload, user_id: str | None = Header(def
     user_id = current_user_id(user_id)
     _ensure_payload_user(payload.userId, user_id)
     settings = _workspace_settings_from_payload(payload)
-    name = payload.title or settings.get("title") or payload.name
-    description = payload.description or payload.scriptureReference or settings.get("scriptureReference") or settings.get("mainReference")
+    name = _text(payload.title or settings.get("title") or payload.name)
+    description = _text(
+        payload.description or payload.scriptureReference or settings.get("scriptureReference") or settings.get("mainReference"),
+        preserve_newlines=True,
+    )
     with get_conn() as conn:
         conn.row_factory = dict_row
         workspace_count_row = conn.execute(
@@ -751,8 +767,8 @@ def create_workspace(payload: WorkspacePayload, user_id: str | None = Header(def
                 "user_id": user_id,
                 "name": name,
                 "description": description,
-                "source_filters": Jsonb(payload.sourceFilters),
-                "settings": Jsonb(settings),
+                "source_filters": _jsonb_text(payload.sourceFilters),
+                "settings": _jsonb_text(settings),
             },
         ).fetchone()
         if payload.personalThought:
@@ -764,8 +780,8 @@ def create_workspace(payload: WorkspacePayload, user_id: str | None = Header(def
                 (
                     row["id"],
                     user_id,
-                    payload.personalThought,
-                    Jsonb({"blockType": "personal_note", "sortOrder": 10, "isAiGenerated": False}),
+                    _text(payload.personalThought, preserve_newlines=True),
+                    _jsonb_text({"blockType": "personal_note", "sortOrder": 10, "isAiGenerated": False}),
                 ),
             )
         conn.commit()
@@ -790,13 +806,13 @@ def update_workspace(workspace_id: str, payload: WorkspaceUpdatePayload, user_id
     params: dict[str, Any] = {"workspace_id": workspace_id, "user_id": user_id}
     if payload.name is not None:
         updates.append("name = %(name)s")
-        params["name"] = payload.name
+        params["name"] = _text(payload.name)
     if payload.description is not None:
         updates.append("description = %(description)s")
-        params["description"] = payload.description
+        params["description"] = _text(payload.description, preserve_newlines=True)
     if payload.sourceFilters is not None:
         updates.append("source_filters = %(source_filters)s")
-        params["source_filters"] = Jsonb(payload.sourceFilters)
+        params["source_filters"] = _jsonb_text(payload.sourceFilters)
     settings_update = _workspace_update_settings(payload)
     if settings_update is not None:
         updates.append("settings = %(settings)s")
@@ -805,13 +821,13 @@ def update_workspace(workspace_id: str, payload: WorkspaceUpdatePayload, user_id
                 conn.row_factory = dict_row
                 current = _require_workspace(conn, workspace_id, user_id)
                 settings_update = {**(current.get("settings") or {}), **settings_update}
-        params["settings"] = Jsonb(settings_update)
+        params["settings"] = _jsonb_text(settings_update)
     if payload.title is not None and payload.name is None:
         updates.append("name = %(name)s")
-        params["name"] = payload.title
+        params["name"] = _text(payload.title)
     if payload.scriptureReference is not None and payload.description is None:
         updates.append("description = %(description)s")
-        params["description"] = payload.scriptureReference
+        params["description"] = _text(payload.scriptureReference)
     if not updates:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
     updates.extend(["updated_at = now()", "server_rev = server_rev + 1"])
@@ -978,13 +994,13 @@ def create_note(workspace_id: str, payload: NotePayload, user_id: str | None = H
                 "user_id": user_id,
                 "document_id": payload.documentId,
                 "chunk_id": payload.chunkId,
-                "title": payload.title,
-                "content": payload.content,
-                "selected_text": payload.selectedText,
-                "selection_range": Jsonb(payload.selectionRange),
-                "scripture_refs": Jsonb(payload.scriptureRefs),
+                "title": _text(payload.title),
+                "content": _text(payload.content, preserve_newlines=True),
+                "selected_text": _text(payload.selectedText, preserve_newlines=True),
+                "selection_range": _jsonb_text(payload.selectionRange),
+                "scripture_refs": _jsonb_text(payload.scriptureRefs),
                 "color": payload.color,
-                "position": Jsonb(payload.position),
+                "position": _jsonb_text(payload.position),
             },
         ).fetchone()
         conn.commit()
@@ -1003,13 +1019,13 @@ def update_note(workspace_id: str, note_id: str, payload: NoteUpdatePayload, use
         payload={
             "document_id": payload.documentId,
             "chunk_id": payload.chunkId,
-            "title": payload.title,
-            "content": payload.content,
-            "selected_text": payload.selectedText,
-            "selection_range": Jsonb(payload.selectionRange) if payload.selectionRange is not None else None,
-            "scripture_refs": Jsonb(payload.scriptureRefs) if payload.scriptureRefs is not None else None,
+            "title": _text(payload.title),
+            "content": _text(payload.content, preserve_newlines=True),
+            "selected_text": _text(payload.selectedText, preserve_newlines=True),
+            "selection_range": _jsonb_text(payload.selectionRange) if payload.selectionRange is not None else None,
+            "scripture_refs": _jsonb_text(payload.scriptureRefs) if payload.scriptureRefs is not None else None,
             "color": payload.color,
-            "position": Jsonb(payload.position) if payload.position is not None else None,
+            "position": _jsonb_text(payload.position) if payload.position is not None else None,
         },
         returning="""
           id::text, workspace_id::text, user_id::text, document_id::text, chunk_id::text, title, content,
@@ -1090,10 +1106,10 @@ def create_highlight(workspace_id: str, payload: HighlightPayload, user_id: str 
                 "note_id": payload.noteId,
                 "start_char": payload.startChar,
                 "end_char": payload.endChar,
-                "selected_text": payload.selectedText,
-                "scripture_refs": Jsonb(payload.scriptureRefs),
+                "selected_text": _text(payload.selectedText, preserve_newlines=True),
+                "scripture_refs": _jsonb_text(payload.scriptureRefs),
                 "color": payload.color,
-                "metadata": Jsonb(payload.metadata),
+                "metadata": _jsonb_text(payload.metadata),
             },
         ).fetchone()
         conn.commit()
@@ -1119,10 +1135,10 @@ def update_highlight(
             "note_id": payload.noteId,
             "start_char": payload.startChar,
             "end_char": payload.endChar,
-            "selected_text": payload.selectedText,
-            "scripture_refs": Jsonb(payload.scriptureRefs) if payload.scriptureRefs is not None else None,
+            "selected_text": _text(payload.selectedText, preserve_newlines=True),
+            "scripture_refs": _jsonb_text(payload.scriptureRefs) if payload.scriptureRefs is not None else None,
             "color": payload.color,
-            "metadata": Jsonb(payload.metadata) if payload.metadata is not None else None,
+            "metadata": _jsonb_text(payload.metadata) if payload.metadata is not None else None,
         },
         returning="""
           id::text, workspace_id::text, user_id::text, document_id::text, chunk_id::text,
@@ -1203,15 +1219,15 @@ def save_citation(workspace_id: str, payload: CitationPayload, user_id: str | No
                 "user_id": user_id,
                 "document_id": payload.documentId,
                 "chunk_id": payload.chunkId,
-                "quote": payload.quote,
-                "selected_text": payload.selectedText,
+                "quote": _text(payload.quote, preserve_newlines=True),
+                "selected_text": _text(payload.selectedText, preserve_newlines=True),
                 "citation_url": payload.citationUrl or attribution["canonical_url"],
                 "source_url": attribution["source_url"],
-                "source_title": attribution["title"],
-                "source_author": attribution["author"],
-                "location": Jsonb(payload.location),
-                "scripture_refs": Jsonb(payload.scriptureRefs),
-                "metadata": Jsonb({**payload.metadata, "sourceType": attribution["source_type"], "sourceName": attribution["source_name"]}),
+                "source_title": _text(attribution["title"]),
+                "source_author": _text(attribution["author"]),
+                "location": _jsonb_text(payload.location),
+                "scripture_refs": _jsonb_text(payload.scriptureRefs),
+                "metadata": _jsonb_text({**payload.metadata, "sourceType": attribution["source_type"], "sourceName": attribution["source_name"]}),
             },
         ).fetchone()
         conn.commit()
@@ -1233,12 +1249,12 @@ def update_citation(
         resource_id=citation_id,
         user_id=current_user_id(user_id),
         payload={
-            "quote": payload.quote,
-            "selected_text": payload.selectedText,
+            "quote": _text(payload.quote, preserve_newlines=True),
+            "selected_text": _text(payload.selectedText, preserve_newlines=True),
             "citation_url": payload.citationUrl,
-            "location": Jsonb(payload.location) if payload.location is not None else None,
-            "scripture_refs": Jsonb(payload.scriptureRefs) if payload.scriptureRefs is not None else None,
-            "metadata": Jsonb(payload.metadata) if payload.metadata is not None else None,
+            "location": _jsonb_text(payload.location) if payload.location is not None else None,
+            "scripture_refs": _jsonb_text(payload.scriptureRefs) if payload.scriptureRefs is not None else None,
+            "metadata": _jsonb_text(payload.metadata) if payload.metadata is not None else None,
         },
         returning="""
           id::text, workspace_id::text, user_id::text, document_id::text, chunk_id::text, quote, selected_text,
@@ -1306,10 +1322,10 @@ def create_post_it(workspace_id: str, payload: PostItPayload, user_id: str | Non
                 "workspace_id": workspace_id,
                 "user_id": user_id,
                 "document_id": payload.documentId,
-                "content": payload.content,
+                "content": _text(payload.content, preserve_newlines=True),
                 "color": payload.color,
-                "position": Jsonb(payload.position),
-                "source_filters": Jsonb(payload.sourceFilters),
+                "position": _jsonb_text(payload.position),
+                "source_filters": _jsonb_text(payload.sourceFilters),
                 "pinned": payload.pinned,
             },
         ).fetchone()
@@ -1328,10 +1344,10 @@ def update_post_it(workspace_id: str, post_it_id: str, payload: PostItUpdatePayl
         user_id=current_user_id(user_id),
         payload={
             "document_id": payload.documentId,
-            "content": payload.content,
+            "content": _text(payload.content, preserve_newlines=True),
             "color": payload.color,
-            "position": Jsonb(payload.position) if payload.position is not None else None,
-            "source_filters": Jsonb(payload.sourceFilters) if payload.sourceFilters is not None else None,
+            "position": _jsonb_text(payload.position) if payload.position is not None else None,
+            "source_filters": _jsonb_text(payload.sourceFilters) if payload.sourceFilters is not None else None,
             "pinned": payload.pinned,
         },
         returning="""
@@ -1367,6 +1383,7 @@ def create_block(workspace_id: str, payload: BlockPayload, user_id: str | None =
             sort_order = _next_block_sort_order(conn, workspace_id, user_id)
         metadata = _block_metadata(payload, block_type, sort_order)
         if block_type == "post_it":
+            post_it_content = _text(payload.content or payload.quoteText or payload.title, preserve_newlines=True)
             row = conn.execute(
                 """
                 INSERT INTO post_its (workspace_id, user_id, content, color, position, source_filters, pinned)
@@ -1377,8 +1394,8 @@ def create_block(workspace_id: str, payload: BlockPayload, user_id: str | None =
                 {
                     "workspace_id": workspace_id,
                     "user_id": user_id,
-                    "content": payload.content or payload.quoteText or payload.title,
-                    "position": Jsonb(metadata),
+                    "content": post_it_content,
+                    "position": _jsonb_text(metadata),
                 },
             ).fetchone()
             conn.commit()
@@ -1400,10 +1417,10 @@ def create_block(workspace_id: str, payload: BlockPayload, user_id: str | None =
             {
                 "workspace_id": workspace_id,
                 "user_id": user_id,
-                "title": payload.title,
-                "content": payload.content or "",
-                "selected_text": payload.quoteText,
-                "position": Jsonb(metadata),
+                "title": _text(payload.title),
+                "content": _text(payload.content or "", preserve_newlines=True),
+                "selected_text": _text(payload.quoteText, preserve_newlines=True),
+                "position": _jsonb_text(metadata),
             },
         ).fetchone()
         conn.commit()
@@ -1425,10 +1442,10 @@ def update_block(workspace_id: str, block_id: str, payload: BlockUpdatePayload, 
         metadata = {
             **(current.get("metadata") or {}),
             "blockType": next_type,
-            "title": payload.title if payload.title is not None else current["title"],
-            "sourceTitle": payload.sourceTitle if payload.sourceTitle is not None else current.get("sourceTitle"),
-            "sourceAuthor": payload.sourceAuthor if payload.sourceAuthor is not None else current.get("sourceAuthor"),
-            "sourceReference": payload.sourceReference if payload.sourceReference is not None else current.get("sourceReference"),
+            "title": _text(payload.title if payload.title is not None else current["title"]),
+            "sourceTitle": _text(payload.sourceTitle if payload.sourceTitle is not None else current.get("sourceTitle")),
+            "sourceAuthor": _text(payload.sourceAuthor if payload.sourceAuthor is not None else current.get("sourceAuthor")),
+            "sourceReference": _text(payload.sourceReference if payload.sourceReference is not None else current.get("sourceReference")),
             "sourceUrl": payload.sourceUrl if payload.sourceUrl is not None else current.get("sourceUrl"),
             "isAiGenerated": payload.isAiGenerated if payload.isAiGenerated is not None else current.get("isAiGenerated", False),
             "sortOrder": payload.sortOrder if payload.sortOrder is not None else current.get("sortOrder", 0),
@@ -1448,10 +1465,10 @@ def update_block(workspace_id: str, block_id: str, payload: BlockUpdatePayload, 
                     "block_id": block_id,
                     "workspace_id": workspace_id,
                     "user_id": user_id,
-                    "title": payload.title if payload.title is not None else current["title"],
-                    "content": payload.content if payload.content is not None else current["content"],
-                    "selected_text": payload.quoteText if payload.quoteText is not None else current.get("quoteText"),
-                    "position": Jsonb(metadata),
+                    "title": _text(payload.title if payload.title is not None else current["title"]),
+                    "content": _text(payload.content if payload.content is not None else current["content"], preserve_newlines=True),
+                    "selected_text": _text(payload.quoteText if payload.quoteText is not None else current.get("quoteText"), preserve_newlines=True),
+                    "position": _jsonb_text(metadata),
                 },
             ).fetchone()
             conn.commit()
@@ -1468,8 +1485,8 @@ def update_block(workspace_id: str, block_id: str, payload: BlockUpdatePayload, 
                 "block_id": block_id,
                 "workspace_id": workspace_id,
                 "user_id": user_id,
-                "content": payload.content if payload.content is not None else current["content"],
-                "position": Jsonb(metadata),
+                "content": _text(payload.content if payload.content is not None else current["content"], preserve_newlines=True),
+                "position": _jsonb_text(metadata),
             },
         ).fetchone()
         conn.commit()
@@ -2078,7 +2095,12 @@ def _update_json_resource(
     for column, value in payload.items():
         if value is not None:
             assignments.append(f"{column} = %({column})s")
-            params[column] = value
+            if isinstance(value, Jsonb):
+                params[column] = _jsonb_text(value.obj)
+            elif isinstance(value, str):
+                params[column] = _text(value, preserve_newlines=column in {"content", "quote", "selected_text"})
+            else:
+                params[column] = value
     if not assignments:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
     assignments.extend(["updated_at = now()", "server_rev = server_rev + 1"])
@@ -2131,17 +2153,17 @@ def _normalize_block_type(value: str) -> str:
 
 
 def _block_metadata(payload: BlockPayload, block_type: str, sort_order: int) -> dict[str, Any]:
-    return {
+    return _json_text({
         "blockType": block_type,
-        "title": payload.title,
-        "sourceTitle": payload.sourceTitle,
-        "sourceAuthor": payload.sourceAuthor,
-        "sourceReference": payload.sourceReference,
+        "title": _text(payload.title),
+        "sourceTitle": _text(payload.sourceTitle),
+        "sourceAuthor": _text(payload.sourceAuthor),
+        "sourceReference": _text(payload.sourceReference),
         "sourceUrl": payload.sourceUrl,
-        "quoteText": payload.quoteText,
+        "quoteText": _text(payload.quoteText, preserve_newlines=True),
         "isAiGenerated": payload.isAiGenerated,
         "sortOrder": sort_order,
-    }
+    })
 
 
 def _find_block_note(conn, workspace_id: str, block_id: str, user_id: str) -> dict | None:
@@ -2201,19 +2223,19 @@ def _next_block_sort_order(conn, workspace_id: str, user_id: str) -> int:
 
 
 def _workspace_row(row: dict) -> dict:
-    settings = row["settings"] or {}
+    settings = _json_text(row["settings"] or {})
     return {
         "id": row["id"],
         "userId": row["user_id"],
-        "name": row["name"],
-        "title": settings.get("title") or row["name"],
-        "scriptureReference": settings.get("scriptureReference") or settings.get("mainReference") or row["description"],
+        "name": _text(row["name"]),
+        "title": _text(settings.get("title") or row["name"]),
+        "scriptureReference": _text(settings.get("scriptureReference") or settings.get("mainReference") or row["description"]),
         "scriptureText": settings.get("scriptureText"),
         "personalThought": settings.get("personalThought"),
         "topic": settings.get("topic"),
         "callingContext": settings.get("callingContext"),
-        "description": row["description"],
-        "sourceFilters": row["source_filters"] or {},
+        "description": _text(row["description"], preserve_newlines=True),
+        "sourceFilters": _json_text(row["source_filters"] or {}),
         "settings": settings,
         "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         "updatedAt": row["updated_at"].isoformat() if row["updated_at"] else None,
@@ -2227,9 +2249,9 @@ def _source_filter_row(row: dict) -> dict:
         "userId": row["user_id"],
         "sourceKey": row["source_key"],
         "language": row["language"],
-        "author": row["author"],
-        "category": row["category"],
-        "tags": row["tags"] or [],
+        "author": _text(row["author"]),
+        "category": _text(row["category"]),
+        "tags": _json_text(row["tags"] or []),
         "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         "updatedAt": row["updated_at"].isoformat() if row["updated_at"] else None,
     }
@@ -2242,11 +2264,11 @@ def _note_row(row: dict) -> dict:
         "userId": row["user_id"],
         "documentId": row["document_id"],
         "chunkId": row["chunk_id"],
-        "title": row["title"],
-        "content": row["content"],
-        "selectedText": row["selected_text"],
-        "selectionRange": row["selection_range"] or {},
-        "scriptureRefs": row["scripture_refs"] or [],
+        "title": _text(row["title"]),
+        "content": _text(row["content"], preserve_newlines=True),
+        "selectedText": _text(row["selected_text"], preserve_newlines=True),
+        "selectionRange": _json_text(row["selection_range"] or {}),
+        "scriptureRefs": _json_text(row["scripture_refs"] or []),
         "color": row["color"],
         "position": row["position"] or {},
         "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
@@ -2264,10 +2286,10 @@ def _highlight_row(row: dict) -> dict:
         "noteId": row["note_id"],
         "startChar": row["start_char"],
         "endChar": row["end_char"],
-        "selectedText": row["selected_text"],
-        "scriptureRefs": row["scripture_refs"] or [],
+        "selectedText": _text(row["selected_text"], preserve_newlines=True),
+        "scriptureRefs": _json_text(row["scripture_refs"] or []),
         "color": row["color"],
-        "metadata": row["metadata"] or {},
+        "metadata": _json_text(row["metadata"] or {}),
         "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         "updatedAt": row["updated_at"].isoformat() if row["updated_at"] else None,
     }
@@ -2280,17 +2302,17 @@ def _citation_row(row: dict) -> dict:
         "userId": row["user_id"],
         "documentId": row["document_id"],
         "chunkId": row["chunk_id"],
-        "quote": row["quote"],
-        "selectedText": row.get("selected_text"),
+        "quote": _text(row["quote"], preserve_newlines=True),
+        "selectedText": _text(row.get("selected_text"), preserve_newlines=True),
         "citationUrl": row.get("citation_url"),
         "sourceUrl": row.get("source_url"),
-        "sourceTitle": row.get("source_title"),
-        "sourceAuthor": row.get("source_author"),
+        "sourceTitle": _text(row.get("source_title")),
+        "sourceAuthor": _text(row.get("source_author")),
         "sourceType": row.get("source_type") or (row.get("metadata") or {}).get("sourceType"),
-        "sourceName": row.get("source_name") or (row.get("metadata") or {}).get("sourceName"),
-        "location": row.get("location") or {},
-        "scriptureRefs": row.get("scripture_refs") or [],
-        "metadata": row.get("metadata") or {},
+        "sourceName": _text(row.get("source_name") or (row.get("metadata") or {}).get("sourceName")),
+        "location": _json_text(row.get("location") or {}),
+        "scriptureRefs": _json_text(row.get("scripture_refs") or []),
+        "metadata": _json_text(row.get("metadata") or {}),
         "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         "updatedAt": row["updated_at"].isoformat() if row.get("updated_at") else None,
     }
@@ -2302,10 +2324,10 @@ def _post_it_row(row: dict) -> dict:
         "workspaceId": row["workspace_id"],
         "userId": row["user_id"],
         "documentId": row["document_id"],
-        "content": row["content"],
+        "content": _text(row["content"], preserve_newlines=True),
         "color": row["color"],
-        "position": row["position"] or {},
-        "sourceFilters": row["source_filters"] or {},
+        "position": _json_text(row["position"] or {}),
+        "sourceFilters": _json_text(row["source_filters"] or {}),
         "pinned": row["pinned"],
         "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         "updatedAt": row["updated_at"].isoformat() if row["updated_at"] else None,
@@ -2313,19 +2335,19 @@ def _post_it_row(row: dict) -> dict:
 
 
 def _note_block_row(row: dict) -> dict[str, Any]:
-    position = row["position"] or {}
+    position = _json_text(row["position"] or {})
     block_type = _normalize_block_type(position.get("blockType") or ("quote" if row["selected_text"] else "personal_note"))
-    title = position.get("title") or row["title"] or ("Cita manual" if block_type == "quote" else "Nota")
+    title = _text(position.get("title") or row["title"] or ("Cita manual" if block_type == "quote" else "Nota"))
     return {
         "id": row["id"],
         "workspaceId": row["workspace_id"],
         "type": block_type,
         "title": title,
-        "content": row["content"] or "",
-        "quoteText": row["selected_text"] or position.get("quoteText"),
-        "sourceTitle": position.get("sourceTitle"),
-        "sourceAuthor": position.get("sourceAuthor"),
-        "sourceReference": position.get("sourceReference"),
+        "content": _text(row["content"] or "", preserve_newlines=True),
+        "quoteText": _text(row["selected_text"] or position.get("quoteText"), preserve_newlines=True),
+        "sourceTitle": _text(position.get("sourceTitle")),
+        "sourceAuthor": _text(position.get("sourceAuthor")),
+        "sourceReference": _text(position.get("sourceReference")),
         "sourceUrl": position.get("sourceUrl"),
         "isAiGenerated": bool(position.get("isAiGenerated", False)),
         "sortOrder": int(position.get("sortOrder") or 0),
@@ -2336,17 +2358,17 @@ def _note_block_row(row: dict) -> dict[str, Any]:
 
 
 def _post_it_block_row(row: dict) -> dict[str, Any]:
-    position = row["position"] or {}
+    position = _json_text(row["position"] or {})
     return {
         "id": row["id"],
         "workspaceId": row["workspace_id"],
         "type": "post_it",
-        "title": position.get("title") or "Post-it",
-        "content": row["content"] or "",
-        "quoteText": position.get("quoteText"),
-        "sourceTitle": position.get("sourceTitle"),
-        "sourceAuthor": position.get("sourceAuthor"),
-        "sourceReference": position.get("sourceReference"),
+        "title": _text(position.get("title") or "Post-it"),
+        "content": _text(row["content"] or "", preserve_newlines=True),
+        "quoteText": _text(position.get("quoteText"), preserve_newlines=True),
+        "sourceTitle": _text(position.get("sourceTitle")),
+        "sourceAuthor": _text(position.get("sourceAuthor")),
+        "sourceReference": _text(position.get("sourceReference")),
         "sourceUrl": position.get("sourceUrl"),
         "isAiGenerated": bool(position.get("isAiGenerated", False)),
         "sortOrder": int(position.get("sortOrder") or 0),
