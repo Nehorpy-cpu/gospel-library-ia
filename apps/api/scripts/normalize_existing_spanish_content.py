@@ -55,6 +55,32 @@ class TableReport:
         return sum(column.modified for column in self.columns.values())
 
 
+@dataclass(frozen=True)
+class SlugConflict:
+    table: str
+    row_id: str
+    current_slug: str
+    desired_slug: str
+    existing_id: str
+    action: str = "skipped_slug_update"
+
+
+@dataclass(frozen=True)
+class DerivedNameUpdate:
+    table: str
+    row_id: Any
+    values: dict[str, Any]
+    current_slug: str | None = None
+    desired_slug: str | None = None
+
+
+@dataclass
+class DerivedNameReport:
+    detected: int = 0
+    modified: int = 0
+    warnings: list[SlugConflict] = field(default_factory=list)
+
+
 TABLE_SPECS: tuple[TableSpec, ...] = (
     TableSpec(
         "documents",
@@ -207,53 +233,210 @@ def scan_table(conn, spec: TableSpec, *, apply: bool) -> TableReport:
     return report
 
 
-def maintain_derived_names(conn, *, apply: bool) -> None:
-    if not apply:
-        return
+def fetch_rows(conn, table: str, columns: tuple[str, ...], *, where: str | None = None) -> list[dict[str, Any]]:
+    query = sql.SQL("SELECT {} FROM {}").format(
+        sql.SQL(", ").join(sql.Identifier(column) for column in columns),
+        sql.Identifier(table),
+    )
+    if where:
+        query += sql.SQL(" WHERE ") + sql.SQL(where)
+    return list(conn.execute(query).fetchall())
+
+
+def plan_author_derived_updates(rows: list[dict[str, Any]], columns: dict[str, str]) -> list[DerivedNameUpdate]:
+    plans: list[DerivedNameUpdate] = []
+    for row in rows:
+        display_name = normalize_text_es(row["display_name"])
+        desired = {
+            "display_name": display_name,
+            "sort_name": display_name,
+            "normalized_name": normalized_name(display_name),
+        }
+        values = {
+            column: value
+            for column, value in desired.items()
+            if column in columns and row.get(column) != value
+        }
+        if values:
+            plans.append(DerivedNameUpdate("authors", row["id"], values))
+    return plans
+
+
+def plan_tag_derived_updates(
+    rows: list[dict[str, Any]], columns: dict[str, str]
+) -> tuple[list[DerivedNameUpdate], list[SlugConflict]]:
+    """Plan tag repairs without merging records or changing a conflicting slug."""
+    desired_rows: list[tuple[dict[str, Any], str, str]] = []
+    current_slug_owners: dict[str, list[str]] = {}
+    desired_slug_owners: dict[str, list[str]] = {}
+
+    for row in rows:
+        row_id = str(row["id"])
+        current_slug = str(row.get("slug") or "")
+        name = normalize_tag_es(row["name"])
+        desired_slug = slugify(name)
+        desired_rows.append((row, name, desired_slug))
+        if current_slug:
+            current_slug_owners.setdefault(current_slug, []).append(row_id)
+        if desired_slug:
+            desired_slug_owners.setdefault(desired_slug, []).append(row_id)
+
+    plans: list[DerivedNameUpdate] = []
+    conflicts: list[SlugConflict] = []
+    for row, name, desired_slug in desired_rows:
+        row_id = str(row["id"])
+        current_slug = str(row.get("slug") or "")
+        desired = {
+            "name": name,
+            "normalized_name": normalized_name(name),
+            "language": "es",
+        }
+        values = {
+            column: value
+            for column, value in desired.items()
+            if column in columns and row.get(column) != value
+        }
+        slug_update: str | None = None
+        if "slug" in columns and desired_slug and current_slug != desired_slug:
+            existing_ids = [
+                owner_id
+                for owner_id in current_slug_owners.get(desired_slug, [])
+                if owner_id != row_id
+            ]
+            planned_ids = [
+                owner_id
+                for owner_id in desired_slug_owners.get(desired_slug, [])
+                if owner_id != row_id
+            ]
+            conflicting_ids = existing_ids or planned_ids
+            if conflicting_ids:
+                conflicts.append(
+                    SlugConflict(
+                        table="tags",
+                        row_id=row_id,
+                        current_slug=current_slug,
+                        desired_slug=desired_slug,
+                        existing_id=conflicting_ids[0],
+                    )
+                )
+            else:
+                slug_update = desired_slug
+        if values or slug_update:
+            plans.append(
+                DerivedNameUpdate(
+                    table="tags",
+                    row_id=row["id"],
+                    values=values,
+                    current_slug=current_slug,
+                    desired_slug=slug_update,
+                )
+            )
+    return plans, conflicts
+
+
+def execute_derived_update(conn, update: DerivedNameUpdate, columns: dict[str, str]) -> None:
+    assignments = [
+        sql.SQL("{} = {}").format(sql.Identifier(column), sql.Placeholder(column))
+        for column in update.values
+    ]
+    if "updated_at" in columns:
+        assignments.append(sql.SQL("updated_at = now()"))
+    query = sql.SQL("UPDATE {} SET {} WHERE id = %(id)s").format(
+        sql.Identifier(update.table),
+        sql.SQL(", ").join(assignments),
+    )
+    conn.execute(query, {"id": update.row_id, **update.values})
+
+
+def find_slug_owner(conn, table: str, desired_slug: str, row_id: Any) -> str:
+    row = conn.execute(
+        sql.SQL("SELECT id FROM {} WHERE slug = %(slug)s AND id <> %(id)s LIMIT 1").format(
+            sql.Identifier(table)
+        ),
+        {"slug": desired_slug, "id": row_id},
+    ).fetchone()
+    return str(row["id"]) if row else "unknown"
+
+
+def execute_slug_update(conn, update: DerivedNameUpdate) -> bool:
+    """Update a slug only while it remains unowned, including concurrent runs."""
+    assert update.desired_slug is not None
+    query = sql.SQL(
+        """
+        UPDATE {table} AS target
+        SET slug = %(slug)s
+        WHERE target.id = %(id)s
+          AND NOT EXISTS (
+            SELECT 1 FROM {table} AS existing
+            WHERE existing.slug = %(slug)s AND existing.id <> %(id)s
+          )
+        """
+    ).format(table=sql.Identifier(update.table))
+    try:
+        # A nested transaction is a savepoint when the maintenance script already
+        # has an open transaction, so an unexpected unique race cannot poison it.
+        with conn.transaction():
+            cursor = conn.execute(query, {"id": update.row_id, "slug": update.desired_slug})
+        return cursor.rowcount == 1
+    except psycopg.errors.UniqueViolation:
+        return False
+
+
+def maintain_derived_names(conn, *, apply: bool) -> DerivedNameReport:
+    report = DerivedNameReport()
     author_columns = table_columns(conn, "authors") if table_exists(conn, "authors") else {}
     if {"id", "display_name", "sort_name", "normalized_name"} <= set(author_columns):
-        rows = conn.execute("SELECT id, display_name FROM authors WHERE display_name IS NOT NULL").fetchall()
-        for row in rows:
-            display_name = normalize_text_es(row["display_name"])
-            conn.execute(
-                """
-                UPDATE authors
-                SET display_name = %(display_name)s,
-                    sort_name = %(display_name)s,
-                    normalized_name = %(normalized_name)s,
-                    updated_at = now()
-                WHERE id = %(id)s
-                """,
-                {
-                    "id": row["id"],
-                    "display_name": display_name,
-                    "normalized_name": normalized_name(display_name),
-                },
-            )
+        author_rows = fetch_rows(
+            conn,
+            "authors",
+            ("id", "display_name", "sort_name", "normalized_name"),
+            where="display_name IS NOT NULL",
+        )
+        author_updates = plan_author_derived_updates(author_rows, author_columns)
+        report.detected += len(author_updates)
+        if apply:
+            for update in author_updates:
+                execute_derived_update(conn, update, author_columns)
+                report.modified += 1
+
     tag_columns = table_columns(conn, "tags") if table_exists(conn, "tags") else {}
-    if {"id", "name", "slug", "normalized_name"} <= set(tag_columns):
-        rows = conn.execute("SELECT id, name FROM tags").fetchall()
-        for row in rows:
-            name = normalize_tag_es(row["name"])
-            conn.execute(
-                """
-                UPDATE tags
-                SET name = %(name)s,
-                    slug = %(slug)s,
-                    normalized_name = %(normalized_name)s,
-                    language = 'es'
-                WHERE id = %(id)s
-                """,
-                {
-                    "id": row["id"],
-                    "name": name,
-                    "slug": slugify(name),
-                    "normalized_name": normalized_name(name),
-                },
-            )
+    required_tag_columns = {"id", "name", "slug", "normalized_name"}
+    if required_tag_columns <= set(tag_columns):
+        tag_select_columns = tuple(
+            column
+            for column in ("id", "name", "slug", "normalized_name", "language")
+            if column in tag_columns
+        )
+        tag_rows = fetch_rows(conn, "tags", tag_select_columns)
+        tag_updates, conflicts = plan_tag_derived_updates(tag_rows, tag_columns)
+        report.detected += len(tag_updates)
+        report.warnings.extend(conflicts)
+        if apply:
+            for update in tag_updates:
+                row_modified = False
+                if update.values:
+                    execute_derived_update(conn, update, tag_columns)
+                    row_modified = True
+                if update.desired_slug and not execute_slug_update(conn, update):
+                    report.warnings.append(
+                        SlugConflict(
+                            table=update.table,
+                            row_id=str(update.row_id),
+                            current_slug=update.current_slug or "",
+                            desired_slug=update.desired_slug,
+                            existing_id=find_slug_owner(conn, update.table, update.desired_slug, update.row_id),
+                        )
+                    )
+                elif update.desired_slug:
+                    row_modified = True
+                if row_modified:
+                    report.modified += 1
+    return report
 
 
-def print_report(reports: dict[str, TableReport], *, apply: bool) -> None:
+def print_report(
+    reports: dict[str, TableReport], derived_report: DerivedNameReport, *, apply: bool
+) -> None:
     mode = "apply" if apply else "dry-run"
     print(f"Modo: {mode}")
     for table, report in reports.items():
@@ -269,6 +452,25 @@ def print_report(reports: dict[str, TableReport], *, apply: bool) -> None:
             for before, after in column_report.examples:
                 print(f"    antes: {before}")
                 print(f"    despues: {after}")
+    print(
+        "\nNombres derivados | filas detectadas: "
+        f"{derived_report.detected} | filas modificadas: "
+        f"{derived_report.modified if apply else 0}"
+    )
+    if not derived_report.warnings:
+        print("  Sin conflictos de slug.")
+        return
+    print(f"  Conflictos de slug: {len(derived_report.warnings)}")
+    for warning in derived_report.warnings:
+        print(
+            "    slug_conflict"
+            f" | table={warning.table}"
+            f" | id={warning.row_id}"
+            f" | current_slug={warning.current_slug}"
+            f" | desired_slug={warning.desired_slug}"
+            f" | existing_id={warning.existing_id}"
+            f" | action={warning.action}"
+        )
 
 
 def main() -> int:
@@ -281,17 +483,18 @@ def main() -> int:
 
     connection_url = database_url.replace("postgresql+psycopg://", "postgresql://")
     reports: dict[str, TableReport] = {}
+    derived_report = DerivedNameReport()
     with psycopg.connect(connection_url, row_factory=dict_row) as conn:
         for spec in TABLE_SPECS:
             if not table_exists(conn, spec.name):
                 continue
             reports[spec.name] = scan_table(conn, spec, apply=apply)
-        maintain_derived_names(conn, apply=apply)
+        derived_report = maintain_derived_names(conn, apply=apply)
         if apply:
             conn.commit()
         else:
             conn.rollback()
-    print_report(reports, apply=apply)
+    print_report(reports, derived_report, apply=apply)
     print("\nNormalizacion finalizada. No se borraron ni truncaron tablas.")
     return 0
 

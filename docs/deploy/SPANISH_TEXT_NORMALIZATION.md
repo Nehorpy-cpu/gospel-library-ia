@@ -66,6 +66,29 @@ El script es idempotente:
 - muestra ejemplos cortos antes/después
 - no imprime `DATABASE_URL`
 
+## Conflictos de slug durante normalización
+
+Al normalizar una etiqueta, su nombre puede cambiar de idioma o corregirse. Por
+ejemplo, `Faith` se normaliza a `Fe`, cuyo slug deseado es `fe`. Si otra fila
+ya posee ese slug, PostgreSQL protege la restricción única y antes el script
+podía terminar con `UniqueViolation`.
+
+El script ahora revisa los slugs actuales y los slugs deseados antes de
+actualizar. Ante un conflicto conserva el slug de la fila afectada, aplica solo
+los cambios seguros de texto si corresponden y continúa con las demás filas.
+No borra ni fusiona etiquetas, autores, fuentes ni relaciones de documentos de
+forma automática.
+
+El reporte incluye una advertencia por cada caso:
+
+```txt
+slug_conflict | table=tags | id=... | current_slug=faith | desired_slug=fe | existing_id=... | action=skipped_slug_update
+```
+
+Revisar esas advertencias luego de `--dry-run` y de `--apply`. Un conflicto no
+requiere crear tablas ni borrar registros: la resolución manual, si alguna vez
+es necesaria, debe revisar primero las relaciones existentes de la etiqueta.
+
 ## Tablas cubiertas
 
 El script revisa estas tablas si existen:
