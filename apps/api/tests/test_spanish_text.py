@@ -45,6 +45,22 @@ class SpanishTextNormalizationTest(unittest.TestCase):
             "Elder D. Todd Christofferson",
         )
 
+    def test_repairs_production_mojibake_sequences(self):
+        cases = {
+            "\u00c3\u0192\u00c2\u00a9lder": "\u00e9lder",
+            "Fe en el Se\u00c3\u0192\u00c2\u00b1or": "Fe en el Se\u00f1or",
+            "\u00c3\u201a\u00c2\u00a1Piensen": "\u00a1Piensen",
+            "Pregunta de reflexi\u00c3\u0192\u00c2\u00b3n": "Pregunta de reflexi\u00f3n",
+            "\u00c3\u201a\u00c2\u00bfC\u00c3\u0192\u00c2\u00b3mo": "\u00bfC\u00f3mo",
+            "ense\u00c3\u0192\u00c2\u00b1anzas": "ense\u00f1anzas",
+            "gu\u00c3\u0192\u00c2\u00aden": "gu\u00eden",
+            "\u00c3\u0192\u00c6\u2019\u00c3\u201a\u00c2\u00a9lder": "\u00e9lder",
+        }
+
+        for damaged, expected in cases.items():
+            with self.subTest(damaged=damaged):
+                self.assertEqual(repair_mojibake(damaged), expected)
+
     def test_texto_correcto_queda_igual_e_idempotente(self):
         text = "¿Cómo puedo sentir más el Espíritu del Señor?"
 

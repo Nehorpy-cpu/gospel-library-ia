@@ -813,6 +813,76 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
         self.assertTrue(second.json()["cached"])
         self.assertEqual(calls, 1)
 
+    def test_ai_suggest_normalizes_legacy_cached_response(self):
+        study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
+        payload = study.WorkspaceAiSuggestPayload.model_validate(
+            {"mode": "rapido", "maxSuggestions": 1, "userPrompt": "Pregunta"}
+        )
+        cache_key = study._ai_cache_key(USER_ID, WORKSPACE_ID, payload)
+        study._AI_SUGGESTION_CACHE[cache_key] = (
+            study.time.monotonic() + 30,
+            {
+                "suggestions": [
+                    {
+                        "type": "reflection_question",
+                        "title": "Pregunta de reflexi\u00c3\u0192\u00c2\u00b3n",
+                        "content": "\u00c3\u201a\u00c2\u00bfC\u00c3\u0192\u00c2\u00b3mo puedo fortalecer mi fe?",
+                        "source_author": "\u00c3\u0192\u00c2\u00a9lder Kevin G. Brown",
+                    }
+                ],
+                "sources_used": [{"author": "\u00c3\u0192\u00c2\u00a9lder Kevin G. Brown"}],
+                "warnings": ["Revisar ense\u00c3\u0192\u00c2\u00b1anzas."],
+                "cached": False,
+            },
+        )
+
+        response = self.client.post(
+            f"/api/study-workspaces/{WORKSPACE_ID}/ai-suggest",
+            headers={"X-User-Id": USER_ID},
+            json=payload.model_dump(mode="json"),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["cached"])
+        self.assertEqual(body["suggestions"][0]["title"], "Pregunta de reflexión")
+        self.assertEqual(body["suggestions"][0]["content"], "¿Cómo puedo fortalecer mi fe?")
+        self.assertEqual(body["sources_used"][0]["author"], "élder Kevin G. Brown")
+        self.assertEqual(body["warnings"], ["Revisar enseñanzas."])
+
+    def test_ai_suggest_bypass_cache_generates_without_reusing_or_storing_entry(self):
+        study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
+        calls = 0
+
+        async def fake_generate_workspace_suggestions(**_kwargs):
+            nonlocal calls
+            calls += 1
+            return (
+                [{"type": "reflection_question", "title": "Pregunta", "content": "Contenido"}],
+                [],
+                [],
+                "test",
+            )
+
+        study.generate_workspace_suggestions = fake_generate_workspace_suggestions
+        payload = {"mode": "rapido", "maxSuggestions": 1, "bypassCache": True}
+        first = self.client.post(
+            f"/api/study-workspaces/{WORKSPACE_ID}/ai-suggest",
+            headers={"X-User-Id": USER_ID},
+            json=payload,
+        )
+        second = self.client.post(
+            f"/api/study-workspaces/{WORKSPACE_ID}/ai-suggest",
+            headers={"X-User-Id": USER_ID},
+            json=payload,
+        )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertFalse(first.json()["cached"])
+        self.assertFalse(second.json()["cached"])
+        self.assertEqual(calls, 2)
+
     def test_ai_suggest_lock_prevents_duplicate_generation(self):
         study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
         study._AI_SUGGESTION_INFLIGHT[study._ai_lock_key(USER_ID, WORKSPACE_ID)] = study.time.monotonic() + 30

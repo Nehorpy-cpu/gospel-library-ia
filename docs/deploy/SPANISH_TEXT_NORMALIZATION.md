@@ -57,6 +57,17 @@ Si el reporte muestra cambios esperados:
 python scripts/normalize_existing_spanish_content.py --apply
 ```
 
+Antes de aplicar, se puede auditar la cobertura real de la base sin modificar
+filas:
+
+```powershell
+python scripts/diagnose_mojibake_fields.py --sample 20
+```
+
+El diagnóstico muestra la tabla, columna, cantidad de filas sospechosas,
+ejemplos antes/después y las rutas JSON afectadas. Las tablas o columnas que no
+existan se omiten sin error.
+
 El script es idempotente:
 
 - no borra datos
@@ -110,6 +121,37 @@ ingestion_jobs
 study_ai_suggestion_cache
 ```
 
+Además de los campos históricos `request` y `response`, el script revisa las
+columnas actuales de cache si existen: `suggestions`, `sources_used`,
+`warnings`, `local_context` y `metadata`. El modo `--apply` normaliza ese JSON
+en sitio; no borra entradas ni invalida cache mediante eliminación.
+
+## Cache de Study AI
+
+La respuesta de `/api/study-workspaces/{workspaceId}/ai-suggest` normaliza el
+resultado antes de guardarlo en cache y también al leer una entrada heredada.
+Esto evita que una respuesta antigua con mojibake siga apareciendo con
+`cached: true`.
+
+Para diagnosticar una generación sin reutilizar ni escribir cache, enviar
+`bypassCache: true` solo desde una prueba administrativa o PowerShell:
+
+```powershell
+$workspaceId = "WORKSPACE_ID_REAL"
+$headers = @{ "X-User-Id" = "USER_ID_REAL" }
+$body = @{ mode = "rapido"; maxSuggestions = 1; bypassCache = $true } | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "https://api.estudiopy.com/api/study-workspaces/$workspaceId/ai-suggest" `
+  -Headers $headers `
+  -ContentType "application/json" `
+  -Body $body |
+  ConvertTo-Json -Depth 12
+```
+
+El frontend no usa este parámetro por defecto.
+
 ## Verificar en la web
 
 1. Abrir `https://www.estudiopy.com/library`.
@@ -130,6 +172,16 @@ Invoke-RestMethod "https://api.estudiopy.com/api/topics" |
 Invoke-RestMethod "https://api.estudiopy.com/api/authors?limit=20" |
   ConvertTo-Json -Depth 8
 ```
+
+## PowerShell y codificación
+
+PowerShell puede mostrar UTF-8 correctamente almacenado con caracteres raros
+si la consola usa una página de códigos antigua. Para distinguir una consola
+mal configurada de un dato realmente dañado, comparar el mismo valor en el
+navegador, Supabase SQL Editor o JSON devuelto por `Invoke-RestMethod` y revisar
+los campos con `diagnose_mojibake_fields.py`. Una secuencia como `Ãƒ`, `Ã‚` o
+`Ã¢â‚¬` dentro del JSON o de Supabase indica mojibake persistido; un problema de
+visualización aislado de la consola no requiere ejecutar `--apply`.
 
 Para study:
 

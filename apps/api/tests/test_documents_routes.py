@@ -143,6 +143,49 @@ class DocumentRoutesTest(unittest.TestCase):
         )
         self.assertEqual(response["documents"], response["items"])
 
+    def test_documents_normalize_visible_and_nested_mojibake_before_response(self):
+        class MojibakeConnection(FakeConnection):
+            def execute(self, sql, params=None):
+                query = str(sql)
+                if "FROM documents d" in query:
+                    return FakeResult(
+                        [
+                            (
+                                "doc-1",
+                                "Fe en el Se\u00c3\u0192\u00c2\u00b1or Jesucristo",
+                                "\u00c3\u0192\u00c2\u00a9lder Kevin G. Brown",
+                                "BYU Speeches Espa\u00c3\u0192\u00c2\u00b1ol",
+                                "byu_speeches_es",
+                                "es",
+                                "READY",
+                                None,
+                                None,
+                                "https://example.com/doc-1",
+                                "https://example.com/original",
+                                "\u00c3\u201a\u00c2\u00a1Piensen de manera celestial!",
+                                None,
+                                {"summary": "Pregunta de reflexi\u00c3\u0192\u00c2\u00b3n", "source_url": "https://example.com/original"},
+                                1,
+                            )
+                        ]
+                    )
+                return super().execute(sql, params)
+
+        @contextmanager
+        def mojibake_get_conn():
+            yield MojibakeConnection()
+
+        public.get_conn = mojibake_get_conn
+        response = public.documents(limit=1)
+
+        item = response["items"][0]
+        self.assertEqual(item["title"], "Fe en el Señor Jesucristo")
+        self.assertEqual(item["author"], "élder Kevin G. Brown")
+        self.assertEqual(item["source"], "BYU Speeches Español")
+        self.assertEqual(item["excerpt"], "¡Piensen de manera celestial!")
+        self.assertEqual(item["metadata"]["summary"], "Pregunta de reflexión")
+        self.assertEqual(item["metadata"]["source_url"], "https://example.com/original")
+
     def test_search_request_extracts_scripture_refs(self):
         request = SearchRequest(query="Que ensena Alma 32:21 sobre la fe?")
 

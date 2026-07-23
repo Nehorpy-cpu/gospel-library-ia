@@ -15,6 +15,13 @@ normalization_script = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = normalization_script
 SPEC.loader.exec_module(normalization_script)
 
+DIAGNOSIS_PATH = Path(__file__).resolve().parents[1] / "scripts" / "diagnose_mojibake_fields.py"
+DIAGNOSIS_SPEC = importlib.util.spec_from_file_location("diagnose_mojibake_fields", DIAGNOSIS_PATH)
+assert DIAGNOSIS_SPEC and DIAGNOSIS_SPEC.loader
+diagnosis_script = importlib.util.module_from_spec(DIAGNOSIS_SPEC)
+sys.modules[DIAGNOSIS_SPEC.name] = diagnosis_script
+DIAGNOSIS_SPEC.loader.exec_module(diagnosis_script)
+
 
 TAG_COLUMNS = {
     "id": "uuid",
@@ -163,6 +170,17 @@ class SpanishContentNormalizationScriptTest(unittest.TestCase):
         )
 
         self.assertEqual(normalized, ["Alma 11:36", "Alma 12:32"])
+
+    def test_diagnosis_reports_only_changed_nested_json_paths(self):
+        before = {
+            "suggestions": [{"title": "Pregunta de reflexi\u00c3\u0192\u00c2\u00b3n"}],
+            "source_url": "https://example.com/Se%C3%B1or",
+        }
+        after = normalization_script.normalize_json_text_fields(before)
+
+        changed = diagnosis_script.changed_json_keys(before, after)
+
+        self.assertEqual(changed, {"suggestions[0].title"})
 
 
 if __name__ == "__main__":

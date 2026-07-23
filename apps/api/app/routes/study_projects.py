@@ -21,6 +21,7 @@ from app.schemas.study_projects import (
 from app.services.auth import get_request_auth_context, normalize_user_id, require_user
 from app.services.db import get_conn
 from app.services.rate_limit import RateLimiter
+from app.services.spanish_text import normalize_json_text_fields
 from app.services.study_ai import generate_suggestions, load_local_context, prompt_hash
 
 router = APIRouter(prefix="/api/study-projects", tags=["study-projects"], dependencies=[Depends(require_user)])
@@ -366,13 +367,13 @@ async def ai_suggest(
             {"project_id": project_id, "user_id": user_id, "prompt_hash": suggestion_hash},
         ).fetchone()
         if cached:
-            return {
+            return normalize_json_text_fields({
                 "suggestions": cached["suggestions"] or [],
                 "cached": True,
                 "mode": payload.mode,
                 "warnings": cached["warnings"] or [],
                 "localContext": local_context,
-            }
+            })
     suggestions, warnings, provider = await generate_suggestions(
         project=project,
         user_id=user_id,
@@ -403,20 +404,20 @@ async def ai_suggest(
                 "mode": payload.mode,
                 "requested_block_types": Jsonb(payload.blockTypes),
                 "preferred_sources": Jsonb(payload.preferredSources),
-                "suggestions": Jsonb(suggestions),
-                "warnings": Jsonb(warnings),
-                "local_context": Jsonb(local_context),
+                "suggestions": Jsonb(normalize_json_text_fields(suggestions)),
+                "warnings": Jsonb(normalize_json_text_fields(warnings)),
+                "local_context": Jsonb(normalize_json_text_fields(local_context)),
             },
         )
         conn.commit()
     log.info("study_ai_suggestions_generated", study_project_id=project_id, user_id=user_id, provider=provider)
-    return {
+    return normalize_json_text_fields({
         "suggestions": suggestions,
         "cached": False,
         "mode": payload.mode,
         "warnings": warnings,
         "localContext": local_context,
-    }
+    })
 
 
 def _require_project(conn, project_id: str, user_id: str) -> dict:

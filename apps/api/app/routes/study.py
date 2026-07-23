@@ -102,11 +102,11 @@ def _get_cached_ai_suggestion(cache_key: str) -> dict[str, Any] | None:
     if expires_at <= now:
         _AI_SUGGESTION_CACHE.pop(cache_key, None)
         return None
-    return {**value, "cached": True}
+    return _normalized_ai_suggestion_payload(value, cached=True)
 
 
 def _store_cached_ai_suggestion(cache_key: str, value: dict[str, Any]) -> None:
-    clean_value = {**value, "cached": False}
+    clean_value = _normalized_ai_suggestion_payload(value, cached=False)
     _AI_SUGGESTION_CACHE[cache_key] = (time.monotonic() + AI_SUGGESTION_CACHE_TTL_SECONDS, clean_value)
 
 
@@ -147,6 +147,13 @@ def _json_text(value: Any) -> Any:
 
 def _jsonb_text(value: Any) -> Jsonb:
     return Jsonb(_json_text(value))
+
+
+def _normalized_ai_suggestion_payload(value: dict[str, Any], *, cached: bool) -> dict[str, Any]:
+    normalized = _json_text(value)
+    if not isinstance(normalized, dict):
+        return {"suggestions": [], "sources_used": [], "warnings": [], "cached": cached}
+    return {**normalized, "cached": cached}
 
 
 class WorkspacePayload(BaseModel):
@@ -349,6 +356,10 @@ class WorkspaceAiSuggestPayload(BaseModel):
         ge=1,
         le=12,
         validation_alias=AliasChoices("maxSuggestions", "max_suggestions"),
+    )
+    bypassCache: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("bypassCache", "bypass_cache"),
     )
 
     @model_validator(mode="after")
@@ -731,7 +742,7 @@ def list_workspaces(
             """,
             params,
         ).fetchall()
-    return {"items": [_workspace_row(row) for row in rows]}
+    return _json_text({"items": [_workspace_row(row) for row in rows]})
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -796,7 +807,7 @@ def get_workspace(workspace_id: str, user_id: str | None = Header(default=None, 
         conn.row_factory = dict_row
         row = _require_workspace(conn, workspace_id, user_id)
         blocks = _workspace_blocks(conn, workspace_id, user_id)
-    return {**_workspace_row(row), "blocks": blocks}
+    return _json_text({**_workspace_row(row), "blocks": blocks})
 
 
 @router.patch("/{workspace_id}")
@@ -1368,7 +1379,7 @@ def list_blocks(workspace_id: str, user_id: str | None = Header(default=None, al
     with get_conn() as conn:
         conn.row_factory = dict_row
         _require_workspace(conn, workspace_id, user_id)
-        return {"items": _workspace_blocks(conn, workspace_id, user_id)}
+        return _json_text({"items": _workspace_blocks(conn, workspace_id, user_id)})
 
 
 @router.post("/{workspace_id}/blocks", status_code=status.HTTP_201_CREATED)
@@ -1575,7 +1586,7 @@ async def ai_suggest_workspace(
             stage = "load_workspace"
             workspace = _require_workspace(conn, workspace_id, resolved_user_id)
 
-            cached = _get_cached_ai_suggestion(cache_key)
+            cached = None if payload.bypassCache else _get_cached_ai_suggestion(cache_key)
             if cached is not None:
                 log.info(
                     "study_workspace_ai_suggestions_cache_hit",
@@ -1779,7 +1790,10 @@ async def ai_suggest_workspace(
                 detail=_ai_error_detail("No se pudo generar informacion con IA.", stage),
             ) from exc
 
-        response_payload = {"suggestions": suggestions, "sources_used": sources_used, "warnings": warnings, "cached": False}
+        response_payload = _normalized_ai_suggestion_payload(
+            {"suggestions": suggestions, "sources_used": sources_used, "warnings": warnings},
+            cached=False,
+        )
         try:
             response = WorkspaceAiSuggestResponse.model_validate(response_payload)
         except ValidationError as exc:
@@ -1794,8 +1808,9 @@ async def ai_suggest_workspace(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="La IA respondio con un formato inesperado.",
             ) from exc
-        response_dict = response.model_dump()
-        _store_cached_ai_suggestion(cache_key, response_dict)
+        response_dict = _normalized_ai_suggestion_payload(response.model_dump(), cached=False)
+        if not payload.bypassCache:
+            _store_cached_ai_suggestion(cache_key, response_dict)
         log.info("study_workspace_ai_suggestions_generated", workspace_id=workspace_id, user_id=resolved_user_id, provider=provider)
         return response_dict
     finally:
@@ -2224,7 +2239,7 @@ def _next_block_sort_order(conn, workspace_id: str, user_id: str) -> int:
 
 def _workspace_row(row: dict) -> dict:
     settings = _json_text(row["settings"] or {})
-    return {
+    return _json_text({
         "id": row["id"],
         "userId": row["user_id"],
         "name": _text(row["name"]),
@@ -2239,11 +2254,11 @@ def _workspace_row(row: dict) -> dict:
         "settings": settings,
         "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         "updatedAt": row["updated_at"].isoformat() if row["updated_at"] else None,
-    }
+    })
 
 
 def _source_filter_row(row: dict) -> dict:
-    return {
+    return _json_text({
         "id": row["id"],
         "workspaceId": row["workspace_id"],
         "userId": row["user_id"],
@@ -2254,11 +2269,11 @@ def _source_filter_row(row: dict) -> dict:
         "tags": _json_text(row["tags"] or []),
         "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         "updatedAt": row["updated_at"].isoformat() if row["updated_at"] else None,
-    }
+    })
 
 
 def _note_row(row: dict) -> dict:
-    return {
+    return _json_text({
         "id": row["id"],
         "workspaceId": row["workspace_id"],
         "userId": row["user_id"],
@@ -2270,14 +2285,14 @@ def _note_row(row: dict) -> dict:
         "selectionRange": _json_text(row["selection_range"] or {}),
         "scriptureRefs": _json_text(row["scripture_refs"] or []),
         "color": row["color"],
-        "position": row["position"] or {},
+        "position": _json_text(row["position"] or {}),
         "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         "updatedAt": row["updated_at"].isoformat() if row["updated_at"] else None,
-    }
+    })
 
 
 def _highlight_row(row: dict) -> dict:
-    return {
+    return _json_text({
         "id": row["id"],
         "workspaceId": row["workspace_id"],
         "userId": row["user_id"],
@@ -2292,11 +2307,11 @@ def _highlight_row(row: dict) -> dict:
         "metadata": _json_text(row["metadata"] or {}),
         "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         "updatedAt": row["updated_at"].isoformat() if row["updated_at"] else None,
-    }
+    })
 
 
 def _citation_row(row: dict) -> dict:
-    return {
+    return _json_text({
         "id": row["id"],
         "workspaceId": row["workspace_id"],
         "userId": row["user_id"],
@@ -2315,11 +2330,11 @@ def _citation_row(row: dict) -> dict:
         "metadata": _json_text(row.get("metadata") or {}),
         "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         "updatedAt": row["updated_at"].isoformat() if row.get("updated_at") else None,
-    }
+    })
 
 
 def _post_it_row(row: dict) -> dict:
-    return {
+    return _json_text({
         "id": row["id"],
         "workspaceId": row["workspace_id"],
         "userId": row["user_id"],
@@ -2331,14 +2346,14 @@ def _post_it_row(row: dict) -> dict:
         "pinned": row["pinned"],
         "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         "updatedAt": row["updated_at"].isoformat() if row["updated_at"] else None,
-    }
+    })
 
 
 def _note_block_row(row: dict) -> dict[str, Any]:
     position = _json_text(row["position"] or {})
     block_type = _normalize_block_type(position.get("blockType") or ("quote" if row["selected_text"] else "personal_note"))
     title = _text(position.get("title") or row["title"] or ("Cita manual" if block_type == "quote" else "Nota"))
-    return {
+    return _json_text({
         "id": row["id"],
         "workspaceId": row["workspace_id"],
         "type": block_type,
@@ -2354,12 +2369,12 @@ def _note_block_row(row: dict) -> dict[str, Any]:
         "metadata": position,
         "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         "updatedAt": row["updated_at"].isoformat() if row["updated_at"] else None,
-    }
+    })
 
 
 def _post_it_block_row(row: dict) -> dict[str, Any]:
     position = _json_text(row["position"] or {})
-    return {
+    return _json_text({
         "id": row["id"],
         "workspaceId": row["workspace_id"],
         "type": "post_it",
@@ -2375,4 +2390,4 @@ def _post_it_block_row(row: dict) -> dict[str, Any]:
         "metadata": {**position, "display": "post_it", "color": row["color"]},
         "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         "updatedAt": row["updated_at"].isoformat() if row["updated_at"] else None,
-    }
+    })

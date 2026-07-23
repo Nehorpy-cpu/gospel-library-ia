@@ -8,7 +8,7 @@ from app.services.rate_limit import RateLimiter
 from app.services.calling_focus import calling_application_note
 from app.services.scripture_refs import structured_scripture_refs
 from app.services.source_filters import canonical_source_options, normalize_source_type, source_type_aliases
-from app.services.spanish_text import normalize_tag_es, normalize_text_es, normalize_visible_metadata
+from app.services.spanish_text import normalize_json_text_fields, normalize_tag_es, normalize_text_es, normalize_visible_metadata
 
 LEADERSHIP_QUERY_TERMS = (
     "primera presidencia",
@@ -193,14 +193,14 @@ def documents(
         for row in rows
     ]
     total = rows[0][14] if rows else 0
-    return {
+    return normalize_json_text_fields({
         "items": items,
         "documents": items,
         "total": total,
         "limit": limit,
         "offset": offset,
         "next_cursor": items[-1]["id"] if len(items) == limit else None,
-    }
+    })
 
 
 @router.get("/sources/summary")
@@ -254,7 +254,7 @@ def sources_summary():
         for option in canonical_source_options()
     ]
     items.extend(sorted(extras.values(), key=lambda item: item["label"]))
-    return {"items": items}
+    return normalize_json_text_fields({"items": items})
 
 
 @router.get("/documents/{document_id}")
@@ -355,7 +355,7 @@ def document_detail(document_id: str, include_chunks: bool = False):
     created_at = doc[14].isoformat() if doc[14] else None
     updated_at = doc[15].isoformat() if doc[15] else None
     tags = list(dict.fromkeys(normalize_tag_es(tag) for tag in [*_string_list(doc[12]), *related_tags]))
-    return {
+    return normalize_json_text_fields({
         "id": doc[0],
         "title": normalize_text_es(doc[1]),
         "author": normalize_text_es(doc[2]) if doc[2] else None,
@@ -395,7 +395,7 @@ def document_detail(document_id: str, include_chunks: bool = False):
             }
             for chunk in chunks
         ],
-    }
+    })
 
 
 @router.get("/authors")
@@ -412,7 +412,7 @@ def authors(q: str | None = None, limit: int = 30):
                 author_params,
             ).fetchall()
             if rows:
-                return {"items": [{"id": r[0], "name": normalize_text_es(r[1]), "slug": r[2]} for r in rows]}
+                return normalize_json_text_fields({"items": [{"id": r[0], "name": normalize_text_es(r[1]), "slug": r[2]} for r in rows]})
         fallback_where = f"author IS NOT NULL AND author <> '' AND {confirmed_duplicate_filter('documents')}"
         fallback_params: dict = {"limit": limit}
         if q:
@@ -429,7 +429,7 @@ def authors(q: str | None = None, limit: int = 30):
             """,
             fallback_params,
         ).fetchall()
-    return {
+    return normalize_json_text_fields({
         "items": [
             {
                 "name": normalize_text_es(row[0]),
@@ -438,7 +438,7 @@ def authors(q: str | None = None, limit: int = 30):
             }
             for row in rows
         ]
-    }
+    })
 
 
 @router.get("/topics")
@@ -447,7 +447,7 @@ def topics(limit: int = 50):
         if _table_exists(conn, "tags"):
             rows = conn.execute("SELECT id::text, name, slug FROM tags ORDER BY name LIMIT %s", (limit,)).fetchall()
             if rows:
-                return {"items": [{"id": r[0], "name": normalize_tag_es(r[1]), "slug": r[2]} for r in rows]}
+                return normalize_json_text_fields({"items": [{"id": r[0], "name": normalize_tag_es(r[1]), "slug": r[2]} for r in rows]})
         rows = conn.execute(
             f"""
             SELECT name, sum(count)::int AS count
@@ -483,7 +483,7 @@ def topics(limit: int = 50):
                 """,
                 {"limit": limit},
             ).fetchall()
-    return {
+    return normalize_json_text_fields({
         "items": [
             {
                 "name": normalize_tag_es(row[0]),
@@ -492,7 +492,7 @@ def topics(limit: int = 50):
             }
             for row in rows
         ]
-    }
+    })
 
 
 def _document_search(query: str, limit: int, filters=None, language: str | None = None) -> list[dict]:
@@ -667,7 +667,7 @@ def _textual_search_response(payload: SearchRequest, warnings: list[str] | None 
         }
         for row in rows
     ]
-    return {
+    return normalize_json_text_fields({
         "query": payload.query,
         "rewritten_query": None,
         "mode": "postgres_text",
@@ -675,7 +675,7 @@ def _textual_search_response(payload: SearchRequest, warnings: list[str] | None 
         "items": items,
         "results": items,
         "total": len(items),
-    }
+    })
 
 
 def _local_chat_response(payload: ChatRequest, warnings: list[str] | None = None) -> dict:
