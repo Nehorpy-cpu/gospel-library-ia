@@ -152,6 +152,19 @@ Invoke-RestMethod `
 
 El frontend no usa este parámetro por defecto.
 
+## Normalización final del endpoint ai-suggest
+
+`POST /api/study-workspaces/{workspaceId}/ai-suggest` aplica una normalización
+final al payload inmediatamente antes de validarlo y devolverlo. Esa barrera
+cubre respuestas nuevas de OpenAI, datos de contexto local, advertencias y
+entradas heredadas de caché. Por ejemplo, el resultado debe mostrar
+`Pregunta de reflexión sobre Jesucristo`, `¿Cómo puedo...`, `Helamán` y
+`élder Kevin G. Brown`, sin secuencias de mojibake.
+
+Para probar específicamente la respuesta nueva del proveedor, use
+`bypassCache: true` en el ejemplo de PowerShell anterior. La respuesta debe
+tener `cached: false` y todo texto visible debe estar correctamente codificado.
+
 ## Verificar en la web
 
 1. Abrir `https://www.estudiopy.com/library`.

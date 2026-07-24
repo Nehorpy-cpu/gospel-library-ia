@@ -175,6 +175,29 @@ class StudyAiServiceTests(unittest.TestCase):
         self.assertEqual(sources[0]["reference"], "Señor")
         self.assertEqual(warnings, ["Revisar enseñanza."])
 
+    def test_normalize_ai_suggestions_repairs_real_production_payload(self):
+        suggestions, sources, warnings = normalize_ai_suggestions(
+            {
+                "suggestions": [{
+                    "type": "reflection_question",
+                    "title": "Pregunta de reflexi\u00c3\u0192\u00c2\u00b3n sobre Jesucristo",
+                    "content": "\u00c3\u201a\u00c2\u00bfC\u00c3\u0192\u00c2\u00b3mo puedo, al igual que Helam\u00c3\u0192\u00c2\u00a1n, elegir actos que reflejen mis convenios con \u00c3\u0192l?",
+                }],
+                "sources_used": [{
+                    "author": "\u00c3\u0192\u00c2\u00a9lder Kevin G. Brown",
+                    "reference": "La Iglesia de Jesucristo de los Santos de los \u00c3\u0192ltimos D\u00c3\u0192\u00c2\u00adas",
+                }],
+                "warnings": ["Revisar ense\u00c3\u0192\u00c2\u00b1anzas."],
+            },
+            1,
+        )
+
+        self.assertEqual(suggestions[0]["title"], "Pregunta de reflexi\u00f3n sobre Jesucristo")
+        self.assertEqual(suggestions[0]["content"], "\u00bfC\u00f3mo puedo, al igual que Helam\u00e1n, elegir actos que reflejen mis convenios con \u00c9l?")
+        self.assertEqual(sources[0]["author"], "\u00e9lder Kevin G. Brown")
+        self.assertEqual(sources[0]["reference"], "La Iglesia de Jesucristo de los Santos de los \u00daltimos D\u00edas")
+        self.assertEqual(warnings, ["Revisar ense\u00f1anzas."])
+
     def test_normalize_ai_suggestions_warns_when_suggestions_is_not_array(self):
         suggestions, sources, warnings = normalize_ai_suggestions(
             {"suggestions": {"title": "Incorrecto"}, "sources_used": [], "warnings": []},

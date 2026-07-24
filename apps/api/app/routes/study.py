@@ -1595,7 +1595,9 @@ async def ai_suggest_workspace(
                     mode=payload.mode,
                     max_suggestions=payload.maxSuggestions,
                 )
-                return cached
+                # Keep the endpoint boundary defensive for legacy memory-cache
+                # entries as well as values written by current code.
+                return _normalized_ai_suggestion_payload(cached, cached=True)
 
             stage = "load_blocks"
             blocks = _workspace_blocks(conn, workspace_id, resolved_user_id)
@@ -1794,6 +1796,9 @@ async def ai_suggest_workspace(
             {"suggestions": suggestions, "sources_used": sources_used, "warnings": warnings},
             cached=False,
         )
+        # This is the final API boundary: providers, local context, and cache
+        # must all leave the endpoint with normalized visible text.
+        response_payload = normalize_json_text_fields(response_payload)
         try:
             response = WorkspaceAiSuggestResponse.model_validate(response_payload)
         except ValidationError as exc:
@@ -1808,7 +1813,9 @@ async def ai_suggest_workspace(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="La IA respondio con un formato inesperado.",
             ) from exc
-        response_dict = _normalized_ai_suggestion_payload(response.model_dump(), cached=False)
+        response_dict = normalize_json_text_fields(
+            _normalized_ai_suggestion_payload(response.model_dump(), cached=False)
+        )
         if not payload.bypassCache:
             _store_cached_ai_suggestion(cache_key, response_dict)
         log.info("study_workspace_ai_suggestions_generated", workspace_id=workspace_id, user_id=resolved_user_id, provider=provider)

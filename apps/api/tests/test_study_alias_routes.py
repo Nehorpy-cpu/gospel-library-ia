@@ -883,6 +883,36 @@ class PersonalWorkspaceRoutesTest(unittest.TestCase):
         self.assertFalse(second.json()["cached"])
         self.assertEqual(calls, 2)
 
+    def test_ai_suggest_bypass_cache_normalizes_generated_response(self):
+        study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
+
+        async def fake_generate_workspace_suggestions(**_kwargs):
+            return (
+                [{
+                    "type": "reflection_question",
+                    "title": "Pregunta de reflexi\u00c3\u0192\u00c2\u00b3n sobre Jesucristo",
+                    "content": "\u00c3\u201a\u00c2\u00bfC\u00c3\u0192\u00c2\u00b3mo puedo, al igual que Helam\u00c3\u0192\u00c2\u00a1n?",
+                }],
+                [{"author": "\u00c3\u0192\u00c2\u00a9lder Kevin G. Brown"}],
+                ["Revisar ense\u00c3\u0192\u00c2\u00b1anzas."],
+                "test",
+            )
+
+        study.generate_workspace_suggestions = fake_generate_workspace_suggestions
+        response = self.client.post(
+            f"/api/study-workspaces/{WORKSPACE_ID}/ai-suggest",
+            headers={"X-User-Id": USER_ID},
+            json={"mode": "rapido", "maxSuggestions": 1, "bypassCache": True},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertFalse(body["cached"])
+        self.assertEqual(body["suggestions"][0]["title"], "Pregunta de reflexión sobre Jesucristo")
+        self.assertEqual(body["suggestions"][0]["content"], "¿Cómo puedo, al igual que Helamán?")
+        self.assertEqual(body["sources_used"][0]["author"], "élder Kevin G. Brown")
+        self.assertEqual(body["warnings"], ["Revisar enseñanzas."])
+
     def test_ai_suggest_lock_prevents_duplicate_generation(self):
         study.create_workspace(payload=study.WorkspacePayload(name="Estudio", title="Estudio"), user_id=USER_ID)
         study._AI_SUGGESTION_INFLIGHT[study._ai_lock_key(USER_ID, WORKSPACE_ID)] = study.time.monotonic() + 30

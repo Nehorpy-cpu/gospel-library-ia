@@ -513,7 +513,7 @@ async def generate_workspace_suggestions(
             request_body,
             rate_limit_log_context=rate_limit_log_context,
         )
-        parsed = _extract_workspace_response_json(data)
+        parsed = normalize_json_text_fields(_extract_workspace_response_json(data))
         provider = "openai_responses_json_object"
     except StudyAiProviderInvalidRequestError as exc:
         fallback_body = build_workspace_responses_request(
@@ -531,7 +531,7 @@ async def generate_workspace_suggestions(
                 fallback_body,
                 rate_limit_log_context=rate_limit_log_context,
             )
-            parsed = _extract_workspace_response_json(data)
+            parsed = normalize_json_text_fields(_extract_workspace_response_json(data))
             provider = "openai_responses_plain_json_fallback"
         except StudyAiProviderInvalidRequestError as fallback_exc:
             log.warning("study_workspace_ai_openai_plain_request_invalid", error=str(fallback_exc), **openai_request_summary(fallback_body))
@@ -557,7 +557,19 @@ async def generate_workspace_suggestions(
         exc_to_raise.stage = "normalize_response"
         raise exc_to_raise
     normalized_sources = normalized_sources or sources_used
-    return normalized, normalized_sources or sources_used, warnings, provider
+    final_payload = normalize_json_text_fields(
+        {
+            "suggestions": normalized,
+            "sources_used": normalized_sources or sources_used,
+            "warnings": warnings,
+        }
+    )
+    return (
+        final_payload["suggestions"],
+        final_payload["sources_used"],
+        final_payload["warnings"],
+        provider,
+    )
 
 
 def build_workspace_responses_request(

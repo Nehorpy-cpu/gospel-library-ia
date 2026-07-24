@@ -42,6 +42,11 @@ URL_OR_IDENTIFIER_KEYS = (
     "uri",
 )
 COMMON_SEQUENCE_REPLACEMENTS = {
+    # These truncated double-encoded sequences have appeared in Study AI output.
+    # Handle them before attempting a byte-level repair, because they cannot be
+    # recovered reliably from a complete UTF-8 byte sequence.
+    "\u00c3\u0192l": "\u00c9l",
+    "\u00c3\u0192ltimos": "\u00daltimos",
     "â€œ": "“",
     "â€": "”",
     "â€˜": "‘",
@@ -96,7 +101,17 @@ def _repair_utf8_mojibake_once(value: str, encoding: str) -> str | None:
 def repair_mojibake(value: str | None) -> str | None:
     if value is None:
         return None
+    # Shield truncated sequences while repairing the rest of the string. A
+    # direct replacement with accented text would make legacy byte decoding
+    # fail for the complete value (for example, when it also starts with
+    # `Ã‚Â¿`).
+    shielded = {
+        "\u00c3\u0192ltimos": "__STUDY_AI_ULTIMOS__",
+        "\u00c3\u0192l": "__STUDY_AI_EL__",
+    }
     repaired = value
+    for damaged, placeholder in shielded.items():
+        repaired = repaired.replace(damaged, placeholder)
     for _ in range(4):
         if not _has_mojibake(repaired):
             break
@@ -118,7 +133,8 @@ def repair_mojibake(value: str | None) -> str | None:
         if best == repaired:
             break
         repaired = best
-    return _apply_common_replacements(repaired)
+    repaired = _apply_common_replacements(repaired)
+    return repaired.replace("__STUDY_AI_ULTIMOS__", "\u00daltimos").replace("__STUDY_AI_EL__", "\u00c9l")
 
 
 def _looks_like_url(value: str) -> bool:
