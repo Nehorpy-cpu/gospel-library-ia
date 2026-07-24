@@ -680,6 +680,7 @@ export const studyApi = {
       mode?: WorkspaceAiSuggestionMode;
       userPrompt?: string;
       preferredSources?: string[];
+      includePrivateSources?: boolean;
       maxSuggestions?: number;
     }
   ) {

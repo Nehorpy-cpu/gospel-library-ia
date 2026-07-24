@@ -371,6 +371,7 @@ class WorkspaceAiSuggestPayload(BaseModel):
     mode: WorkspaceAiMode = "rapido"
     userPrompt: str | None = Field(default=None, max_length=1200, validation_alias=AliasChoices("userPrompt", "user_prompt"))
     preferredSources: list[str] = Field(default_factory=list, validation_alias=AliasChoices("preferredSources", "preferred_sources"))
+    includePrivateSources: bool = Field(default=False, validation_alias=AliasChoices("includePrivateSources", "include_private_sources"))
     maxSuggestions: int = Field(
         default=WORKSPACE_DEFAULT_MAX_SUGGESTIONS,
         ge=1,
@@ -1623,7 +1624,7 @@ async def ai_suggest_workspace(
             blocks = _workspace_blocks(conn, workspace_id, resolved_user_id)
             stage = "local_context"
             try:
-                local_context = load_workspace_local_context(conn, workspace, blocks, resolved_user_id)
+                local_context = load_workspace_local_context(conn, workspace, blocks, resolved_user_id, include_private_sources=payload.includePrivateSources)
             except Exception as exc:
                 _log_ai_suggest_failure(
                     workspace_id=workspace_id,

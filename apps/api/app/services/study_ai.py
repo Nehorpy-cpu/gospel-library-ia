@@ -329,6 +329,7 @@ def load_workspace_local_context(
     blocks: list[dict[str, Any]],
     user_id: str,
     limit: int = WORKSPACE_LOCAL_CONTEXT_LIMIT,
+    include_private_sources: bool = False,
 ) -> list[dict[str, Any]]:
     settings_value = workspace.get("settings")
     settings = settings_value if isinstance(settings_value, dict) else {}
@@ -383,14 +384,16 @@ def load_workspace_local_context(
             }
             for row in rows
         )
+    if not include_private_sources:
+        return context
     try:
         private_rows = conn.execute(
             """
             SELECT id::text, title, author, source_type, citation_text, personal_note, tags
             FROM user_private_sources
-            WHERE user_id = %(user_id)s
+            WHERE user_id = %(user_id)s AND archived_at IS NULL
             ORDER BY updated_at DESC
-            LIMIT 2
+            LIMIT 5
             """,
             {"user_id": user_id},
         ).fetchall()

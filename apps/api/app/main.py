@@ -14,6 +14,8 @@ from app.routes.beta import router as beta_router
 from app.routes.exports import router as exports_router
 from app.routes.ingestion import router as ingestion_router
 from app.routes.profile import router as profile_router
+from app.routes.private_sources import alias_router as private_sources_alias_router
+from app.routes.private_sources import router as private_sources_router
 from app.routes.public import router as public_router
 from app.routes.study_projects import router as study_projects_router
 from app.routes.study import alias_router as study_alias_router
@@ -41,6 +43,8 @@ app.include_router(admin_router)
 app.include_router(beta_router)
 app.include_router(study_router)
 app.include_router(study_alias_router)
+app.include_router(private_sources_router)
+app.include_router(private_sources_alias_router)
 app.include_router(study_projects_router)
 app.include_router(talk_builder_router)
 app.include_router(exports_router)

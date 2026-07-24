@@ -28,6 +28,7 @@ type AiFormState = {
   mode: WorkspaceAiSuggestionMode;
   userPrompt: string;
   maxSuggestions: number;
+  includePrivateSources: boolean;
 };
 
 const blockLabels: Record<string, string> = {
@@ -80,7 +81,8 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
   const [aiForm, setAiForm] = useState<AiFormState>({
     mode: "rapido" as WorkspaceAiSuggestionMode,
     userPrompt: "",
-    maxSuggestions: 2
+    maxSuggestions: 2,
+    includePrivateSources: false
   });
   const [aiSuggestions, setAiSuggestions] = useState<EditableWorkspaceAiSuggestion[]>([]);
   const [aiWarnings, setAiWarnings] = useState<string[]>([]);
@@ -165,7 +167,8 @@ export function StudyWorkspaceExperience({ workspaceId: routeWorkspaceId }: Prop
       studyApi.suggestWorkspaceBlocks(userId, workspaceId as string, {
         mode: aiForm.mode,
         userPrompt: aiForm.userPrompt.trim() || undefined,
-        preferredSources: ["biblioteca", "manuales", "discursos"],
+        preferredSources: aiForm.includePrivateSources ? ["biblioteca", "manuales", "discursos", "fuentes_privadas"] : ["biblioteca", "manuales", "discursos"],
+        includePrivateSources: aiForm.includePrivateSources,
         maxSuggestions: aiForm.maxSuggestions
       }),
     onMutate: () => {
@@ -490,6 +493,10 @@ function AiSuggestionsPanel({
                 </option>
               ))}
             </select>
+          </label>
+          <label className="flex items-center gap-2 text-sm md:col-span-3">
+            <input type="checkbox" checked={form.includePrivateSources} onChange={(event) => onFormChange({ ...form, includePrivateSources: event.target.checked })} />
+            Incluir mis fuentes privadas
           </label>
           <label className="text-sm">
             <span className="mb-1 block font-medium">Pedido opcional</span>

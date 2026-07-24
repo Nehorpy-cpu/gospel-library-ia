@@ -782,9 +782,14 @@ SCHEMA_STATEMENTS = (
       title text NOT NULL,
       author text,
       source_type varchar(80) NOT NULL DEFAULT 'user_private_note',
+      reference text,
       citation_text text,
       personal_note text,
       tags jsonb NOT NULL DEFAULT '[]'::jsonb,
+      topic text,
+      scripture_reference text,
+      metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+      archived_at timestamptz,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     )
