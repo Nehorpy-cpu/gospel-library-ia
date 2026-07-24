@@ -565,6 +565,16 @@ export const studyApi = {
       body: JSON.stringify(payload)
     });
   },
+  listPrivateSources(userId: string, params?: { q?: string; sourceType?: string }) {
+    const query = new URLSearchParams(params as Record<string, string>).toString();
+    return request<StudyList<UserPrivateSource>>(`/user-private-sources${query ? `?${query}` : ""}`, { headers: studyHeaders(userId) });
+  },
+  updatePrivateSource(userId: string, sourceId: string, payload: Record<string, unknown>) {
+    return request<UserPrivateSource>(`/user-private-sources/${sourceId}`, { method: "PATCH", headers: studyHeaders(userId), body: JSON.stringify(payload) });
+  },
+  deletePrivateSource(userId: string, sourceId: string) {
+    return request<{ deleted: boolean }>(`/user-private-sources/${sourceId}`, { method: "DELETE", headers: studyHeaders(userId) });
+  },
   workspaces(userId: string, params?: { sourceType?: string; topic?: string }) {
     const searchParams = new URLSearchParams();
     if (params?.sourceType) searchParams.set("sourceType", params.sourceType);

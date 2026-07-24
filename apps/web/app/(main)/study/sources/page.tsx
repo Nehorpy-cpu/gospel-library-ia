@@ -1,0 +1,26 @@
+"use client";
+
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { studyApi } from "@/lib/api";
+import { useStudyWorkspaceStore } from "@/stores/study-workspace-store";
+
+const types = [["book","Libro"],["manual","Manual"],["scripture_note","Nota de escritura"],["discourse","Discurso"],["personal_note","Nota personal"],["quote","Cita"],["institute_manual","Manual de Instituto"],["byu_speech","BYU Speech"],["church_manual","Manual de la Iglesia"],["other","Otro"]] as const;
+const empty = { title:"", author:"", sourceType:"personal_note", reference:"", citationText:"", personalNote:"", topic:"", scriptureReference:"", tags:"" };
+
+export default function PrivateSourcesPage() {
+  const userId = useStudyWorkspaceStore((state) => state.userId); const client = useQueryClient();
+  const [q,setQ]=useState(""); const [form,setForm]=useState(empty); const [editing,setEditing]=useState<any>(null); const [open,setOpen]=useState(false);
+  const sources = useQuery({ queryKey:["private-sources",userId,q], queryFn:()=>studyApi.listPrivateSources(userId,{q}), enabled:Boolean(userId) });
+  const refresh=()=>client.invalidateQueries({queryKey:["private-sources"]});
+  const save=useMutation({ mutationFn:()=> { const payload={...form,tags:form.tags.split(",").map(x=>x.trim()).filter(Boolean)}; return editing?studyApi.updatePrivateSource(userId,editing.id,payload):studyApi.createPrivateSource(userId,payload); }, onSuccess:()=>{setOpen(false);setEditing(null);setForm(empty);refresh();} });
+  const archive=useMutation({mutationFn:(id:string)=>studyApi.deletePrivateSource(userId,id),onSuccess:refresh});
+  return <div className="mx-auto max-w-5xl space-y-5 p-6"><header className="flex items-end justify-between"><div><h1 className="text-2xl font-semibold">Mis fuentes privadas</h1><p className="text-sm text-muted-foreground">Citas cortas y notas personales para tus estudios; nunca se publican.</p></div><Button onClick={()=>{setEditing(null);setForm(empty);setOpen(true)}}>Nueva fuente</Button></header>
+    <Input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar por título, autor, etiqueta o contenido" />
+    {open&&<Card className="space-y-3 p-4"><Input value={form.title} onChange={e=>setForm({...form,title:e.target.value})} placeholder="Título de la fuente"/><Input value={form.author} onChange={e=>setForm({...form,author:e.target.value})} placeholder="Autor"/><select className="h-10 w-full rounded border px-3" value={form.sourceType} onChange={e=>setForm({...form,sourceType:e.target.value})}>{types.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select><Input value={form.reference} onChange={e=>setForm({...form,reference:e.target.value})} placeholder="Referencia"/><textarea className="min-h-24 w-full rounded border p-2" maxLength={3000} value={form.citationText} onChange={e=>setForm({...form,citationText:e.target.value})} placeholder="Texto de cita corta"/><textarea className="min-h-24 w-full rounded border p-2" maxLength={5000} value={form.personalNote} onChange={e=>setForm({...form,personalNote:e.target.value})} placeholder="Nota personal"/><Input value={form.topic} onChange={e=>setForm({...form,topic:e.target.value})} placeholder="Tema doctrinal"/><Input value={form.scriptureReference} onChange={e=>setForm({...form,scriptureReference:e.target.value})} placeholder="Escritura relacionada"/><Input value={form.tags} onChange={e=>setForm({...form,tags:e.target.value})} placeholder="Etiquetas separadas por coma"/><div className="flex gap-2"><Button disabled={!form.title||(!form.citationText&&!form.personalNote)||save.isPending} onClick={()=>save.mutate()}>Guardar cambios</Button><Button variant="ghost" onClick={()=>setOpen(false)}>Cancelar</Button></div>{save.error?<p className="text-sm text-destructive">No se pudo guardar la fuente.</p>:null}</Card>}
+    <div className="grid gap-3">{sources.data?.items.map((source:any)=><Card key={source.id} className="p-4"><div className="flex justify-between gap-4"><div><h2 className="font-medium">{source.title}</h2><p className="text-sm text-muted-foreground">{source.author||"Sin autor"} · {source.source_type||source.sourceType}</p><p className="mt-2 whitespace-pre-wrap text-sm">{source.citation_text||source.citationText||source.personal_note||source.personalNote}</p></div><div className="flex gap-2"><Button size="sm" variant="outline" onClick={()=>{setEditing(source);setForm({title:source.title,author:source.author||"",sourceType:source.source_type||source.sourceType,reference:source.reference||"",citationText:source.citation_text||source.citationText||"",personalNote:source.personal_note||source.personalNote||"",topic:source.topic||"",scriptureReference:source.scripture_reference||source.scriptureReference||"",tags:(source.tags||[]).join(", ")});setOpen(true)}}>Editar</Button><Button size="sm" variant="ghost" onClick={()=>archive.mutate(source.id)}>Archivar</Button></div></div></Card>)}</div>
+    {!sources.isLoading&&!sources.data?.items.length?<Card className="p-8 text-center text-muted-foreground">Todavía no guardaste fuentes privadas.</Card>:null}</div>;
+}
