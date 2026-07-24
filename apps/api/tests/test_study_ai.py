@@ -198,6 +198,33 @@ class StudyAiServiceTests(unittest.TestCase):
         self.assertEqual(sources[0]["reference"], "La Iglesia de Jesucristo de los Santos de los \u00daltimos D\u00edas")
         self.assertEqual(warnings, ["Revisar ense\u00f1anzas."])
 
+    def test_normalize_ai_suggestions_repairs_single_pass_production_payload(self):
+        suggestions, sources, warnings = normalize_ai_suggestions(
+            {
+                "suggestions": [{
+                    "type": "reflection_question",
+                    "title": "Pregunta de reflexi\u00c3\u00b3n sobre Jesucristo",
+                    "content": "\u00c2\u00bfDe qu\u00c3\u00a9 manera los nombres y convenios en tu propia vida te ayudan a recordar y elegir seguir a Jesucristo?",
+                }],
+                "sources_used": [{
+                    "title": "El don eterno del testimonio",
+                    "author": "\u00c3\u00a9lder Kevin G. Brown",
+                    "url": "https://www.churchofjesuschrist.org/study/general-conference/2025/10/24brown?lang=spa",
+                    "reference": "La Iglesia de Jesucristo de los Santos de los \u00c3ltimos D\u00c3\u00adas",
+                    "source_status": "suggested",
+                }],
+                "warnings": [],
+            },
+            1,
+        )
+
+        self.assertEqual(suggestions[0]["title"], "Pregunta de reflexi\u00f3n sobre Jesucristo")
+        self.assertEqual(suggestions[0]["content"], "\u00bfDe qu\u00e9 manera los nombres y convenios en tu propia vida te ayudan a recordar y elegir seguir a Jesucristo?")
+        self.assertEqual(sources[0]["author"], "\u00e9lder Kevin G. Brown")
+        self.assertEqual(sources[0]["reference"], "La Iglesia de Jesucristo de los Santos de los \u00daltimos D\u00edas")
+        self.assertEqual(sources[0]["url"], "https://www.churchofjesuschrist.org/study/general-conference/2025/10/24brown?lang=spa")
+        self.assertEqual(warnings, [])
+
     def test_normalize_ai_suggestions_warns_when_suggestions_is_not_array(self):
         suggestions, sources, warnings = normalize_ai_suggestions(
             {"suggestions": {"title": "Incorrecto"}, "sources_used": [], "warnings": []},

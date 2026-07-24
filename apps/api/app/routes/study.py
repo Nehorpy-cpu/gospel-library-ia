@@ -17,7 +17,7 @@ from app.services.db import get_conn
 from app.services.qdrant_admin import QdrantAdmin
 from app.services.rate_limit import RateLimiter
 from app.services.source_filters import normalize_source_type, source_type_aliases
-from app.services.spanish_text import normalize_json_text_fields, normalize_text_es
+from app.services.spanish_text import has_mojibake, normalize_json_text_fields, normalize_text_es
 from app.services.study_ai import (
     StudyAiConfigurationError,
     StudyAiEmptyResponseError,
@@ -154,6 +154,26 @@ def _normalized_ai_suggestion_payload(value: dict[str, Any], *, cached: bool) ->
     if not isinstance(normalized, dict):
         return {"suggestions": [], "sources_used": [], "warnings": [], "cached": cached}
     return {**normalized, "cached": cached}
+
+
+def _contains_mojibake(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(_contains_mojibake(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_contains_mojibake(item) for item in value)
+    return isinstance(value, str) and has_mojibake(value)
+
+
+def _finalize_ai_suggest_response(value: dict[str, Any], *, cached: bool) -> dict[str, Any]:
+    response_payload = _normalized_ai_suggestion_payload(value, cached=cached)
+    contains_mojibake_before = _contains_mojibake(response_payload)
+    response_payload = normalize_json_text_fields(response_payload)
+    log.info(
+        "study_ai_response_normalized",
+        contains_mojibake_before=contains_mojibake_before,
+        contains_mojibake_after=_contains_mojibake(response_payload),
+    )
+    return response_payload
 
 
 class WorkspacePayload(BaseModel):
@@ -1597,7 +1617,7 @@ async def ai_suggest_workspace(
                 )
                 # Keep the endpoint boundary defensive for legacy memory-cache
                 # entries as well as values written by current code.
-                return _normalized_ai_suggestion_payload(cached, cached=True)
+                return _finalize_ai_suggest_response(cached, cached=True)
 
             stage = "load_blocks"
             blocks = _workspace_blocks(conn, workspace_id, resolved_user_id)
@@ -1813,9 +1833,7 @@ async def ai_suggest_workspace(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="La IA respondio con un formato inesperado.",
             ) from exc
-        response_dict = normalize_json_text_fields(
-            _normalized_ai_suggestion_payload(response.model_dump(), cached=False)
-        )
+        response_dict = _finalize_ai_suggest_response(response.model_dump(), cached=False)
         if not payload.bypassCache:
             _store_cached_ai_suggestion(cache_key, response_dict)
         log.info("study_workspace_ai_suggestions_generated", workspace_id=workspace_id, user_id=resolved_user_id, provider=provider)

@@ -65,6 +65,21 @@ class SpanishTextNormalizationTest(unittest.TestCase):
         self.assertEqual(repair_mojibake("\u00c3\u0192l"), "\u00c9l")
         self.assertEqual(repair_mojibake("\u00c3\u0192ltimos D\u00c3\u0192\u00c2\u00adas"), "\u00daltimos D\u00edas")
 
+    def test_repairs_single_pass_study_ai_sequences(self):
+        cases = {
+            "reflexi\u00c3\u00b3n": "reflexi\u00f3n",
+            "\u00c2\u00bfDe qu\u00c3\u00a9 manera": "\u00bfDe qu\u00e9 manera",
+            "\u00c3\u00a9lder": "\u00e9lder",
+            "\u00c3ltimos D\u00c3\u00adas": "\u00daltimos D\u00edas",
+            "Helam\u00c3\u00a1n": "Helam\u00e1n",
+            "m\u00c3\u00a1s": "m\u00e1s",
+            "ense\u00c3\u00b1anzas": "ense\u00f1anzas",
+            "gu\u00c3\u00aden": "gu\u00eden",
+        }
+        for damaged, expected in cases.items():
+            with self.subTest(damaged=damaged):
+                self.assertEqual(repair_mojibake(damaged), expected)
+
     def test_texto_correcto_queda_igual_e_idempotente(self):
         text = "¿Cómo puedo sentir más el Espíritu del Señor?"
 

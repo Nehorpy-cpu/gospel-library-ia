@@ -7,6 +7,9 @@ from typing import Any
 
 
 MOJIBAKE_MARKERS = (
+    # Single-pass UTF-8 decoded as Latin-1/Windows-1252, e.g. `reflexi\u00c3\u00b3n`.
+    "\u00c3",
+    "\u00c2",
     "Ã",
     "Â",
     "â€",
@@ -47,6 +50,8 @@ COMMON_SEQUENCE_REPLACEMENTS = {
     # recovered reliably from a complete UTF-8 byte sequence.
     "\u00c3\u0192l": "\u00c9l",
     "\u00c3\u0192ltimos": "\u00daltimos",
+    "\u00c3l": "\u00c9l",
+    "\u00c3ltimos": "\u00daltimos",
     "â€œ": "“",
     "â€": "”",
     "â€˜": "‘",
@@ -108,6 +113,8 @@ def repair_mojibake(value: str | None) -> str | None:
     shielded = {
         "\u00c3\u0192ltimos": "__STUDY_AI_ULTIMOS__",
         "\u00c3\u0192l": "__STUDY_AI_EL__",
+        "\u00c3ltimos": "__STUDY_AI_ULTIMOS__",
+        "\u00c3l": "__STUDY_AI_EL__",
     }
     repaired = value
     for damaged, placeholder in shielded.items():
