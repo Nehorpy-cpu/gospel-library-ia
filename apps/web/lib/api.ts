@@ -553,10 +553,13 @@ export const studyApi = {
     payload: {
       title: string;
       author?: string;
-      sourceType?: StudySourceType;
+      sourceType?: string;
       citationText?: string;
       personalNote?: string;
       tags?: string[];
+      reference?: string;
+      topic?: string;
+      scriptureReference?: string;
     }
   ) {
     return request<UserPrivateSource>("/study-projects/private-sources", {
